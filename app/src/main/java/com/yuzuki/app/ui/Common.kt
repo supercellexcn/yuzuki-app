@@ -15,13 +15,13 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.produceState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.blur
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
@@ -35,6 +35,7 @@ import com.yuzuki.app.ui.theme.GlassSurface
 import com.yuzuki.app.ui.theme.LocalAppearance
 import com.yuzuki.app.ui.theme.ShapeCard
 import com.yuzuki.app.ui.theme.ShapeItem
+import com.yuzuki.app.ui.theme.ShapePill
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
@@ -94,7 +95,7 @@ fun RemoteImage(
     val bitmap by produceState<Bitmap?>(initialValue = null, key1 = url) {
         value = ImageCache.load(context, url)
     }
-    Box(modifier = modifier.background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))) {
+    Box(modifier = modifier.background(MaterialTheme.colorScheme.surfaceVariant)) {
         if (bitmap != null) {
             Image(
                 bitmap = bitmap!!.asImageBitmap(),
@@ -106,27 +107,19 @@ fun RemoteImage(
     }
 }
 
-/** 移动壁纸 + 壁纸模糊（低版本 blur 自动 no-op，不影响功能）。 */
+/**
+ * Material 3 版本为保证文字与封面清晰，不再铺壁纸、不再叠模糊与黑色蒙版。
+ * 壁纸上传 / 启停设置仍保留并写回服务端，供网页端使用。
+ */
 @Composable
+@Suppress("UNUSED_PARAMETER")
 fun WallpaperBackground(modifier: Modifier = Modifier) {
-    val appearance = LocalAppearance.current
-    if (!appearance.wallpaperEnabled) return
-    val url = AppContainer.api.wallpaperUrl("mobile", WallpaperState.version.takeIf { it > 0 })
-    RemoteImage(
-        url = url,
-        modifier = modifier
-            .fillMaxSize()
-            .then(if (appearance.wallpaperBlur > 0.5f) Modifier.blur(appearance.wallpaperBlur.dp) else Modifier),
-        contentScale = ContentScale.Crop,
-    )
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(Color.Black.copy(alpha = 0.35f)),
-    )
+    // 故意留空：干净的不透明背景由 MaterialTheme 的 surface 系列提供
 }
 
+/** M3 标签：secondaryContainer 不透明底 + onSecondaryContainer 高对比文字。 */
 @Composable
+@Suppress("UNUSED_PARAMETER")
 fun Chip(
     text: String,
     modifier: Modifier = Modifier,
@@ -134,18 +127,16 @@ fun Chip(
     alpha: Float = 0.8f,
     onClick: (() -> Unit)? = null,
 ) {
-    GlassPill(
+    Surface(
         modifier = modifier,
-        alpha = alpha,
-        onClick = onClick,
+        shape = ShapePill,
+        color = MaterialTheme.colorScheme.secondaryContainer,
+        contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
     ) {
         Text(
             text = text,
             style = MaterialTheme.typography.labelSmall,
-            color = Color.White,
-            modifier = Modifier
-                .background(color.copy(alpha = 0.35f), ShapeItem)
-                .padding(horizontal = 10.dp, vertical = 4.dp),
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
         )
     }
 }
@@ -170,7 +161,6 @@ fun StateBox(
                     Text(
                         text = "重试",
                         style = MaterialTheme.typography.labelLarge,
-                        color = MaterialTheme.colorScheme.primary,
                         modifier = Modifier.padding(horizontal = 18.dp, vertical = 8.dp),
                     )
                 }

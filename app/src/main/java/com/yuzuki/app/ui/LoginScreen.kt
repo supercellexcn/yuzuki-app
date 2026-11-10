@@ -49,7 +49,8 @@ fun LoginScreen(
     ) {
         Surface(
             shape = ShapeCard,
-            color = MaterialTheme.colorScheme.surface,
+            color = MaterialTheme.colorScheme.surfaceContainerHigh,
+            contentColor = MaterialTheme.colorScheme.onSurface,
             tonalElevation = 2.dp,
             modifier = Modifier.fillMaxWidth(),
         ) {
@@ -136,7 +137,8 @@ fun ChangePasswordScreen(
     ) {
         Surface(
             shape = ShapeCard,
-            color = MaterialTheme.colorScheme.surface,
+            color = MaterialTheme.colorScheme.surfaceContainerHigh,
+            contentColor = MaterialTheme.colorScheme.onSurface,
             tonalElevation = 2.dp,
             modifier = Modifier.fillMaxWidth(),
         ) {

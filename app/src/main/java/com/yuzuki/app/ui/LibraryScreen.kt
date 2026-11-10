@@ -23,6 +23,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
@@ -178,14 +179,14 @@ fun LibraryScreen(
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
                     LibraryState.conds.forEach { cond ->
-                        GlassPill(onClick = { LibraryState.removeCond(cond) }) {
-                            Text(
-                                "${cond.type}:${cond.value}  ×",
-                                style = MaterialTheme.typography.labelSmall,
-                                maxLines = 1,
-                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-                            )
-                        }
+                        FilterChip(
+                            selected = true,
+                            onClick = { LibraryState.removeCond(cond) },
+                            label = {
+                                Text("${cond.type}:${cond.value}  ×", style = MaterialTheme.typography.labelSmall)
+                            },
+                            shape = RoundedCornerShape(percent = 50),
+                        )
                     }
                 }
             }
@@ -269,7 +270,8 @@ private fun WorkCard(
                 ) {
                     Text(
                         if (fav) "★" else "☆",
-                        color = if (fav) MaterialTheme.colorScheme.primary else Color.White,
+                        color = if (fav) MaterialTheme.colorScheme.primary
+                        else MaterialTheme.colorScheme.onSurface,
                         modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
                     )
                 }
@@ -293,11 +295,11 @@ private fun WorkCard(
                     Text(
                         work.rjCode,
                         style = MaterialTheme.typography.labelSmall,
-                        color = Color.White,
+                        color = MaterialTheme.colorScheme.onSurface,
                         modifier = Modifier
                             .align(Alignment.BottomStart)
                             .padding(6.dp)
-                            .background(Color.Black.copy(alpha = 0.45f), ShapeItem)
+                            .background(MaterialTheme.colorScheme.surfaceContainerHighest, ShapeItem)
                             .padding(horizontal = 6.dp, vertical = 2.dp),
                     )
                 }

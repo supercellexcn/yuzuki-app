@@ -124,7 +124,8 @@ private fun FatalScreen(message: String, onRetry: () -> Unit) {
     ) {
         Surface(
             shape = ShapeCard,
-            color = MaterialTheme.colorScheme.surface,
+            color = MaterialTheme.colorScheme.surfaceContainerHigh,
+            contentColor = MaterialTheme.colorScheme.onSurface,
             tonalElevation = 2.dp,
         ) {
             Column(

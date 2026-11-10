@@ -1,15 +1,16 @@
 # Yuzuki Android 客户端（全原生）
 
 在 `D:\node\yuzuki` 现有服务**零改动**的前提下提供 Android 客户端：
-**单 Activity + Jetpack Compose 全原生 UI + 直连现有 `/api/*` + 原生 Media3 播放内核**。
-WebView 与全部 JS 注入已彻底移除。完整实施规格与实现记录见 [方案.md](./方案.md)。
+**单 Activity + Jetpack Compose 全原生 UI + 直连现有 `/api/*` + 原生 Media3 播放内核**，
+界面采用 **Material 3 风格**（不透明容器、高对比文字、全圆角）。WebView 与全部 JS 注入已彻底移除。完整实施规格与实现记录见 [方案.md](./方案.md)。
 
 ## 硬约束
 
 - `D:\node\yuzuki` 全程只读：不新增接口、不改 schema、不改配置、不改前端代码
 - 账号与网页端同源（同一 `users` 表、同一 JWT），收藏 / 历史 / 偏好互通
 - 播放走原生 Media3，支持锁屏 / 后台续播 / 通知栏换曲不消失
-- 首版交付 web 移动版全部功能（含完整设置页、图片查看器、离线缓存），外观尽量对齐 web 端液态玻璃
+- 首版交付 web 移动版全部功能（含完整设置页、图片查看器、离线缓存）
+- 界面采用 Material 3 风格：不透明容器、高对比文字，不使用模糊 / 半透明叠层 / 壁纸背景
 - 全工程不使用 WebView；所有框体一律圆角（`ui/theme/Radius.kt`）
 - 验证只用编译 / 单测 / 接口断言 / Logcat，不截图
 
@@ -18,7 +19,7 @@ WebView 与全部 JS 注入已彻底移除。完整实施规格与实现记录�
 ```
 ui/          单 Activity + AppNav 返回栈 + RootScreen（抽屉 / 底部 Tab / 迷你条 / 全屏播放器）
              LibraryScreen · WorkDetailScreen · CollectionsScreen · SettingsScreen · PlayerUI
-ui/theme/    GlassSurface（唯一玻璃质感出口）· GlassSpec（纯函数）· 动态配色 / 圆角 / 动画令牌
+ui/theme/    Material 3 配色 + Surface 组件封装（Glass* 为兼容层）· GlassSpec 纯函数 · 圆角 / 动画令牌
 data/        Models（DTO + org.json 解析）· YuzukiApi（全量 REST）· AppContainer（服务定位）
              SettingsRepository · PrefsRepository · LibraryRepository（在线优先 + 离线兜底）
              OfflineCache（JSON 快照 / 封面 / 音频 / 播放记录补报队列）
@@ -92,6 +93,7 @@ export JAVA_HOME=/d/asmr-app/.toolchain/jdk17   # 换成你自己的 JDK 17 亦�
 - `testDebugUnitTest` 共 **17 例全过、0 失败 0 错误**：`HostPolicy` 6 + `Models` 5 + `QueueMath` 2 + `GlassSpec` 4。
 - 静态断言：源码中 `WebView` / `addJavascriptInterface` / `evaluateJavascript` 零命中；
   `androidx.webkit` 依赖已移除，`web/` 目录与 `yuzuki-bridge.js` 已删除。
+- 界面清晰度静态断言：`blur(` / `Color.White` / `copy(alpha` / 壁纸背景调用 / 高光渐变 全部零命中。
 - `git -C D:\node\yuzuki status --porcelain` 为空 → web 端 / 后端零改动。
 
 **仍待验证**：A1–A5 接口同源断言、锁屏 metadata 与 `artworkData`、连续 `next()` 3 次通知不消失、
@@ -111,7 +113,8 @@ export JAVA_HOME=/d/asmr-app/.toolchain/jdk17   # 换成你自己的 JDK 17 亦�
 
 - 仅家中 WiFi 可用；离开 WiFi 只能看离线缓存内容；明文 HTTP 的 token 在局域网可被嗅探。
 - 冷门格式（wma 等）需后续接入 `media3-decoder-ffmpeg`；flac/mkv/mp4/wav/m4a 由 Media3 默认解码器覆盖。
-- 液态玻璃的「模糊作用于面板后方内容」为近似实现；API 31 以下降级为不模糊 + 提高面板不透明度，功能不受影响。
+- 界面采用 Material 3 风格：不再渲染液态玻璃 / 壁纸 / 模糊 / 半透明叠层；
+  服务端的外观设置（模糊、透明度、壁纸启停）仍可读写，但只影响网页端，设置页已注明。
 - 管理后台 `/admin` 未实现（web 移动端亦由路由守卫跳回媒体库）。
 - web 端后续新增功能不会自动同步到 App，两端独立发版。
 

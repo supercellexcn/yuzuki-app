@@ -42,7 +42,8 @@ fun BottomTabs(
     ) {
         Surface(
             shape = ShapeContainer,
-            color = MaterialTheme.colorScheme.surface,
+            color = MaterialTheme.colorScheme.surfaceContainer,
+            contentColor = MaterialTheme.colorScheme.onSurface,
             tonalElevation = 3.dp,
             modifier = Modifier.fillMaxSize(),
         ) {
@@ -73,7 +74,7 @@ private fun RowScope.TabItem(
             .padding(horizontal = 8.dp, vertical = 6.dp)
             .clip(ShapePill)
             .background(
-                if (active) MaterialTheme.colorScheme.primary.copy(alpha = 0.18f)
+                if (active) MaterialTheme.colorScheme.primaryContainer
                 else Color.Transparent,
             )
             .clickable { onTabClick(tab) },
@@ -82,7 +83,7 @@ private fun RowScope.TabItem(
         Text(
             text = stringResource(labelRes),
             style = MaterialTheme.typography.labelLarge,
-            color = if (active) MaterialTheme.colorScheme.primary
+            color = if (active) MaterialTheme.colorScheme.onPrimaryContainer
             else MaterialTheme.colorScheme.onSurfaceVariant,
         )
     }

@@ -5,6 +5,7 @@ import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -14,6 +15,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.systemBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
@@ -38,16 +40,17 @@ import com.yuzuki.app.ui.theme.GlassSurface
 import com.yuzuki.app.ui.theme.LocalAppearance
 import com.yuzuki.app.ui.theme.ShapeCard
 import com.yuzuki.app.ui.theme.ShapeItem
+import com.yuzuki.app.ui.theme.ShapePill
 
 @Composable
 private fun ControlButton(label: String, modifier: Modifier = Modifier, onClick: () -> Unit) {
-    GlassPill(modifier = modifier, onClick = onClick) {
-        Text(
-            text = label,
-            style = MaterialTheme.typography.labelMedium,
-            color = MaterialTheme.colorScheme.onSurface,
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-        )
+    FilledTonalButton(
+        onClick = onClick,
+        modifier = modifier,
+        shape = ShapePill,
+        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+    ) {
+        Text(text = label, style = MaterialTheme.typography.labelMedium)
     }
 }
 
@@ -99,7 +102,7 @@ fun MiniPlayer(
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(3.dp)
-                        .background(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.25f)),
+                        .background(MaterialTheme.colorScheme.surfaceVariant),
                 ) {
                     Box(
                         modifier = Modifier
@@ -123,7 +126,6 @@ fun FullscreenPlayer(
     modifier: Modifier = Modifier,
 ) {
     val state by PlayerHolder.state.collectAsState()
-    val appearance = LocalAppearance.current
     val item = state.current
     var dragY by remember { mutableStateOf(0f) }
     var seekPreview by remember { mutableStateOf<Float?>(null) }
@@ -144,10 +146,7 @@ fun FullscreenPlayer(
                 }
             },
         shape = ShapeCard,
-        alpha = appearance.panelAlpha,
-        blur = appearance.panelBlur,
     ) {
-        WallpaperBackground()
         Box(modifier = Modifier.fillMaxSize().padding(16.dp)) {
             Column(
                 modifier = Modifier.fillMaxSize(),
@@ -248,7 +247,8 @@ fun FullscreenPlayer(
                             Text(
                                 text = file.filename,
                                 style = MaterialTheme.typography.bodySmall,
-                                color = if (active) MaterialTheme.colorScheme.primary else Color.White,
+                                color = if (active) MaterialTheme.colorScheme.primary
+                                else MaterialTheme.colorScheme.onSurface,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
                                 modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),

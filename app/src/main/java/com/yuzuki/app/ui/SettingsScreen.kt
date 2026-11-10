@@ -140,7 +140,12 @@ fun SettingsScreen(modifier: Modifier = Modifier) {
         }
 
         item {
-            SectionCard("外观（与网页端共用，修改会影响所有设备）") {
+            SectionCard("外观（写入服务端，网页端生效）") {
+                Text(
+                    "本机采用 Material 3 风格：为保证文字与封面清晰，模糊 / 透明度 / 壁纸不参与本机渲染，以下设置仍写回服务端供网页端使用。",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
                 TextFieldRow("导航主题色 #RRGGBB", draft.themeColorNav) { edit { s -> s.copy(themeColorNav = it) } }
                 TextFieldRow("声优标签色", draft.themeColorActor) { edit { s -> s.copy(themeColorActor = it) } }
                 TextFieldRow("类型标签色", draft.themeColorTag) { edit { s -> s.copy(themeColorTag = it) } }

@@ -96,7 +96,7 @@ fun RootScreen(
     ModalNavigationDrawer(
         drawerState = drawerState,
         drawerContent = {
-            ModalDrawerSheet(drawerContainerColor = MaterialTheme.colorScheme.surface) {
+            ModalDrawerSheet(drawerContainerColor = MaterialTheme.colorScheme.surfaceContainerLow) {
                 DrawerContent(
                     counts = counts,
                     recent = recent,
@@ -118,7 +118,6 @@ fun RootScreen(
         },
     ) {
         Box(modifier = modifier.fillMaxSize().statusBarsPadding()) {
-            WallpaperBackground()
             Column(modifier = Modifier.fillMaxSize()) {
                 Box(modifier = Modifier.weight(1f)) {
                     when (val route = nav.current) {

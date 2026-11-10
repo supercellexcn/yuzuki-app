@@ -1,21 +1,14 @@
 package com.yuzuki.app.ui.theme
 
-import android.os.Build
-import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.compositionLocalOf
-import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.blur
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.unit.dp
@@ -26,7 +19,7 @@ import kotlin.math.roundToInt
 object GlassSpec {
     data class Flame(val count: Int, val kind: String)
 
-    /** web 端图片模式销量火焰分档：≤1000 灰1；1000-2999 黄1；3000-5999 黄2；6000-9999 黄3；10000+ 红1起每3000+1最多3；≥19999 彩色大火。 */
+    /** web 端图片模式销量火焰分档。 */
     fun flame(sales: Int?): Flame {
         val v = sales ?: return Flame(0, "none")
         return when {
@@ -53,7 +46,7 @@ object GlassSpec {
     fun blurDp(percent: Int): Float = percent.coerceIn(0, 100) / 4f
     fun animationMs(seconds: Double): Int = (seconds.coerceIn(0.0, 1.0) * 1000).roundToInt()
 
-    /** 主题色过暗时按 WCAG 对比度沿原色相自动提亮（向白混合，保持色相）。 */
+    /** 主题色过暗时按 WCAG 对比度沿原色相自动提亮。 */
     fun brighten(hex: String, minLuminance: Double = 0.42): String {
         val rgb = parseHex(hex) ?: return "#B69AF6"
         var (r, g, b) = rgb
@@ -83,6 +76,11 @@ object GlassSpec {
         0.2126 * linear(r) + 0.7152 * linear(g) + 0.0722 * linear(b)
 }
 
+/**
+ * 服务端外观设置（模糊 / 透明度 / 壁纸）在 Material 3 版本里不参与渲染：
+ * 为保证文字与图片清晰，卡片一律使用不透明 surfaceContainer 系列颜色。
+ * 这些字段仍保留，供设置页写回服务端（网页端继续生效）与单测覆盖。
+ */
 data class Appearance(
     val themeColor: String = "#B69AF6",
     val actorColor: String = "#8E7CC3",
@@ -130,8 +128,12 @@ fun composeColor(hex: String, fallback: Long = 0xFFB69AF6): Color =
     GlassSpec.parseHex(hex)?.let { (r, g, b) -> Color(0xFF000000 or (r.toLong() shl 16) or (g.toLong() shl 8) or b.toLong()) }
         ?: Color(fallback)
 
-/** 所有框体的唯一玻璃质感出口：半透明底 + 多段高光渐变 + 1px 内侧高光描边 + 柔和外投影 + 圆角。 */
+/**
+ * Material 3 卡片容器：不透明 surfaceContainerHigh + 圆角，无模糊、无半透明叠层。
+ * alpha / blur / highlight 三个参数仅为兼容既有调用点保留，M3 版一律忽略。
+ */
 @Composable
+@Suppress("UNUSED_PARAMETER")
 fun GlassSurface(
     modifier: Modifier = Modifier,
     shape: Shape = ShapeContainer,
@@ -141,64 +143,62 @@ fun GlassSurface(
     onClick: (() -> Unit)? = null,
     content: @Composable BoxScope.() -> Unit,
 ) {
-    val base = MaterialTheme.colorScheme.surface
-    val blurModifier = if (blur > 0.5f && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-        Modifier.blur((blur / 6f).dp)
-    } else Modifier
-    val brush = remember(highlight) {
-        if (highlight) Brush.verticalGradient(
-            listOf(
-                Color.White.copy(alpha = 0.16f),
-                Color.White.copy(alpha = 0.05f),
-                Color.Transparent,
-                Color.Black.copy(alpha = 0.10f),
-            ),
-        ) else Brush.verticalGradient(
-            listOf(Color.White.copy(alpha = 0.06f), Color.Transparent),
+    Surface(
+        modifier = modifier,
+        shape = shape,
+        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+        contentColor = MaterialTheme.colorScheme.onSurface,
+        tonalElevation = 1.dp,
+        shadowElevation = 0.dp,
+    ) {
+        Box(
+            modifier = if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier,
+            content = content,
         )
     }
-    Box(
-        modifier = modifier
-            .then(blurModifier)
-            .clip(shape)
-            .background(base.copy(alpha = alpha))
-            .background(brush)
-            .border(1.dp, Color.White.copy(alpha = 0.16f), shape)
-            .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier),
-        content = content,
-    )
 }
 
-/** 全胶囊容器：搜索 / 排序 / 按钮 / 标签。 */
+/** 胶囊：按钮 / 搜索 / 排序 / 标签，M3 风格用 secondaryContainer 底色。 */
 @Composable
 fun GlassPill(
     modifier: Modifier = Modifier,
     alpha: Float = LocalAppearance.current.controlAlpha,
     onClick: (() -> Unit)? = null,
     content: @Composable BoxScope.() -> Unit,
-) = GlassSurface(
-    modifier = modifier,
-    shape = ShapePill,
-    alpha = alpha,
-    blur = 0f,
-    onClick = onClick,
-    content = content,
-)
+) {
+    Surface(
+        modifier = modifier,
+        shape = ShapePill,
+        color = MaterialTheme.colorScheme.secondaryContainer,
+        contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+        tonalElevation = 0.dp,
+    ) {
+        Box(
+            modifier = if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier,
+            content = content,
+        )
+    }
+}
 
-/** 列表项 / 树节点 / 小卡片。 */
+/** 列表项 / 树节点：低一档的容器色，保持层级但不牺牲对比度。 */
 @Composable
 fun GlassItem(
     modifier: Modifier = Modifier,
     onClick: (() -> Unit)? = null,
     content: @Composable BoxScope.() -> Unit,
-) = GlassSurface(
-    modifier = modifier,
-    shape = ShapeItem,
-    alpha = LocalAppearance.current.filelistAlpha,
-    blur = 0f,
-    highlight = false,
-    onClick = onClick,
-    content = content,
-)
+) {
+    Surface(
+        modifier = modifier,
+        shape = ShapeItem,
+        color = MaterialTheme.colorScheme.surfaceContainerLow,
+        contentColor = MaterialTheme.colorScheme.onSurface,
+        tonalElevation = 0.dp,
+    ) {
+        Box(
+            modifier = if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier,
+            content = content,
+        )
+    }
+}
 
 val ShapeDialog = RoundedCornerShape(YuzukiRadius.Card)
