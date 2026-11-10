@@ -1,5 +1,6 @@
 package com.yuzuki.app.ui
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -7,8 +8,9 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -40,10 +42,11 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -59,6 +62,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.yuzuki.app.data.AppContainer
@@ -70,6 +74,7 @@ import com.yuzuki.app.ui.theme.GlassItem
 import com.yuzuki.app.ui.theme.GlassSpec
 import com.yuzuki.app.ui.theme.GlassSurface
 import com.yuzuki.app.ui.theme.ShapeCard
+import com.yuzuki.app.ui.theme.ShapeContainer
 import com.yuzuki.app.ui.theme.ShapeItem
 import com.yuzuki.app.ui.theme.ShapePill
 import kotlinx.coroutines.CancellationException
@@ -79,7 +84,7 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 
 private val SORTS = listOf(
-    "added" to "入库时间",
+    "added" to "最近添加",
     "release" to "发售日",
     "sales" to "销量",
     "title" to "标题",
@@ -91,6 +96,7 @@ private val SORTS = listOf(
 fun LibraryScreen(
     onOpenWork: (String) -> Unit,
     onOpenSettings: () -> Unit,
+    onOpenFavorites: () -> Unit,
     onOpenChangePassword: () -> Unit,
     onChangeServer: () -> Unit,
     onLogout: () -> Unit,
@@ -108,7 +114,7 @@ fun LibraryScreen(
     var loadJob by remember { mutableStateOf<Job?>(null) }
     var generation by remember { mutableStateOf(0) }
     var searchText by remember { mutableStateOf(LibraryState.query) }
-    var searchExpanded by remember { mutableStateOf(false) }
+    var favoritesOnly by remember { mutableStateOf(false) }
     var sheetVisible by remember { mutableStateOf(false) }
     var menuVisible by remember { mutableStateOf(false) }
     var expandedGroup by remember { mutableStateOf<String?>(null) }
@@ -117,6 +123,7 @@ fun LibraryScreen(
     /**
      * 分页加载在 scope 里执行，不放在随 loading 变化而销毁的 LaunchedEffect 内；
      * generation 丢弃过期响应，finally 保证状态复位 —— 修复「永远停在首页 50 条」。
+     * 「我的收藏」不走分页接口，直接读 GET /api/favorites 并在本地套用搜索 / 筛选 / 排序。
      */
     fun requestPage(reset: Boolean) {
         val running = loadJob
@@ -126,16 +133,26 @@ fun LibraryScreen(
         }
         val gen = ++generation
         val target = if (reset) 1 else page + 1
+        val favMode = favoritesOnly
         loadJob = scope.launch {
             loading = true
             if (reset) error = null
             loadMoreError = null
             try {
-                val size = PagingLogic.pageSize(AppContainer.settings.current.pageSize)
-                val result = if (LibraryState.randomMode) {
+                val result = if (favMode) {
+                    AppContainer.library.favorites().map { fav ->
+                        val list = filterFavorites(
+                            fav.works, LibraryState.query, LibraryState.conds,
+                            LibraryState.sort, LibraryState.order,
+                        )
+                        WorksResponse(list, list.size, 1, list.size.coerceAtLeast(1))
+                    }
+                } else if (LibraryState.randomMode) {
+                    val size = PagingLogic.pageSize(AppContainer.settings.current.pageSize)
                     AppContainer.api.randomWorks(LibraryState.query, LibraryState.conds, size * 3)
                         .map { WorksResponse(it, it.size, 1, it.size) }
                 } else {
+                    val size = PagingLogic.pageSize(AppContainer.settings.current.pageSize)
                     AppContainer.library.works(
                         q = LibraryState.query,
                         conds = LibraryState.conds,
@@ -148,10 +165,10 @@ fun LibraryScreen(
                 if (gen != generation) return@launch
                 result.fold(
                     onSuccess = { response ->
-                        items = if (reset) response.items else items + response.items
+                        items = if (reset || favMode) response.items else items + response.items
                         total = response.total
                         page = response.page
-                        endReached = LibraryState.randomMode || PagingLogic.endReached(
+                        endReached = favMode || LibraryState.randomMode || PagingLogic.endReached(
                             items.size, response.total, response.items.size,
                             response.pageSize.coerceAtLeast(1),
                         )
@@ -185,7 +202,7 @@ fun LibraryScreen(
 
     LaunchedEffect(
         LibraryState.query, LibraryState.conds, LibraryState.sort,
-        LibraryState.order, LibraryState.randomMode,
+        LibraryState.order, LibraryState.randomMode, favoritesOnly,
     ) {
         loadJob?.cancel()
         loadJob = null
@@ -225,57 +242,22 @@ fun LibraryScreen(
     val columns = if (LocalConfiguration.current.screenWidthDp >= 600) 3 else 2
 
     Column(modifier = modifier.fillMaxSize()) {
-        TopAppBar(
-            title = {
-                Column {
-                    Text("作品库", style = MaterialTheme.typography.titleLarge)
-                    Text(
-                        if (LibraryState.randomMode) "随机推荐 · ${items.size} 部" else "共 $total 部",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-            },
-            actions = {
-                IconButton(onClick = { searchExpanded = !searchExpanded }) {
-                    Icon(Icons.Filled.Search, contentDescription = "搜索")
-                }
-                TextButton(onClick = { sheetVisible = true }) { Text("筛选") }
-                Box {
-                    IconButton(onClick = { menuVisible = true }) {
-                        Icon(Icons.Filled.MoreVert, contentDescription = "更多")
-                    }
-                    DropdownMenu(expanded = menuVisible, onDismissRequest = { menuVisible = false }) {
-                        DropdownMenuItem(text = { Text("设置") }, onClick = { menuVisible = false; onOpenSettings() })
-                        DropdownMenuItem(text = { Text("修改密码") }, onClick = { menuVisible = false; onOpenChangePassword() })
-                        DropdownMenuItem(text = { Text("服务地址") }, onClick = { menuVisible = false; onChangeServer() })
-                        DropdownMenuItem(text = { Text("退出登录") }, onClick = { menuVisible = false; onLogout() })
-                    }
-                }
-            },
-            windowInsets = WindowInsets(0, 0, 0, 0),
+        HomeSearchBar(
+            value = searchText,
+            onValueChange = { searchText = it },
+            menuVisible = menuVisible,
+            onMenuToggle = { menuVisible = !menuVisible },
+            onMenuDismiss = { menuVisible = false },
+            onOpenSettings = onOpenSettings,
+            onOpenFavorites = onOpenFavorites,
+            onOpenChangePassword = onOpenChangePassword,
+            onChangeServer = onChangeServer,
+            onLogout = onLogout,
         )
-
-        if (searchExpanded || searchText.isNotEmpty()) {
-            OutlinedTextField(
-                value = searchText,
-                onValueChange = { searchText = it },
-                placeholder = { Text("搜索标题 / RJ / 社团") },
-                singleLine = true,
-                shape = ShapePill,
-                leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
-                trailingIcon = {
-                    IconButton(onClick = { searchText = ""; searchExpanded = false }) {
-                        Icon(Icons.Filled.Close, contentDescription = "清除搜索")
-                    }
-                },
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
-            )
-        }
 
         if (LibraryState.conds.isNotEmpty()) {
             LazyRow(
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
             ) {
                 lazyItems(LibraryState.conds, key = { "${it.type}:${it.value}" }) { cond ->
@@ -289,6 +271,19 @@ fun LibraryScreen(
             }
         }
 
+        FilterRow(
+            favoritesOnly = favoritesOnly,
+            onAll = { favoritesOnly = false },
+            onFavorites = { favoritesOnly = true },
+        )
+
+        SectionHeader(
+            title = if (favoritesOnly) "我的收藏" else "全部作品",
+            count = if (favoritesOnly) items.size else total,
+            sortLabel = sortLabel(LibraryState.sort, LibraryState.order),
+            onSort = { sheetVisible = true },
+        )
+
         when {
             error != null && items.isEmpty() -> StateBox(
                 message = error ?: "加载失败",
@@ -298,9 +293,9 @@ fun LibraryScreen(
             else -> LazyVerticalGrid(
                 columns = GridCells.Fixed(columns),
                 state = gridState,
-                contentPadding = PaddingValues(12.dp),
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp),
+                contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 16.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp),
                 modifier = Modifier.weight(1f),
             ) {
                 gridItems(items, key = { it.rjCode }) { work ->
@@ -312,7 +307,7 @@ fun LibraryScreen(
                 }
                 item(span = { GridItemSpan(maxLineSpan) }) {
                     Box(
-                        modifier = Modifier.fillMaxWidth().height(64.dp),
+                        modifier = Modifier.fillMaxWidth().height(56.dp),
                         contentAlignment = Alignment.Center,
                     ) {
                         when {
@@ -358,6 +353,215 @@ fun LibraryScreen(
                 onClose = { sheetVisible = false },
             )
         }
+    }
+}
+
+private fun sortLabel(sort: String, order: String): String {
+    val label = SORTS.firstOrNull { it.first == sort }?.second ?: "最近添加"
+    return "$label ${if (order == "desc") "↓" else "↑"}"
+}
+
+/** 收藏列表不走 /api/works，本地复刻同一套搜索 / 条件 / 排序语义。 */
+private fun filterFavorites(
+    works: List<Work>,
+    query: String,
+    conds: List<FilterCond>,
+    sort: String,
+    order: String,
+): List<Work> {
+    val q = query.trim()
+    val filtered = works.filter { work ->
+        val matchQuery = q.isBlank() || work.title.contains(q, true) ||
+            work.rjCode.contains(q, true) || work.circle.contains(q, true) ||
+            work.actors.any { it.contains(q, true) }
+        val matchConds = conds.all { cond ->
+            when (cond.type) {
+                "tag" -> work.tags.any { it.name == cond.value }
+                "circle" -> work.circle == cond.value
+                "actor" -> work.actors.contains(cond.value)
+                "series" -> work.series == cond.value
+                else -> true
+            }
+        }
+        matchQuery && matchConds
+    }
+    val sorted = filtered.sortedBy { work ->
+        when (sort) {
+            "release" -> work.releaseDate
+            "title" -> work.title
+            "updated" -> work.updatedAt
+            "sales" -> (work.salesCount ?: 0).toString().padStart(10, '0')
+            else -> work.addedAt
+        }
+    }
+    return if (order == "asc") sorted else sorted.asReversed()
+}
+
+@Composable
+private fun HomeSearchBar(
+    value: String,
+    onValueChange: (String) -> Unit,
+    menuVisible: Boolean,
+    onMenuToggle: () -> Unit,
+    onMenuDismiss: () -> Unit,
+    onOpenSettings: () -> Unit,
+    onOpenFavorites: () -> Unit,
+    onOpenChangePassword: () -> Unit,
+    onChangeServer: () -> Unit,
+    onLogout: () -> Unit,
+) {
+    val colors = MaterialTheme.colorScheme
+    OutlinedTextField(
+        value = value,
+        onValueChange = onValueChange,
+        placeholder = { Text("搜索作品、社团、声优…", style = MaterialTheme.typography.bodyMedium) },
+        singleLine = true,
+        shape = ShapeCard,
+        leadingIcon = {
+            Icon(
+                Icons.Filled.Search,
+                contentDescription = null,
+                tint = colors.onSurfaceVariant,
+            )
+        },
+        trailingIcon = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                if (value.isNotEmpty()) {
+                    IconButton(onClick = { onValueChange("") }) {
+                        Icon(
+                            Icons.Filled.Close,
+                            contentDescription = "清除搜索",
+                            tint = colors.onSurfaceVariant,
+                        )
+                    }
+                }
+                Box {
+                    IconButton(onClick = onMenuToggle) {
+                        Icon(
+                            Icons.Filled.MoreVert,
+                            contentDescription = "更多",
+                            tint = colors.onSurfaceVariant,
+                        )
+                    }
+                    DropdownMenu(expanded = menuVisible, onDismissRequest = onMenuDismiss) {
+                        DropdownMenuItem(
+                            text = { Text("设置") },
+                            onClick = { onMenuDismiss(); onOpenSettings() },
+                        )
+                        DropdownMenuItem(
+                            text = { Text("收藏管理") },
+                            onClick = { onMenuDismiss(); onOpenFavorites() },
+                        )
+                        DropdownMenuItem(
+                            text = { Text("修改密码") },
+                            onClick = { onMenuDismiss(); onOpenChangePassword() },
+                        )
+                        DropdownMenuItem(
+                            text = { Text("服务地址") },
+                            onClick = { onMenuDismiss(); onChangeServer() },
+                        )
+                        DropdownMenuItem(
+                            text = { Text("退出登录") },
+                            onClick = { onMenuDismiss(); onLogout() },
+                        )
+                    }
+                }
+            }
+        },
+        colors = OutlinedTextFieldDefaults.colors(
+            focusedTextColor = colors.onSurface,
+            unfocusedTextColor = colors.onSurface,
+            focusedContainerColor = colors.surfaceContainerLow,
+            unfocusedContainerColor = colors.surfaceContainerLow,
+            focusedBorderColor = colors.outlineVariant,
+            unfocusedBorderColor = colors.outlineVariant,
+            cursorColor = colors.primary,
+            focusedPlaceholderColor = colors.onSurfaceVariant,
+            unfocusedPlaceholderColor = colors.onSurfaceVariant,
+            focusedLeadingIconColor = colors.onSurfaceVariant,
+            unfocusedLeadingIconColor = colors.onSurfaceVariant,
+            focusedTrailingIconColor = colors.onSurfaceVariant,
+            unfocusedTrailingIconColor = colors.onSurfaceVariant,
+        ),
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+    )
+}
+
+@Composable
+private fun FilterRow(
+    favoritesOnly: Boolean,
+    onAll: () -> Unit,
+    onFavorites: () -> Unit,
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        FilterPill("全部", !favoritesOnly, onAll)
+        FilterPill("我的收藏", favoritesOnly, onFavorites)
+    }
+}
+
+@Composable
+private fun FilterPill(text: String, selected: Boolean, onClick: () -> Unit) {
+    val colors = MaterialTheme.colorScheme
+    Surface(
+        modifier = Modifier
+            .height(38.dp)
+            .clip(ShapePill)
+            .clickable(onClick = onClick),
+        shape = ShapePill,
+        color = if (selected) colors.primaryContainer else colors.surfaceContainerLow,
+        contentColor = if (selected) colors.onPrimaryContainer else colors.onSurfaceVariant,
+        border = BorderStroke(
+            1.dp,
+            if (selected) colors.primary else colors.outline,
+        ),
+    ) {
+        Box(
+            modifier = Modifier.fillMaxHeight().padding(horizontal = 18.dp),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(text, style = MaterialTheme.typography.labelLarge)
+        }
+    }
+}
+
+@Composable
+private fun SectionHeader(
+    title: String,
+    count: Int,
+    sortLabel: String,
+    onSort: () -> Unit,
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            title,
+            style = MaterialTheme.typography.titleLarge,
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.onSurface,
+        )
+        Text(
+            "%02d".format(count),
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.padding(start = 8.dp),
+        )
+        Spacer(modifier = Modifier.weight(1f))
+        Text(
+            sortLabel,
+            style = MaterialTheme.typography.labelLarge,
+            color = MaterialTheme.colorScheme.primary,
+            modifier = Modifier
+                .clip(ShapeItem)
+                .clickable(onClick = onSort)
+                .padding(horizontal = 8.dp, vertical = 8.dp),
+        )
     }
 }
 
@@ -462,79 +666,121 @@ private fun WorkCard(
 ) {
     val scope = rememberCoroutineScope()
     val fav = FavoritesState.workRjs.contains(work.rjCode)
-    GlassSurface(
-        modifier = Modifier.fillMaxWidth(),
-        shape = ShapeCard,
-        onClick = onOpen,
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(ShapeCard)
+            .clickable(onClick = onOpen),
     ) {
-        Column(modifier = Modifier.fillMaxWidth()) {
-            Box(modifier = Modifier.fillMaxWidth().aspectRatio(0.75f)) {
-                RemoteImage(
-                    url = if (work.coverUrl.startsWith("http")) work.coverUrl
-                    else AppContainer.api.authedUrl(work.coverUrl),
-                    modifier = Modifier.fillMaxSize().clip(ShapeItem),
-                )
-                IconButton(
-                    onClick = { scope.launch { FavoritesState.toggleWork(work.rjCode) } },
-                    modifier = Modifier.align(Alignment.TopEnd).size(48.dp),
+        Box(modifier = Modifier.fillMaxWidth().aspectRatio(1f)) {
+            RemoteImage(
+                url = if (work.coverUrl.startsWith("http")) work.coverUrl
+                else AppContainer.api.authedUrl(work.coverUrl),
+                modifier = Modifier.fillMaxSize().clip(ShapeContainer),
+            )
+            // 视觉上是 36dp 圆钮，触控区 48dp；底色不透明，避免半透明叠层糊住封面
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .size(48.dp)
+                    .clip(ShapePill)
+                    .clickable { scope.launch { FavoritesState.toggleWork(work.rjCode) } },
+                contentAlignment = Alignment.Center,
+            ) {
+                Surface(
+                    modifier = Modifier.size(36.dp),
+                    shape = ShapePill,
+                    color = MaterialTheme.colorScheme.surfaceContainerHighest,
+                    contentColor = MaterialTheme.colorScheme.onSurface,
                 ) {
-                    Icon(
-                        imageVector = if (fav) Icons.Filled.Favorite else Icons.Filled.FavoriteBorder,
-                        contentDescription = if (fav) "取消收藏" else "收藏",
-                        tint = if (fav) MaterialTheme.colorScheme.primary
-                        else MaterialTheme.colorScheme.onSurface,
-                    )
-                }
-                if (imageMode) {
-                    val flame = GlassSpec.flame(work.salesCount)
-                    if (flame.count > 0) {
-                        Text(
-                            "▲".repeat(flame.count),
-                            color = when (flame.kind) {
-                                "red" -> Color(0xFFFF6B6B)
-                                "yellow" -> Color(0xFFFFD166)
-                                "rainbow" -> Color(0xFFB69AF6)
-                                else -> Color.LightGray
-                            },
-                            style = MaterialTheme.typography.labelSmall,
-                            modifier = Modifier
-                                .align(Alignment.TopStart)
-                                .padding(8.dp),
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(
+                            imageVector = if (fav) Icons.Filled.Favorite else Icons.Filled.FavoriteBorder,
+                            contentDescription = if (fav) "取消收藏" else "收藏",
+                            tint = if (fav) MaterialTheme.colorScheme.primary
+                            else MaterialTheme.colorScheme.onSurface,
+                            modifier = Modifier.size(18.dp),
                         )
                     }
-                    Text(
-                        work.rjCode,
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurface,
-                        modifier = Modifier
-                            .align(Alignment.BottomStart)
-                            .padding(6.dp)
-                            .background(MaterialTheme.colorScheme.surfaceContainerHighest, ShapeItem)
-                            .padding(horizontal = 6.dp, vertical = 2.dp),
-                    )
                 }
             }
-            if (!imageMode) {
-                Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            if (imageMode) {
+                val flame = GlassSpec.flame(work.salesCount)
+                if (flame.count > 0) {
                     Text(
-                        work.title,
-                        style = MaterialTheme.typography.bodyMedium,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis,
+                        "▲".repeat(flame.count),
+                        color = when (flame.kind) {
+                            "red" -> Color(0xFFFF6B6B)
+                            "yellow" -> Color(0xFFFFD166)
+                            "rainbow" -> Color(0xFFB69AF6)
+                            else -> Color.LightGray
+                        },
+                        style = MaterialTheme.typography.labelSmall,
+                        modifier = Modifier.align(Alignment.TopStart).padding(8.dp),
                     )
+                }
+                Text(
+                    work.rjCode,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier
+                        .align(Alignment.BottomStart)
+                        .padding(6.dp)
+                        .background(MaterialTheme.colorScheme.surfaceContainerHighest, ShapeItem)
+                        .padding(horizontal = 6.dp, vertical = 2.dp),
+                )
+            }
+        }
+        if (!imageMode) {
+            Column(
+                modifier = Modifier.padding(top = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                Text(
+                    work.title,
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
-                        listOfNotNull(
-                            work.circle.takeIf { it.isNotBlank() },
-                            work.series.takeIf { it.isNotBlank() },
-                            "播放 ${work.playCount}",
-                        ).joinToString(" · "),
+                        work.actors.joinToString("、").takeIf { it.isNotBlank() } ?: work.circle,
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f),
                     )
+                    Text(
+                        "%,d 播放".format(work.playCount),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(start = 6.dp),
+                    )
+                }
+                if (work.tags.isNotEmpty()) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        work.tags.take(2).forEach { tag -> TagChip(tag.name) }
+                    }
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun TagChip(text: String) {
+    Surface(
+        shape = ShapePill,
+        color = MaterialTheme.colorScheme.primaryContainer,
+        contentColor = MaterialTheme.colorScheme.primary,
+    ) {
+        Text(
+            text,
+            style = MaterialTheme.typography.labelSmall,
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+        )
     }
 }

@@ -1,6 +1,5 @@
 package com.yuzuki.app.ui
 
-import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -32,7 +31,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.style.TextOverflow
@@ -40,11 +38,8 @@ import androidx.compose.ui.unit.dp
 import com.yuzuki.app.data.AppContainer
 import com.yuzuki.app.playback.PlayerHolder
 import com.yuzuki.app.ui.theme.GlassItem
-import com.yuzuki.app.ui.theme.GlassPill
 import com.yuzuki.app.ui.theme.GlassSurface
-import com.yuzuki.app.ui.theme.LocalAppearance
 import com.yuzuki.app.ui.theme.ShapeCard
-import com.yuzuki.app.ui.theme.ShapeItem
 import com.yuzuki.app.ui.theme.ShapePill
 
 @Composable
@@ -56,70 +51,6 @@ private fun ControlButton(label: String, modifier: Modifier = Modifier, onClick:
         contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
     ) {
         Text(text = label, style = MaterialTheme.typography.labelMedium)
-    }
-}
-
-@Composable
-fun MiniPlayer(
-    modifier: Modifier = Modifier,
-    onExpand: () -> Unit,
-) {
-    val state by PlayerHolder.state.collectAsState()
-    val item = state.current ?: return
-    val progress = if (state.durationMs > 0) {
-        state.positionMs.toFloat() / state.durationMs.toFloat()
-    } else 0f
-
-    GlassSurface(
-        modifier = modifier
-            .fillMaxWidth()
-            .height(64.dp),
-        shape = ShapeCard,
-        onClick = onExpand,
-    ) {
-        Row(
-            modifier = Modifier.fillMaxSize().padding(horizontal = 10.dp, vertical = 6.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            Box(modifier = Modifier.size(48.dp)) {
-                RemoteImage(
-                    url = AppContainer.api.coverUrl(item.rj),
-                    modifier = Modifier.fillMaxSize(),
-                )
-            }
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = item.file.filename.ifBlank { item.work?.title ?: item.rj },
-                    style = MaterialTheme.typography.bodyMedium,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                Text(
-                    text = item.work?.actors?.joinToString("、")?.takeIf { it.isNotBlank() }
-                        ?: item.work?.circle ?: item.rj,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(3.dp)
-                        .background(MaterialTheme.colorScheme.surfaceVariant),
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth(progress.coerceIn(0f, 1f))
-                            .height(3.dp)
-                            .background(MaterialTheme.colorScheme.primary),
-                    )
-                }
-            }
-            // 整条点击展开全屏；迷你条只保留最常用的播放 / 暂停，避免手机上按钮过挤
-            ControlButton(if (state.playing) "暂停" else "播放") { PlayerHolder.toggle() }
-        }
     }
 }
 

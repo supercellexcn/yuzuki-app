@@ -7,7 +7,6 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -18,14 +17,13 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.unit.dp
 import com.yuzuki.app.data.AppContainer
 import com.yuzuki.app.data.FilterCond
 import com.yuzuki.app.playback.PlayerHolder
 
 /**
- * 手机端根布局：顶部状态栏避让 + 内容区 + 常驻迷你条 + 底部 3 Tab。
- * 抽屉与 web 移动版的悬浮工具条已移除；筛选 / 排序收进主页底部面板。
+ * 手机端根布局：顶部状态栏避让 + 内容区 + 底部 3 Tab。
+ * 迷你播放条已移除；中间「播放器」Tab 直接打开全屏播放器，筛选 / 排序收进主页底部面板。
  */
 @Composable
 fun RootScreen(
@@ -70,6 +68,7 @@ fun RootScreen(
                     is Route.Library -> LibraryScreen(
                         onOpenWork = { nav.go(Route.Work(it)) },
                         onOpenSettings = { nav.go(Route.Settings) },
+                        onOpenFavorites = { nav.go(Route.Favorites) },
                         onOpenChangePassword = { nav.go(Route.ChangePassword) },
                         onChangeServer = onChangeServer,
                         onLogout = onLogout,
@@ -94,30 +93,23 @@ fun RootScreen(
                 }
             }
 
-            if (playState.current != null && !playState.fullscreen) {
-                MiniPlayer(
-                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
-                    onExpand = { PlayerHolder.setFullscreen(true) },
-                )
-            }
             // 详情页沉浸式阅读，隐藏底部 Tab；返回箭头 + 系统返回键负责退出
             if (nav.current !is Route.Work && !playState.fullscreen) {
                 MainNavigationBar(
                     selected = when (nav.current) {
-                        is Route.Favorites -> MainTab.Favorites
                         is Route.History -> MainTab.History
                         else -> MainTab.Library
                     },
                     onSelect = { tab ->
-                        val route = when (tab) {
-                            MainTab.Library -> Route.Library
-                            MainTab.Favorites -> Route.Favorites
-                            MainTab.History -> Route.History
-                        }
-                        if (nav.current == route) {
-                            if (tab == MainTab.Library) LibraryState.scrollToTop()
-                        } else {
-                            nav.replace(route)
+                        when (tab) {
+                            MainTab.Library -> {
+                                if (nav.current == Route.Library) LibraryState.scrollToTop()
+                                else nav.replace(Route.Library)
+                            }
+                            MainTab.Player -> PlayerHolder.setFullscreen(true)
+                            MainTab.History -> {
+                                if (nav.current != Route.History) nav.replace(Route.History)
+                            }
                         }
                     },
                 )

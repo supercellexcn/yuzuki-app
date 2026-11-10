@@ -3,36 +3,34 @@ package com.yuzuki.app.ui
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Favorite
-import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.automirrored.filled.List
+import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
-import com.yuzuki.app.ui.theme.ShapeContainer
-import com.yuzuki.app.ui.theme.ShapePill
 
-/** 手机原生底部导航：3 个 Tab，图标 + 文字，48dp 以上触控区，整体圆角容器。 */
-enum class MainTab { Library, Favorites, History }
+/**
+ * 视觉稿底部导航：整条铺满、顶部分割线、选中项只用紫色图标 + 文字（无胶囊底）。
+ * 播放器占中间 Tab，用于打开常驻的全屏播放器；迷你播放条已移除。
+ */
+enum class MainTab { Library, Player, History }
 
-val TabBarHeight = 76.dp
+val TabBarHeight = 65.dp
 
 @Composable
 fun MainNavigationBar(
@@ -40,21 +38,22 @@ fun MainNavigationBar(
     onSelect: (MainTab) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    Surface(
-        modifier = modifier
-            .fillMaxWidth()
-            .padding(horizontal = 12.dp, vertical = 6.dp),
-        shape = ShapeContainer,
-        color = MaterialTheme.colorScheme.surfaceContainer,
-        contentColor = MaterialTheme.colorScheme.onSurface,
-        tonalElevation = 3.dp,
-    ) {
+    Column(modifier = modifier.fillMaxWidth()) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(1.dp)
+                .background(MaterialTheme.colorScheme.outlineVariant),
+        )
         Row(
-            modifier = Modifier.fillMaxWidth().height(64.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(64.dp)
+                .background(MaterialTheme.colorScheme.surfaceContainerLow),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            MainTabItem(MainTab.Library, Icons.Filled.Home, "媒体库", selected, onSelect)
-            MainTabItem(MainTab.Favorites, Icons.Filled.Favorite, "收藏", selected, onSelect)
+            MainTabItem(MainTab.Library, Icons.Filled.Home, "库", selected, onSelect)
+            MainTabItem(MainTab.Player, Icons.Filled.PlayArrow, "播放器", selected, onSelect)
             MainTabItem(MainTab.History, Icons.AutoMirrored.Filled.List, "历史", selected, onSelect)
         }
     }
@@ -69,15 +68,12 @@ private fun RowScope.MainTabItem(
     onSelect: (MainTab) -> Unit,
 ) {
     val active = selected == tab
-    val tint = if (active) MaterialTheme.colorScheme.onPrimaryContainer
+    val tint = if (active) MaterialTheme.colorScheme.primary
     else MaterialTheme.colorScheme.onSurfaceVariant
     Column(
         modifier = Modifier
             .weight(1f)
             .fillMaxHeight()
-            .padding(horizontal = 6.dp, vertical = 4.dp)
-            .clip(ShapePill)
-            .background(if (active) MaterialTheme.colorScheme.primaryContainer else Color.Transparent)
             .clickable { onSelect(tab) },
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,

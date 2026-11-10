@@ -82,7 +82,7 @@ object GlassSpec {
  * 这些字段仍保留，供设置页写回服务端（网页端继续生效）与单测覆盖。
  */
 data class Appearance(
-    val themeColor: String = "#B69AF6",
+    val themeColor: String = "#A888F8",
     val actorColor: String = "#8E7CC3",
     val tagColor: String = "#6E8EC9",
     val actorTagAlpha: Float = 0.8f,
@@ -101,7 +101,9 @@ data class Appearance(
 ) {
     companion object {
         fun from(s: AppSettings) = Appearance(
-            themeColor = GlassSpec.brighten(s.themeColorNav.takeIf { it.isNotBlank() } ?: "#B69AF6"),
+            // 未自定义时严格使用视觉稿的紫色；自定义色仍按 WCAG 提亮，避免暗色文字看不清
+            themeColor = s.themeColorNav.takeIf { it.isNotBlank() }
+                ?.let { GlassSpec.brighten(it) } ?: "#A888F8",
             actorColor = s.themeColorActor.takeIf { it.isNotBlank() } ?: "#8E7CC3",
             tagColor = s.themeColorTag.takeIf { it.isNotBlank() } ?: "#6E8EC9",
             actorTagAlpha = GlassSpec.alpha(s.actorTagOpacity),
@@ -124,7 +126,7 @@ data class Appearance(
 
 val LocalAppearance = compositionLocalOf { Appearance.Default }
 
-fun composeColor(hex: String, fallback: Long = 0xFFB69AF6): Color =
+fun composeColor(hex: String, fallback: Long = 0xFFA888F8): Color =
     GlassSpec.parseHex(hex)?.let { (r, g, b) -> Color(0xFF000000 or (r.toLong() shl 16) or (g.toLong() shl 8) or b.toLong()) }
         ?: Color(fallback)
 
