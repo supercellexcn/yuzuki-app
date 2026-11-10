@@ -15,30 +15,36 @@ sealed interface Route {
     data object ChangePassword : Route
 }
 
-/** 轻量导航：不引入 Navigation 依赖，页面少且返回栈需要完全可控。 */
+/** 轻量导航：不引入 Navigation 依赖，返回栈逻辑放在 NavStack（可单测），这里只负责通知 Compose。 */
 class AppNav {
+    private val stack = NavStack<Route>(Route.Library)
+
     var current by mutableStateOf<Route>(Route.Library)
         private set
-    private val stack = ArrayDeque<Route>()
 
     fun go(route: Route) {
-        if (current == route) return
-        stack.addLast(current)
-        current = route
+        if (stack.go(route)) current = stack.current
     }
 
     fun replace(route: Route) {
-        stack.clear()
-        current = route
+        stack.replace(route)
+        current = stack.current
     }
 
     fun back(): Boolean {
-        val previous = stack.removeLastOrNull() ?: return false
-        current = previous
-        return true
+        val moved = stack.back()
+        if (moved) current = stack.current
+        return moved
     }
 
-    val canBack: Boolean get() = stack.isNotEmpty()
+    /** 详情页返回 / 系统返回键统一入口：栈空也会回媒体库。 */
+    fun backOrHome(): Boolean {
+        val moved = stack.backOr(Route.Library)
+        if (moved) current = stack.current
+        return moved
+    }
+
+    val canBack: Boolean get() = stack.canBack
 }
 
 @Composable

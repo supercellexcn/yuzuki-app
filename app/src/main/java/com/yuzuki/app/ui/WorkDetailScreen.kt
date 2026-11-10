@@ -1,23 +1,36 @@
 package com.yuzuki.app.ui
 
 import android.util.Base64
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.filled.FavoriteBorder
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -30,6 +43,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.unit.dp
@@ -50,6 +64,7 @@ import okhttp3.Request
 
 private fun MediaFile.dirOf(): String = relPath.substringBeforeLast('/', "")
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun WorkDetailScreen(
     rj: String,
@@ -77,84 +92,119 @@ fun WorkDetailScreen(
 
     LaunchedEffect(rj) { reload() }
 
-    val data = detail
-    if (data == null) {
-        StateBox(
-            message = error ?: "正在加载作品详情…",
-            loading = error == null,
-            modifier = modifier.fillMaxSize().padding(16.dp),
-            onRetry = { scope.launch { reload() } },
-        )
-        return
-    }
+    // 图片查看器打开时，系统返回先关查看器，不直接退出作品
+    BackHandler(enabled = viewerIndex != null) { viewerIndex = null }
 
-    val work = data.work
-    val images = data.files.filter { it.kind == "image" && !it.isDir }
-    val grouped = data.files.filter { !it.isDir && (it.playable || it.kind == "image") }
+    val data = detail
+    val fav = FavoritesState.workRjs.contains(rj)
+    val files = data?.files.orEmpty()
+    val images = files.filter { it.kind == "image" && !it.isDir }
+    val grouped = files.filter { !it.isDir && (it.playable || it.kind == "image") }
         .groupBy { it.dirOf() }
 
-    Box(modifier = modifier.fillMaxSize()) {
+    Column(modifier = modifier.fillMaxSize()) {
+        TopAppBar(
+            title = {
+                Text(
+                    data?.work?.title ?: "作品详情",
+                    style = MaterialTheme.typography.titleMedium,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            },
+            navigationIcon = {
+                IconButton(onClick = onBack) {
+                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
+                }
+            },
+            actions = {
+                IconButton(onClick = { scope.launch { FavoritesState.toggleWork(rj) } }) {
+                    Icon(
+                        imageVector = if (fav) Icons.Filled.Favorite else Icons.Filled.FavoriteBorder,
+                        contentDescription = if (fav) "取消收藏" else "收藏",
+                        tint = if (fav) MaterialTheme.colorScheme.primary
+                        else MaterialTheme.colorScheme.onSurface,
+                    )
+                }
+            },
+            windowInsets = WindowInsets(0, 0, 0, 0),
+        )
+
+        if (data == null) {
+            StateBox(
+                message = error ?: "正在加载作品详情…",
+                loading = error == null,
+                modifier = Modifier.weight(1f).fillMaxWidth().padding(16.dp),
+                onRetry = { scope.launch { reload() } },
+            )
+            return@Column
+        }
+
+        val work = data.work
+
         LazyColumn(
-            modifier = Modifier.fillMaxSize(),
+            modifier = Modifier.weight(1f),
             contentPadding = PaddingValues(12.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            item {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    GlassPill(onClick = onBack) {
-                        Text("返回", modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp))
-                    }
-                    Box(modifier = Modifier.weight(1f))
-                    GlassPill(onClick = { scope.launch { FavoritesState.toggleWork(rj) } }) {
-                        Text(
-                            if (FavoritesState.workRjs.contains(rj)) "★ 已收藏" else "☆ 收藏",
-                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
-                        )
-                    }
-                }
-            }
             item {
                 GlassSurface(modifier = Modifier.fillMaxWidth(), shape = ShapeCard) {
                     Row(modifier = Modifier.padding(12.dp)) {
                         RemoteImage(
                             url = AppContainer.api.coverUrl(rj),
                             modifier = Modifier
-                                .size(140.dp)
+                                .width(110.dp)
                                 .aspectRatio(0.75f)
                                 .clip(ShapeItem),
                         )
                         Column(modifier = Modifier.padding(start = 12.dp).weight(1f)) {
-                            Text(work.title, style = MaterialTheme.typography.titleMedium)
-                            Text(work.rjCode, style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            listOf(work.circle, work.series, work.releaseDate).filter { it.isNotBlank() }
+                            Text(work.title, style = MaterialTheme.typography.titleMedium, maxLines = 3)
+                            Text(
+                                work.rjCode,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                            listOf(work.circle, work.series, work.releaseDate)
+                                .filter { it.isNotBlank() }
                                 .forEach {
-                                    Text(it, style = MaterialTheme.typography.labelSmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    Text(
+                                        it,
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
                                 }
-                            work.salesCount?.let {
-                                Text("销量 $it · 播放 ${work.playCount}",
-                                    style = MaterialTheme.typography.labelSmall)
+                            Text(
+                                "销量 ${work.salesCount ?: 0} · 播放 ${work.playCount}",
+                                style = MaterialTheme.typography.labelSmall,
+                            )
+                            if (work.actors.isNotEmpty()) {
+                                Text(
+                                    work.actors.joinToString("、"),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    maxLines = 2,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
                             }
-                            Text(work.actors.joinToString("、"),
-                                style = MaterialTheme.typography.labelSmall, maxLines = 2)
                         }
                     }
                 }
             }
-            item {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                ) {
-                    work.tags.take(8).forEach { tag ->
-                        val fav = FavoritesState.tags.contains(tag.name)
-                        GlassPill(onClick = {
-                            scope.launch { FavoritesState.toggle("tag", tag.name, tag.category) }
-                        }) {
-                            Text("${if (fav) "−" else "+"} ${tag.name}",
-                                style = MaterialTheme.typography.labelSmall,
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp))
+            if (work.tags.isNotEmpty()) {
+                item {
+                    LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        items(work.tags, key = { it.name }) { tag ->
+                            val marked = FavoritesState.tags.contains(tag.name)
+                            GlassPill(onClick = {
+                                scope.launch { FavoritesState.toggle("tag", tag.name, tag.category) }
+                            }) {
+                                Text(
+                                    "${if (marked) "−" else "+"} ${tag.name}",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+                                )
+                            }
                         }
                     }
                 }
@@ -168,9 +218,11 @@ fun WorkDetailScreen(
                             GlassPill(onClick = {
                                 scope.launch { FavoritesState.toggle(type, value) }
                             }) {
-                                Text("${if (set.contains(value)) "−" else "+"} $value",
+                                Text(
+                                    "${if (set.contains(value)) "−" else "+"} $value",
                                     style = MaterialTheme.typography.labelSmall,
-                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp))
+                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+                                )
                             }
                         }
                 }
@@ -190,8 +242,12 @@ fun WorkDetailScreen(
                                         url = AppContainer.api.coverUrl(rec.rjCode),
                                         modifier = Modifier.fillMaxWidth().height(100.dp),
                                     )
-                                    Text(rec.title, style = MaterialTheme.typography.labelSmall,
-                                        maxLines = 2, modifier = Modifier.padding(6.dp))
+                                    Text(
+                                        rec.title,
+                                        style = MaterialTheme.typography.labelSmall,
+                                        maxLines = 2,
+                                        modifier = Modifier.padding(6.dp),
+                                    )
                                 }
                             }
                         }
@@ -228,7 +284,9 @@ fun WorkDetailScreen(
                 }
             }
             message?.let {
-                item { Text(it, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary) }
+                item {
+                    Text(it, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+                }
             }
         }
     }
@@ -294,9 +352,11 @@ private fun FileRow(
                             )
                     }
                 }) {
-                    Text(if (downloaded) "已缓存" else "下载",
+                    Text(
+                        if (downloaded) "已缓存" else "下载",
                         style = MaterialTheme.typography.labelSmall,
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp))
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+                    )
                 }
             }
         }
@@ -335,27 +395,31 @@ private fun ImageViewer(
                 Row(
                     modifier = Modifier.fillMaxWidth().align(Alignment.TopCenter).padding(16.dp),
                     horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    GlassPill(onClick = onClose) { Text("关闭", modifier = Modifier.padding(12.dp)) }
-                    GlassPill(onClick = { menu = true }) { Text("操作", modifier = Modifier.padding(12.dp)) }
+                    IconButton(onClick = onClose, modifier = Modifier.size(48.dp)) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
+                    }
+                    Text("${index + 1}/${images.size}", style = MaterialTheme.typography.bodyMedium)
+                    GlassPill(onClick = { menu = true }) {
+                        Text("操作", modifier = Modifier.padding(12.dp))
+                    }
                 }
                 Row(
                     modifier = Modifier.fillMaxWidth().align(Alignment.BottomCenter).padding(16.dp),
                     horizontalArrangement = Arrangement.SpaceEvenly,
+                    verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    GlassPill(onClick = { onIndexChange((index - 1 + images.size) % images.size) }) {
-                        Text("上一张", modifier = Modifier.padding(12.dp))
+                    IconButton(onClick = { onIndexChange((index - 1 + images.size) % images.size) }) {
+                        Icon(Icons.AutoMirrored.Filled.KeyboardArrowLeft, contentDescription = "上一张")
                     }
-                    Text("${index + 1}/${images.size}", modifier = Modifier.padding(12.dp))
-                    GlassPill(onClick = { onIndexChange((index + 1) % images.size) }) {
-                        Text("下一张", modifier = Modifier.padding(12.dp))
+                    Text("${index + 1} / ${images.size}", style = MaterialTheme.typography.labelMedium)
+                    IconButton(onClick = { onIndexChange((index + 1) % images.size) }) {
+                        Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = "下一张")
                     }
                 }
                 if (menu) {
-                    GlassSurface(
-                        modifier = Modifier.align(Alignment.Center),
-                        shape = ShapeCard,
-                    ) {
+                    GlassSurface(modifier = Modifier.align(Alignment.Center), shape = ShapeCard) {
                         Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             Text("图片操作", style = MaterialTheme.typography.titleSmall)
                             GlassPill(onClick = {

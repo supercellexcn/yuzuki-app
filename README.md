@@ -17,7 +17,7 @@
 ## 架构
 
 ```
-ui/          单 Activity + AppNav 返回栈 + RootScreen（抽屉 / 底部 Tab / 迷你条 / 全屏播放器）
+ui/          单 Activity + AppNav 返回栈 + RootScreen（底部 3 Tab / 顶栏 / 底部筛选面板 / 迷你条 / 全屏播放器）
              LibraryScreen · WorkDetailScreen · CollectionsScreen · SettingsScreen · PlayerUI
 ui/theme/    Material 3 配色 + Surface 组件封装（Glass* 为兼容层）· GlassSpec 纯函数 · 圆角 / 动画令牌
 data/        Models（DTO + org.json 解析）· YuzukiApi（全量 REST）· AppContainer（服务定位）
@@ -71,7 +71,8 @@ export JAVA_HOME=/d/asmr-app/.toolchain/jdk17   # 换成你自己的 JDK 17 亦�
    `192.168.*` / `10.*` / `172.16–31.*` / `127.0.0.1`；公网地址与域名一律拒绝。
 2. 用与网页端相同的账号登录；token 存于 Android Keystore 加密的 DataStore。
 3. 首次登录强制改密由**原生** `ChangePasswordScreen` 完成（不再依赖 web 端路由）。
-4. 侧栏抽屉可进入收藏 / 历史 / 设置 / 修改密码 / 服务地址 / 退出登录。
+4. 底部 Tab 切换媒体库 / 收藏 / 播放历史；主页顶栏「筛选」打开排序与聚合筛选底部面板，「更多」进入设置 / 修改密码 / 服务地址 / 退出登录。
+5. 作品详情用顶栏返回箭头或系统返回键退出；图片查看器打开时返回键先关闭查看器。
 
 ## 分阶段状态
 
@@ -90,10 +91,11 @@ export JAVA_HOME=/d/asmr-app/.toolchain/jdk17   # 换成你自己的 JDK 17 亦�
 **已完成的验证（2026-11-10）**：
 
 - `assembleDebug` 成功，`app-debug.apk` 约 19MB；`compileDebugKotlin` / `compileDebugUnitTestKotlin` 无错误。
-- `testDebugUnitTest` 共 **17 例全过、0 失败 0 错误**：`HostPolicy` 6 + `Models` 5 + `QueueMath` 2 + `GlassSpec` 4。
+- `testDebugUnitTest` 共 **25 例全过、0 失败 0 错误**：`HostPolicy` 6 + `Models` 5 + `QueueMath` 2 + `GlassSpec` 4 + `NavLogic` 8（返回栈兜底 / 分页预取与末页判定）。
 - 静态断言：源码中 `WebView` / `addJavascriptInterface` / `evaluateJavascript` 零命中；
   `androidx.webkit` 依赖已移除，`web/` 目录与 `yuzuki-bridge.js` 已删除。
 - 界面清晰度静态断言：`blur(` / `Color.White` / `copy(alpha` / 壁纸背景调用 / 高光渐变 全部零命中。
+- 移动端交互静态断言：`MobileDock` / 随 `loading` 条件销毁的分页 `LaunchedEffect` 零命中；返回统一走 `AppNav.backOrHome()`。
 - `git -C D:\node\yuzuki status --porcelain` 为空 → web 端 / 后端零改动。
 
 **仍待验证**：A1–A5 接口同源断言、锁屏 metadata 与 `artworkData`、连续 `next()` 3 次通知不消失、

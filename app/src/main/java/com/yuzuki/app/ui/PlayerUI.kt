@@ -10,15 +10,20 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.systemBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -46,7 +51,7 @@ import com.yuzuki.app.ui.theme.ShapePill
 private fun ControlButton(label: String, modifier: Modifier = Modifier, onClick: () -> Unit) {
     FilledTonalButton(
         onClick = onClick,
-        modifier = modifier,
+        modifier = modifier.heightIn(min = 48.dp),
         shape = ShapePill,
         contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
     ) {
@@ -112,9 +117,8 @@ fun MiniPlayer(
                     )
                 }
             }
+            // 整条点击展开全屏；迷你条只保留最常用的播放 / 暂停，避免手机上按钮过挤
             ControlButton(if (state.playing) "暂停" else "播放") { PlayerHolder.toggle() }
-            ControlButton("下一曲") { PlayerHolder.next() }
-            ControlButton("全屏") { onExpand() }
         }
     }
 }
@@ -134,7 +138,6 @@ fun FullscreenPlayer(
     GlassSurface(
         modifier = modifier
             .fillMaxSize()
-            .systemBarsPadding()
             .graphicsLayer { translationY = dragY }
             .pointerInput(Unit) {
                 detectVerticalDragGestures(
@@ -153,10 +156,19 @@ fun FullscreenPlayer(
                 verticalArrangement = Arrangement.spacedBy(12.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
-                Row(modifier = Modifier.fillMaxWidth()) {
-                    ControlButton("下滑退出") { onClose() }
-                    Box(modifier = Modifier.weight(1f))
-                    ControlButton("回到作品") { item?.let { onOpenWork(it.rj) } }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    IconButton(onClick = onClose, modifier = Modifier.size(48.dp)) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "收起播放器")
+                    }
+                    Text(
+                        "正在播放",
+                        style = MaterialTheme.typography.titleSmall,
+                        modifier = Modifier.weight(1f).padding(start = 8.dp),
+                    )
+                    TextButton(onClick = { item?.let { onOpenWork(it.rj) } }) { Text("回到作品") }
                 }
 
                 if (item == null) {
