@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
@@ -46,6 +47,9 @@ import kotlinx.coroutines.launch
  * 信息区 padding 10 12 12 + gap 6、封面标签 11px、声优 chip 12px。
  */
 private val CardShape = RoundedCornerShape(10.dp)
+
+/** 声优 chips 两行的高度：12sp/14sp 行高 + 上下 3dp 内边距 = 20dp，两行再加 4dp 间距。 */
+private val ActorBlockHeight = 44.dp
 
 /** 播放历史卡片的附加信息（web `WorkCard` 的 history prop）。 */
 data class HistoryMeta(
@@ -157,16 +161,6 @@ fun WorkCard(
                         modifier = Modifier.align(Alignment.TopEnd).padding(10.dp),
                     )
                 }
-                Text(
-                    work.rjCode,
-                    fontSize = 11.sp,
-                    color = WebColors.Text,
-                    modifier = Modifier
-                        .align(Alignment.CenterEnd)
-                        .padding(6.dp)
-                        .background(Color(0xFF282830), RoundedCornerShape(12.dp))
-                        .padding(horizontal = 6.dp, vertical = 2.dp),
-                )
             }
         }
 
@@ -199,6 +193,8 @@ fun WorkCard(
                     fontWeight = FontWeight.SemiBold,
                     color = WebColors.Text,
                     maxLines = 2,
+                    // 标题只有一行时也占两行高，避免同一行卡片底边参差
+                    minLines = 2,
                     overflow = TextOverflow.Ellipsis,
                 )
                 if (work.series.isNotBlank()) {
@@ -222,14 +218,18 @@ fun WorkCard(
                         CardInfoRow("播放", "%,d".format(work.playCount))
                     }
                 }
-                if (work.actors.isNotEmpty()) {
-                    FlowRow(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(4.dp),
-                        verticalArrangement = Arrangement.spacedBy(4.dp),
-                    ) {
-                        work.actors.take(4).forEach { actor ->
-                            ActorChip(actor, actorBg) { onCond(FilterCond("actor", actor)) }
+                // 声优区固定占两行（chip 20 + gap 4 + chip 20 = 44dp）：
+                // 声优数量 1~4 个的卡片高度一致，网格里同一行的卡片底边才能对齐。
+                Box(modifier = Modifier.fillMaxWidth().heightIn(min = ActorBlockHeight)) {
+                    if (work.actors.isNotEmpty()) {
+                        FlowRow(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                            verticalArrangement = Arrangement.spacedBy(4.dp),
+                        ) {
+                            work.actors.take(4).forEach { actor ->
+                                ActorChip(actor, actorBg) { onCond(FilterCond("actor", actor)) }
+                            }
                         }
                     }
                 }
