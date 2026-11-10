@@ -18,6 +18,7 @@ ACT="com.yuzuki.app/.MainActivity"
 FAST=0
 LAUNCH=1
 FOLLOW_LOG=0
+PUBLISH=1
 CONNECT=""
 
 usage() {
@@ -32,6 +33,7 @@ usage() {
   --connect IP:PORT   先连接无线调试设备再执行
   --no-launch         只安装，不启动
   --log               启动后跟随 Logcat（Ctrl+C 结束）
+  --no-publish        不把 Release APK 发布到局域网共享目录
   -h, --help          显示本说明
 
 前置条件:
@@ -49,6 +51,7 @@ while [ $# -gt 0 ]; do
     --fast) FAST=1 ;;
     --no-launch) LAUNCH=0 ;;
     --log) FOLLOW_LOG=1 ;;
+    --no-publish) PUBLISH=0 ;;
     --connect)
       CONNECT="${2:-}"
       if [ -z "$CONNECT" ]; then echo "错误: --connect 需要 IP:PORT"; exit 1; fi
@@ -79,8 +82,14 @@ if [ ! -f "$GRADLEW" ]; then
   exit 1
 fi
 
+TOTAL=3
+# 只有 release 构建才发布（debug 包不对外分发）
+if [ "$BUILD" = "release" ] && [ "$PUBLISH" -eq 1 ]; then
+  TOTAL=4
+fi
+
 if [ -n "$CONNECT" ]; then
-  echo "[1/3] 连接无线调试 $CONNECT ..."
+  echo "[1/$TOTAL] 连接无线调试 $CONNECT ..."
   "$ADB" connect "$CONNECT" || true
 fi
 
@@ -97,7 +106,7 @@ if [ "${DEVICE_COUNT:-0}" -gt 1 ]; then
   echo "提示: 检测到 $DEVICE_COUNT 台设备，本次使用 $DEVICE（可设 ANDROID_SERIAL 指定）"
 fi
 export ANDROID_SERIAL="$DEVICE"
-echo "[1/3] 设备: $DEVICE"
+echo "[1/$TOTAL] 设备: $DEVICE"
 
 START="$(date +%s)"
 if [ "$FAST" -eq 1 ]; then
@@ -105,10 +114,10 @@ if [ "$FAST" -eq 1 ]; then
     echo "错误: 未找到 $APK，请先不带 --fast 跑一次完整构建"
     exit 1
   fi
-  echo "[2/3] 跳过编译，安装现有 APK ..."
+  echo "[2/$TOTAL] 跳过编译，安装现有 APK ..."
   "$ADB" install -r "$PROJ_WIN/app/build/outputs/apk/$BUILD/$(basename "$APK")"
 else
-  echo "[2/3] 编译并安装（$BUILD）..."
+  echo "[2/$TOTAL] 编译并安装（$BUILD）..."
   if [ "$BUILD" = "release" ]; then
     "$GRADLEW" -p "$PROJ_WIN" :app:installRelease --console=plain
   else
@@ -116,11 +125,19 @@ else
   fi
 fi
 
+if [ "$BUILD" = "release" ] && [ "$PUBLISH" -eq 1 ]; then
+  echo "[3/$TOTAL] 发布 Release APK 到共享目录 ..."
+  # 共享不可达时只警告，不影响装机
+  bash "$PROJ_DIR/publish-apk.sh" || true
+fi
+
+STEP=3
+if [ "$TOTAL" -eq 4 ]; then STEP=4; fi
 if [ "$LAUNCH" -eq 1 ]; then
-  echo "[3/3] 启动 App ..."
+  echo "[$STEP/$TOTAL] 启动 App ..."
   "$ADB" shell am start -n "$ACT"
 else
-  echo "[3/3] 已跳过启动"
+  echo "[$STEP/$TOTAL] 已跳过启动"
 fi
 
 echo "完成，用时 $(( $(date +%s) - START ))s"

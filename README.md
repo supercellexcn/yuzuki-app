@@ -76,7 +76,19 @@ export JAVA_HOME=/d/asmr-app/.toolchain/jdk17   # 换成你自己的 JDK 17 亦�
 ./run-debug.sh --fast           # 跳过编译，直接安装已有 APK（最快）
 ./run-debug.sh --log            # 启动后跟随 Logcat
 ./run-debug.sh --connect IP:5555  # 无线调试（首次需 USB 执行 adb tcpip 5555）
+./run-debug.sh --release --no-publish  # 只装机，不发共享
 ```
+
+**发布 Release 包到局域网共享**（手机 / 其它电脑直接下载安装）：
+
+```bash
+./publish-apk.sh                # 拷 app-release.apk 到 //192.168.5.4/FileTemp
+# yuzuki-<版本>-<MMdd-HHmm>.apk   带版本与时间的归档
+# yuzuki-latest.apk               固定名字，永远是最新一次发布
+```
+
+`./run-debug.sh --release` 会在装完机后自动执行这一步（`--no-publish` 可跳过）。
+共享不可达时只警告、不影响装机。
 
 Windows 下也可直接双击 `run-debug.bat`（默认完整流程）。`--help` 查看全部选项。
 脚本只做构建 / 安装 / 启动，不改业务代码；无已授权设备时会立即报错，不会白跑一次构建。
