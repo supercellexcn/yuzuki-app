@@ -275,12 +275,16 @@ fun SideDrawer(
         ModalBottomSheet(
             onDismissRequest = { openType = null },
             sheetState = rememberModalBottomSheetState(),
+            // 面板必须不透明：默认容器色跟随主题 surface，半透明时文字很难辨认
+            containerColor = panelSolid,
+            scrimColor = Color.Black.copy(alpha = 0.6f),
         ) {
             ChipFilterSheet(
                 title = SIDE_FILTERS.first { it.type == type }.label,
                 items = counts[type].orEmpty(),
                 activeValues = LibraryState.conds.filter { it.type == type }.map { it.value },
-                controlBg = controlBg,
+                controlBg = WebColors.control(1f),
+                chipBg = Color(0xFF2B2B36),
                 accent = accent,
                 accentSoft = accentSoft,
                 onPick = { name ->
@@ -373,6 +377,7 @@ private fun ChipFilterSheet(
     items: List<CountItem>,
     activeValues: List<String>,
     controlBg: Color,
+    chipBg: Color,
     accent: Color,
     accentSoft: Color,
     onPick: (String) -> Unit,
@@ -431,7 +436,7 @@ private fun ChipFilterSheet(
                         val active = activeValues.contains(item.name)
                         Row(
                             modifier = Modifier
-                                .background(if (active) accentSoft else controlBg, ShapePill)
+                                .background(if (active) accentSoft else chipBg, ShapePill)
                                 .border(1.dp, if (active) accent else Color.Transparent, ShapePill)
                                 .clickable { onPick(item.name) }
                                 .padding(horizontal = 11.dp, vertical = 4.dp),

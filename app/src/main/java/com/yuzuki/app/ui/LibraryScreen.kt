@@ -166,6 +166,11 @@ fun LibraryScreen(
                             response.pageSize.coerceAtLeast(1),
                         )
                         error = null
+                        if (reset) {
+                            // 数据到位后再置顶一次：冷启动时首帧还没有 item
+                            gridState.requestScrollToItem(0)
+                            listState.requestScrollToItem(0)
+                        }
                     },
                     onFailure = { cause ->
                         val message = cause.message ?: "加载失败"
@@ -214,7 +219,7 @@ fun LibraryScreen(
         requestPage(reset = true)
     }
 
-    // 视图形态（列表 / 详情 / 图片）记忆：与悬浮 M 键、顶栏按钮共用同一份状态
+    // 视图形态（列表 / 详情 / 图片）记忆：与悬浮 M 键共用同一份状态
     LaunchedEffect(Unit) {
         val saved = uiPrefs.getString(KEY_LIBRARY_VIEW, null)
         LibraryView.entries.firstOrNull { it.name == saved }?.let { LibraryState.view = it }
@@ -281,7 +286,6 @@ fun LibraryScreen(
             onSearchChange = { searchText = it },
             total = total,
             onOpenDrawer = onOpenDrawer,
-            onCycleView = { LibraryState.cycleView() },
             topbarColor = topbarColor,
             controlBg = controlBg,
         )
@@ -437,7 +441,6 @@ private fun LibraryTopBar(
     onSearchChange: (String) -> Unit,
     total: Int,
     onOpenDrawer: () -> Unit,
-    onCycleView: () -> Unit,
     topbarColor: Color,
     controlBg: Color,
 ) {
@@ -510,24 +513,6 @@ private fun LibraryTopBar(
                             modifier = Modifier.size(16.dp),
                         )
                     }
-                }
-            }
-
-            // 视图切换：列表 → 详情 → 图片（图标即当前形态，与左侧菜单钮同尺寸对称）
-            Box(
-                modifier = Modifier
-                    .size(32.dp)
-                    .clip(CircleShape)
-                    .border(1.dp, WebColors.Border, CircleShape)
-                    .clickable(onClick = onCycleView),
-                contentAlignment = Alignment.Center,
-            ) {
-                val tint = if (LibraryState.view == LibraryView.Detail) WebColors.Text
-                else MaterialTheme.colorScheme.primary
-                when (LibraryState.view) {
-                    LibraryView.List -> ViewListIcon(tint, Modifier.size(18.dp))
-                    LibraryView.Detail -> ViewDetailIcon(tint, Modifier.size(18.dp))
-                    LibraryView.Image -> ViewImageIcon(tint, Modifier.size(18.dp))
                 }
             }
         }
