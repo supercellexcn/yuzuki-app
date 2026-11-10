@@ -16,6 +16,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
@@ -27,10 +29,9 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Favorite
-import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
@@ -72,9 +73,7 @@ import com.yuzuki.app.data.Work
 import com.yuzuki.app.data.WorksResponse
 import com.yuzuki.app.ui.theme.GlassItem
 import com.yuzuki.app.ui.theme.GlassSpec
-import com.yuzuki.app.ui.theme.GlassSurface
 import com.yuzuki.app.ui.theme.ShapeCard
-import com.yuzuki.app.ui.theme.ShapeContainer
 import com.yuzuki.app.ui.theme.ShapeItem
 import com.yuzuki.app.ui.theme.ShapePill
 import kotlinx.coroutines.CancellationException
@@ -90,6 +89,14 @@ private val SORTS = listOf(
     "title" to "标题",
     "updated" to "更新时间",
 )
+
+// 作品卡片配色取自参考图实拍取色（不透明，禁止半透明叠层）
+private val CardSurfaceColor = Color(0xFF604050)
+private val CardTextColor = Color(0xFFF8F8F8)
+private val CardSubTextColor = Color(0xFFD8D0D8)
+private val CoverTagColor = Color(0xFF282830)
+private val ActorPillColor = Color(0xFF78C868)
+private val ActorPillTextColor = Color(0xFF101010)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -670,38 +677,58 @@ private fun WorkCard(
         modifier = Modifier
             .fillMaxWidth()
             .clip(ShapeCard)
+            .background(CardSurfaceColor)
             .clickable(onClick = onOpen),
     ) {
         Box(modifier = Modifier.fillMaxWidth().aspectRatio(1f)) {
             RemoteImage(
                 url = if (work.coverUrl.startsWith("http")) work.coverUrl
                 else AppContainer.api.authedUrl(work.coverUrl),
-                modifier = Modifier.fillMaxSize().clip(ShapeContainer),
+                modifier = Modifier.fillMaxSize().clip(ShapeCard),
             )
-            // 视觉上是 36dp 圆钮，触控区 48dp；底色不透明，避免半透明叠层糊住封面
+            // 收藏星标移到封面左上角，触控区 48dp；未收藏白星，已收藏紫圆底白星
             Box(
                 modifier = Modifier
-                    .align(Alignment.TopEnd)
+                    .align(Alignment.TopStart)
                     .size(48.dp)
                     .clip(ShapePill)
                     .clickable { scope.launch { FavoritesState.toggleWork(work.rjCode) } },
                 contentAlignment = Alignment.Center,
             ) {
-                Surface(
-                    modifier = Modifier.size(36.dp),
-                    shape = ShapePill,
-                    color = MaterialTheme.colorScheme.surfaceContainerHighest,
-                    contentColor = MaterialTheme.colorScheme.onSurface,
-                ) {
-                    Box(contentAlignment = Alignment.Center) {
-                        Icon(
-                            imageVector = if (fav) Icons.Filled.Favorite else Icons.Filled.FavoriteBorder,
-                            contentDescription = if (fav) "取消收藏" else "收藏",
-                            tint = if (fav) MaterialTheme.colorScheme.primary
-                            else MaterialTheme.colorScheme.onSurface,
-                            modifier = Modifier.size(18.dp),
-                        )
+                if (fav) {
+                    Surface(
+                        modifier = Modifier.size(30.dp),
+                        shape = ShapePill,
+                        color = MaterialTheme.colorScheme.primary,
+                        contentColor = MaterialTheme.colorScheme.onPrimary,
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Icon(
+                                Icons.Filled.Star,
+                                contentDescription = "取消收藏",
+                                modifier = Modifier.size(18.dp),
+                            )
+                        }
                     }
+                } else {
+                    Icon(
+                        Icons.Filled.Star,
+                        contentDescription = "收藏",
+                        tint = CardTextColor,
+                        modifier = Modifier.size(22.dp),
+                    )
+                }
+            }
+            // 类型标签叠在封面上：不透明底，避免半透明叠层糊住封面
+            if (work.tags.isNotEmpty()) {
+                LazyRow(
+                    modifier = Modifier
+                        .align(Alignment.BottomStart)
+                        .fillMaxWidth()
+                        .padding(horizontal = 8.dp, vertical = 8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    lazyItems(work.tags.take(6)) { tag -> CoverTagChip(tag.name) }
                 }
             }
             if (imageMode) {
@@ -716,53 +743,55 @@ private fun WorkCard(
                             else -> Color.LightGray
                         },
                         style = MaterialTheme.typography.labelSmall,
-                        modifier = Modifier.align(Alignment.TopStart).padding(8.dp),
+                        modifier = Modifier.align(Alignment.TopEnd).padding(12.dp),
                     )
                 }
                 Text(
                     work.rjCode,
                     style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurface,
+                    color = CardTextColor,
                     modifier = Modifier
-                        .align(Alignment.BottomStart)
+                        .align(Alignment.CenterEnd)
                         .padding(6.dp)
-                        .background(MaterialTheme.colorScheme.surfaceContainerHighest, ShapeItem)
+                        .background(CoverTagColor, ShapeItem)
                         .padding(horizontal = 6.dp, vertical = 2.dp),
                 )
             }
         }
         if (!imageMode) {
             Column(
-                modifier = Modifier.padding(top = 8.dp),
-                verticalArrangement = Arrangement.spacedBy(4.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 12.dp, vertical = 10.dp),
+                verticalArrangement = Arrangement.spacedBy(3.dp),
             ) {
                 Text(
                     work.title,
                     style = MaterialTheme.typography.bodyMedium,
-                    fontWeight = FontWeight.SemiBold,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    maxLines = 1,
+                    fontWeight = FontWeight.Bold,
+                    color = CardTextColor,
+                    maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                 )
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        work.actors.joinToString("、").takeIf { it.isNotBlank() } ?: work.circle,
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f),
-                    )
-                    Text(
-                        "%,d 播放".format(work.playCount),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(start = 6.dp),
-                    )
-                }
-                if (work.tags.isNotEmpty()) {
-                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        work.tags.take(2).forEach { tag -> TagChip(tag.name) }
+                CardInfoRow("系列", work.series)
+                CardInfoRow("社团", work.circle)
+                CardInfoRow("销量", work.salesCount?.let { "%,d".format(it) } ?: "—")
+                if (work.actors.isNotEmpty()) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        work.actors.take(2).forEach { actor ->
+                            ActorChip(actor, Modifier.weight(1f, fill = false))
+                        }
+                        if (work.actors.size > 2) {
+                            Text(
+                                "+${work.actors.size - 2}",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = CardSubTextColor,
+                            )
+                        }
                     }
                 }
             }
@@ -771,16 +800,59 @@ private fun WorkCard(
 }
 
 @Composable
-private fun TagChip(text: String) {
+private fun CardInfoRow(label: String, value: String) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Text(
+            label,
+            style = MaterialTheme.typography.labelSmall,
+            color = CardSubTextColor,
+            modifier = Modifier.width(32.dp),
+        )
+        Text(
+            value.ifBlank { "—" },
+            style = MaterialTheme.typography.labelSmall,
+            color = CardTextColor,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
+}
+
+@Composable
+private fun CoverTagChip(text: String) {
     Surface(
         shape = ShapePill,
-        color = MaterialTheme.colorScheme.primaryContainer,
-        contentColor = MaterialTheme.colorScheme.primary,
+        color = CoverTagColor,
+        contentColor = CardTextColor,
     ) {
         Text(
             text,
             style = MaterialTheme.typography.labelSmall,
-            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier
+                .widthIn(max = 88.dp)
+                .padding(horizontal = 8.dp, vertical = 4.dp),
+        )
+    }
+}
+
+@Composable
+private fun ActorChip(text: String, modifier: Modifier = Modifier) {
+    Surface(
+        modifier = modifier,
+        shape = ShapePill,
+        color = ActorPillColor,
+        contentColor = ActorPillTextColor,
+    ) {
+        Text(
+            text,
+            style = MaterialTheme.typography.labelSmall,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier
+                .widthIn(max = 108.dp)
+                .padding(horizontal = 12.dp, vertical = 5.dp),
         )
     }
 }
