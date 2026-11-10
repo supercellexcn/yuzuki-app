@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -16,10 +17,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items as gridItems
-import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -183,7 +182,7 @@ fun HistoryScreen(
 ) {
     val scope = rememberCoroutineScope()
     val listState = rememberLazyListState()
-    val gridState = rememberLazyGridState()
+    val cardState = rememberLazyListState()
     val prefs = remember {
         AppContainer.app.getSharedPreferences("yuzuki_ui", Context.MODE_PRIVATE)
     }
@@ -199,6 +198,7 @@ fun HistoryScreen(
     var cardView by remember { mutableStateOf(prefs.getString(HISTORY_VIEW_KEY, "list") == "card") }
 
     val hasMore = total > records.size
+    val cardRows = remember(records) { records.chunked(2) }
 
     suspend fun load(reset: Boolean) {
         if (loading) return
@@ -224,7 +224,7 @@ fun HistoryScreen(
     LaunchedEffect(Unit) { if (!loaded) load(true) }
     LaunchedEffect(DockState.scrollTopTicket) {
         if (DockState.scrollTopTicket > 0) {
-            if (cardView) gridState.animateScrollToItem(0) else listState.animateScrollToItem(0)
+            if (cardView) cardState.animateScrollToItem(0) else listState.animateScrollToItem(0)
         }
     }
 
@@ -240,7 +240,7 @@ fun HistoryScreen(
 
     val shouldLoadMoreGrid by remember {
         derivedStateOf {
-            val info = gridState.layoutInfo
+            val info = cardState.layoutInfo
             val last = info.visibleItemsInfo.lastOrNull()?.index ?: 0
             cardView && hasMore && !loading && last >= info.totalItemsCount - 4
         }
@@ -261,43 +261,49 @@ fun HistoryScreen(
         WebTopBar(onOpenDrawer = onOpenDrawer)
 
         if (cardView) {
-            LazyVerticalGrid(
-                state = gridState,
-                columns = GridCells.Fixed(2),
+            LazyColumn(
+                state = cardState,
                 contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 14.dp, bottom = 24.dp),
-                horizontalArrangement = Arrangement.spacedBy(16.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp),
                 modifier = Modifier.weight(1f),
             ) {
-                item(span = { GridItemSpan(maxLineSpan) }) {
+                item(key = "back") {
                     Box(modifier = Modifier.padding(bottom = 4.dp)) {
                         WebBackButton(onClick = onBackToLibrary)
                     }
                 }
-                item(span = { GridItemSpan(maxLineSpan) }) {
+                item(key = "head") {
                     HistoryHeader(total = total, cardView = true, onToggle = { setCard(false) })
                 }
                 if (records.isEmpty()) {
-                    item(span = { GridItemSpan(maxLineSpan) }) { HistoryEmpty(loading, error) }
-                }
-                gridItems(records, key = { "p${it.playId}" }) { record ->
-                    WorkCard(
-                        work = record.work,
-                        imageMode = LibraryState.imageMode,
-                        cardBg = cardBg,
-                        metaBg = metaBg,
-                        genreBg = genreBg,
-                        actorBg = actorBg,
-                        history = HistoryMeta(
-                            timeLabel = historyTime(record.playedAt, withClock = true),
-                            shortTimeLabel = historyTime(record.playedAt),
-                            durationLabel = historyDuration(record.durationSeconds),
-                        ),
-                        onOpen = { onOpenWork(record.work.rjCode) },
-                    )
-                }
-                if (records.isNotEmpty()) {
-                    item(span = { GridItemSpan(maxLineSpan) }) { HistoryEndTip(loading, hasMore, loaded) }
+                    item(key = "empty") { HistoryEmpty(loading, error) }
+                } else {
+                    items(cardRows, key = { row -> row.firstOrNull()?.playId?.toString() ?: "row" }) { row ->
+                        // 同一行两张卡片等高（本行最高的那张决定）
+                        EqualHeightRow(columns = 2, gap = 16.dp) { index ->
+                            val record = row.getOrNull(index)
+                            if (record == null) {
+                                Spacer(modifier = Modifier.fillMaxWidth())
+                            } else {
+                                WorkCard(
+                                    work = record.work,
+                                    imageMode = LibraryState.imageMode,
+                                    cardBg = cardBg,
+                                    metaBg = metaBg,
+                                    genreBg = genreBg,
+                                    actorBg = actorBg,
+                                    history = HistoryMeta(
+                                        timeLabel = historyTime(record.playedAt, withClock = true),
+                                        shortTimeLabel = historyTime(record.playedAt),
+                                        durationLabel = historyDuration(record.durationSeconds),
+                                    ),
+                                    onOpen = { onOpenWork(record.work.rjCode) },
+                                    modifier = Modifier.fillMaxWidth(),
+                                    )
+                            }
+                        }
+                    }
+                    item(key = "end") { HistoryEndTip(loading, hasMore, loaded) }
                 }
             }
         } else {

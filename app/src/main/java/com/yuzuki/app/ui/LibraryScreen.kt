@@ -19,11 +19,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.lazy.grid.GridItemSpan
-import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items as gridItems
-import androidx.compose.foundation.lazy.grid.rememberLazyGridState
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.items as lazyItems
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.BasicTextField
@@ -91,7 +89,7 @@ fun LibraryScreen(
     modifier: Modifier = Modifier,
 ) {
     val scope = rememberCoroutineScope()
-    val gridState = rememberLazyGridState()
+    val listState = rememberLazyListState()
     var items by remember { mutableStateOf<List<Work>>(emptyList()) }
     var total by remember { mutableStateOf(0) }
     var page by remember { mutableStateOf(1) }
@@ -186,18 +184,23 @@ fun LibraryScreen(
         requestPage(reset = true)
     }
 
-    LaunchedEffect(LibraryState.scrollTopTicket) { gridState.scrollToItem(0) }
+    LaunchedEffect(LibraryState.scrollTopTicket) { listState.scrollToItem(0) }
     // 悬浮控件的「回到顶部」
     LaunchedEffect(DockState.scrollTopTicket) {
-        if (DockState.scrollTopTicket > 0) gridState.animateScrollToItem(0)
+        if (DockState.scrollTopTicket > 0) listState.animateScrollToItem(0)
     }
     LaunchedEffect(Unit) { FavoritesState.refresh() }
 
+    // 列表按行渲染，可见行数 × 列数 = 已看到的作品数
+    val columns = if (LocalConfiguration.current.screenWidthDp >= 600) 3 else 2
+    val rows = remember(items, columns) { items.chunked(columns) }
+
     val shouldLoadMore by remember {
         derivedStateOf {
-            val lastVisible = gridState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: -1
+            val lastRow = listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: -1
+            val seen = ((lastRow + 1) * columns).coerceIn(0, items.size)
             PagingLogic.shouldLoadMore(
-                lastVisible, items.size, total, loading, endReached, LibraryState.randomMode,
+                seen, items.size, total, loading, endReached, LibraryState.randomMode,
             )
         }
     }
@@ -216,7 +219,6 @@ fun LibraryScreen(
     val genreBg = WebColors.tagBg(appearance.tagColor, appearance.genreTagAlpha)
     val actorBg = WebColors.tagBg(appearance.actorColor, appearance.actorTagAlpha)
 
-    val columns = if (LocalConfiguration.current.screenWidthDp >= 600) 3 else 2
     val hasFilter = searchText.isNotBlank() || LibraryState.conds.isNotEmpty()
 
     Column(modifier = modifier.fillMaxSize()) {
@@ -252,32 +254,39 @@ fun LibraryScreen(
                 modifier = Modifier.padding(horizontal = PAGE_PAD_H.dp).fillMaxWidth(),
                 onRetry = { requestPage(reset = true) },
             )
-            else -> LazyVerticalGrid(
-                columns = GridCells.Fixed(columns),
-                state = gridState,
+            else -> LazyColumn(
+                state = listState,
                 contentPadding = PaddingValues(
                     start = PAGE_PAD_H.dp,
                     end = PAGE_PAD_H.dp,
                     top = if (hasFilter) 12.dp else PAGE_PAD_TOP.dp,
                     bottom = PAGE_PAD_BOTTOM.dp,
                 ),
-                horizontalArrangement = Arrangement.spacedBy(GRID_GAP.dp),
                 verticalArrangement = Arrangement.spacedBy(GRID_GAP.dp),
                 modifier = Modifier.weight(1f),
             ) {
-                gridItems(items, key = { it.rjCode }) { work ->
-                    WorkCard(
-                        work = work,
-                        imageMode = LibraryState.imageMode,
-                        cardBg = cardBg,
-                        metaBg = metaBg,
-                        genreBg = genreBg,
-                        actorBg = actorBg,
-                        onOpen = { onOpenWork(work.rjCode) },
-                        onCond = { cond -> LibraryState.addCond(cond) },
-                    )
+                items(rows, key = { row -> row.firstOrNull()?.rjCode ?: "row" }) { row ->
+                    // 同一行卡片高度 = 本行最高那张（CSS grid align-items: stretch）
+                    EqualHeightRow(columns = columns, gap = GRID_GAP.dp) { index ->
+                        val work = row.getOrNull(index)
+                        if (work == null) {
+                            Spacer(modifier = Modifier.fillMaxWidth())
+                        } else {
+                            WorkCard(
+                                work = work,
+                                imageMode = LibraryState.imageMode,
+                                cardBg = cardBg,
+                                metaBg = metaBg,
+                                genreBg = genreBg,
+                                actorBg = actorBg,
+                                onOpen = { onOpenWork(work.rjCode) },
+                                modifier = Modifier.fillMaxWidth(),
+                                onCond = { cond -> LibraryState.addCond(cond) },
+                            )
+                        }
+                    }
                 }
-                item(span = { GridItemSpan(maxLineSpan) }) {
+                item(key = "footer") {
                     Box(
                         modifier = Modifier.fillMaxWidth().height(56.dp),
                         contentAlignment = Alignment.Center,

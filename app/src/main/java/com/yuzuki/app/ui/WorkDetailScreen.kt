@@ -706,9 +706,10 @@ private fun RecBlock(
         else -> Row(
             // .rec: flex / gap 12 / overflow-x auto
             modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            works.forEach { work ->
+            // 固定卡宽 + 等高：同一排推荐卡片高度取最高那张
+            EqualHeightRow(columns = works.size, gap = 12.dp, cellWidth = cardWidth) { index ->
+                val work = works[index]
                 WorkCard(
                     work = work,
                     imageMode = LibraryState.imageMode,
@@ -717,7 +718,7 @@ private fun RecBlock(
                     genreBg = genreBg,
                     actorBg = actorBg,
                     onOpen = { onOpen(work.rjCode) },
-                    modifier = Modifier.width(cardWidth),
+                    modifier = Modifier.fillMaxWidth(),
                     onCond = onCond,
                 )
             }

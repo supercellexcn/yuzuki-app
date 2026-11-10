@@ -32,9 +32,13 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.Constraints
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.yuzuki.app.data.AppContainer
@@ -212,6 +216,68 @@ fun WebSectionTitle(text: String, modifier: Modifier = Modifier) {
         color = WebColors.Text,
         modifier = modifier.padding(top = 8.dp),
     )
+}
+
+/**
+ * 等高卡片行 —— 等价于 CSS grid 的 `align-items: stretch`：
+ * 先按单元格宽度量一遍拿到每张卡片的自然高度，取本行最高值，再按这个高度量第二遍，
+ * 于是同一行的卡片底边严格对齐，内容少的卡片把多余空间留在底部。
+ *
+ * @param columns 本行单元格数（末行不足时要由 content 补空占位，保证列宽不变）
+ * @param cellWidth 固定卡宽；横向滚动列表（宽度无上限）必须传
+ */
+@Composable
+fun EqualHeightRow(
+    columns: Int,
+    gap: Dp,
+    modifier: Modifier = Modifier,
+    cellWidth: Dp? = null,
+    content: @Composable (index: Int) -> Unit,
+) {
+    val density = LocalDensity.current
+    Layout(
+        content = { repeat(columns) { content(it) } },
+        modifier = modifier,
+    ) { measurables, constraints ->
+        val cols = columns.coerceAtLeast(1)
+        val gapPx = gap.roundToPx()
+        val fixedPx = cellWidth?.let { with(density) { it.roundToPx() } }
+        val totalWidth = if (fixedPx != null) {
+            (fixedPx * cols + gapPx * (cols - 1)).coerceAtLeast(0)
+        } else {
+            constraints.maxWidth
+        }
+        val cellPx = fixedPx ?: ((totalWidth - gapPx * (cols - 1)) / cols).coerceAtLeast(0)
+
+        // 第一遍：只锁宽度，取各自自然高度
+        val naturalHeights = measurables.map { measurable ->
+            measurable.measure(
+                Constraints(
+                    minWidth = cellPx,
+                    maxWidth = cellPx,
+                    minHeight = 0,
+                    maxHeight = Constraints.Infinity,
+                ),
+            ).height
+        }
+        val rowHeight = naturalHeights.maxOrNull() ?: 0
+        // 第二遍：统一高度，卡片内部用 weight 把信息区撑满
+        val placeables = measurables.map { measurable ->
+            measurable.measure(
+                Constraints(
+                    minWidth = cellPx,
+                    maxWidth = cellPx,
+                    minHeight = rowHeight,
+                    maxHeight = rowHeight,
+                ),
+            )
+        }
+        layout(totalWidth, rowHeight) {
+            placeables.forEachIndexed { index, placeable ->
+                placeable.placeRelative(index * (cellPx + gapPx), 0)
+            }
+        }
+    }
 }
 
 @Composable
