@@ -3,6 +3,7 @@ package com.yuzuki.app.web
 import android.annotation.SuppressLint
 import android.content.Context
 import android.graphics.Bitmap
+import android.util.Log
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
@@ -17,6 +18,8 @@ import com.yuzuki.app.data.ServerConfig
 import com.yuzuki.app.playback.PlayerHolder
 import org.json.JSONObject
 import java.io.ByteArrayInputStream
+
+private const val TAG = "YuzukiViewport"
 
 /** 专用 WebView：加载现有 web 页，App 不重画任何界面（方案 C4）。 */
 @SuppressLint("SetJavaScriptEnabled", "AddJavascriptInterface")
@@ -44,11 +47,23 @@ class YuzukiWebView(
         }
     }
 
-    // 注入顺序：token → nav → bridge，全部必须在页面自身 JS 执行前生效
+    /** 锁屏换曲 → 点击前端 BottomPlayer 的上一曲/下一曲按钮。 */
+    private val commandSink: (String) -> Unit = { command ->
+        post {
+            val quoted = JSONObject.quote(command)
+            evaluateJavascript(
+                "window.__yuzukiPlayerCommand&&window.__yuzukiPlayerCommand($quoted)",
+                null,
+            )
+        }
+    }
+
+    // 注入顺序：token → nav → bridge → commands，全部必须在页面自身 JS 执行前生效
     private val scripts: List<String> = listOfNotNull(
         BridgeInjector.tokenScript(token),
         NavScript.SCRIPT,
         BridgeInjector.bridgeScript(context),
+        PlayerCommands.SCRIPT,
     )
 
     init {
@@ -56,6 +71,7 @@ class YuzukiWebView(
         syncJavascriptInterface("$baseUrl/")
         documentStart = installInjection()
         PlayerHolder.eventSink = eventSink
+        PlayerHolder.commandSink = commandSink
         webViewClient = YuzukiClient()
         webChromeClient = WebChromeClient()
         loadUrl("$baseUrl/")
@@ -65,8 +81,10 @@ class YuzukiWebView(
         settings.apply {
             javaScriptEnabled = true
             domStorageEnabled = true
-            // P0 离线第 1 层：断网后仍可渲染已缓存的壳（方案 §9）
-            cacheMode = WebSettings.LOAD_CACHE_ELSE_NETWORK
+            // 遵循 HTTP 缓存头：nginx 对静态资源给了 expires 30d，断网仍可渲染壳（方案 §9）；
+            // 而 /api/ 没有缓存头，PC 端改的壁纸/偏好等设置能实时反映到 App。
+            // 不能用 LOAD_CACHE_ELSE_NETWORK——它「即使过期也用缓存」，会把旧设置一直带在 App 里。
+            cacheMode = WebSettings.LOAD_DEFAULT
             mediaPlaybackRequiresUserGesture = false
             mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
             allowFileAccess = false
@@ -76,8 +94,9 @@ class YuzukiWebView(
             setSupportZoom(false)
             builtInZoomControls = false
             displayZoomControls = false
-            // 前端 index.html 已声明 width=device-width，手机宽度天然命中 <760px 断点
-            useWideViewPort = false
+            // 必须为 true：让 index.html 的 width=device-width 生效，否则 WebView 按约 980px
+            // 宽视口渲染，前端 matchMedia('(max-width:760px)') 为 false 会走桌面布局。
+            useWideViewPort = true
             loadWithOverviewMode = false
         }
         // 前端已声明 color-scheme: dark，禁止 WebView 自动反色覆盖其外观
@@ -149,6 +168,10 @@ class YuzukiWebView(
             view.evaluateJavascript("(${BridgeInjector.READY_EXPR})") { value ->
                 if (value != "true") post { onBridgeUnavailable() }
             }
+            // 视口断言：真机 Logcat 中应为 "true|宽x高"，宽度需 <=760 才算命中移动断点
+            view.evaluateJavascript(ViewportPolicy.probeScript()) { value ->
+                Log.i(TAG, "viewport(mobile|WxH)=${value?.trim('"').orEmpty()}")
+            }
             // 同步当前路由到原生 Tab 选中态（覆盖 SPA 回退 loadUrl 与首次加载）
             view.evaluateJavascript("location.pathname") { value ->
                 val path = value?.trim('"').orEmpty()
@@ -167,6 +190,7 @@ class YuzukiWebView(
 
     override fun destroy() {
         if (PlayerHolder.eventSink === eventSink) PlayerHolder.eventSink = null
+        if (PlayerHolder.commandSink === commandSink) PlayerHolder.commandSink = null
         stopLoading()
         super.destroy()
     }

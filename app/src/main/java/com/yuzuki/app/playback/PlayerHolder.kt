@@ -3,19 +3,27 @@ package com.yuzuki.app.playback
 import android.os.Handler
 import android.os.Looper
 import androidx.media3.common.MediaItem
+import androidx.media3.common.MediaMetadata
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
+import org.json.JSONObject
 
 /**
  * ExoPlayer 单例状态机（方案 §6.3 / §6.4）：原生是唯一真相源。
  * Service 持有 ExoPlayer 并 attach 到这里；WebView 经 JsBridge 下发指令，
  * 这里回推 6 类事件，播放中每 250ms 一次 timeupdate。
+ * S4：维护锁屏 MediaMetadata（含原生下载的封面）并转发换曲命令到 WebView。
  */
 @UnstableApi
 object PlayerHolder {
     private val main = Handler(Looper.getMainLooper())
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     @Volatile private var player: ExoPlayer? = null
     @Volatile private var state = NativeAudioState()
@@ -25,8 +33,16 @@ object PlayerHolder {
     /** 由当前 WebView 设置，重建时覆盖；销毁时置空。 */
     @Volatile var eventSink: ((String) -> Unit)? = null
 
-    /** S4 的 MediaSession / ArtworkLoader 消费这里的最新元数据。 */
-    @Volatile var metadataJson: String = ""
+    /** 锁屏换曲命令 → WebView 的 __yuzukiPlayerCommand。 */
+    @Volatile var commandSink: ((String) -> Unit)? = null
+
+    /** 当前锁屏元数据；前端 updateMediaMetadata() 早于 a.src 赋值，故换源时一并带上。 */
+    @Volatile private var title: String = ""
+    @Volatile private var artist: String = ""
+    @Volatile private var album: String = ""
+    @Volatile private var artworkBytes: ByteArray? = null
+    @Volatile private var artworkLoader: ArtworkLoader? = null
+    @Volatile private var artworkBaseUrl: String = ""
 
     private val ticker = object : Runnable {
         override fun run() {
@@ -155,8 +171,32 @@ object PlayerHolder {
         player?.repeatMode = if (enabled) Player.REPEAT_MODE_ONE else Player.REPEAT_MODE_OFF
     }
 
-    fun setMetadata(json: String) {
-        metadataJson = json
+    /** 前端 new MediaMetadata({...}) 经 JsBridge 到达；封面异步下载后二次写回会话。 */
+    fun setMetadata(json: String, baseUrl: String) {
+        val obj = runCatching { JSONObject(json) }.getOrElse { return }
+        title = obj.optString("title")
+        artist = obj.optString("artist")
+        album = obj.optString("album")
+        val artworkUrl = obj.optString("artworkUrl")
+        artworkBaseUrl = baseUrl
+        applyMetadataToCurrentItem()
+
+        if (artworkUrl.isBlank()) {
+            artworkBytes = null
+            return
+        }
+        val loader = artworkLoader?.takeIf { artworkBaseUrl == baseUrl } ?: ArtworkLoader(baseUrl)
+        artworkLoader = loader
+        scope.launch {
+            val bytes = loader.load(artworkUrl) ?: return@launch
+            artworkBytes = bytes
+            runOnMain { applyMetadataToCurrentItem() }
+        }
+    }
+
+    /** 锁屏 / 蓝牙的上一曲、下一曲：队列归前端 player.ts 管，原生只转命令。 */
+    fun requestCommand(command: String) = runOnMain {
+        commandSink?.invoke(command)
     }
 
     fun getSnapshot(): String = state.toEventJson()
@@ -166,8 +206,33 @@ object PlayerHolder {
         emit(NativeEvents.error(message))
     }
 
+    private fun buildMediaMetadata(): MediaMetadata = MediaMetadata.Builder()
+        .setTitle(title)
+        .setArtist(artist)
+        .setAlbumTitle(album)
+        .apply {
+            artworkBytes?.let {
+                setArtworkData(it, MediaMetadata.PICTURE_TYPE_FRONT_COVER)
+            }
+        }
+        .build()
+
+    private fun applyMetadataToCurrentItem() = runOnMain {
+        val p = player ?: return@runOnMain
+        val item = p.currentMediaItem ?: return@runOnMain
+        p.replaceMediaItem(
+            p.currentMediaItemIndex,
+            item.buildUpon().setMediaMetadata(buildMediaMetadata()).build(),
+        )
+    }
+
     private fun applySource(p: ExoPlayer, url: String) {
-        p.setMediaItem(MediaItem.fromUri(url))
+        p.setMediaItem(
+            MediaItem.Builder()
+                .setUri(url)
+                .setMediaMetadata(buildMediaMetadata())
+                .build(),
+        )
         p.prepare()
     }
 

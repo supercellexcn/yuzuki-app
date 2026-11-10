@@ -63,6 +63,7 @@ class JsBridge(
                     .put("album", src.optString("album"))
                     .put("artworkUrl", src.optString("artworkUrl"))
                     .toString(),
+                baseUrl,
             )
         }.onFailure { PlayerHolder.emitError("元数据解析失败") }
     }
