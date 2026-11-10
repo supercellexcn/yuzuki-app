@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -28,6 +29,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -48,8 +51,14 @@ import kotlinx.coroutines.launch
  */
 private val CardShape = RoundedCornerShape(10.dp)
 
-/** 声优 chips 两行的高度：12sp/14sp 行高 + 上下 3dp 内边距 = 20dp，两行再加 4dp 间距。 */
-private val ActorBlockHeight = 44.dp
+/** 一行「标签 + 值」的最小高度（默认字号下 = 一行 13sp 文本）。 */
+private val InfoRowHeight = 18.dp
+
+/** chip 的上下内边距之和（.chip: padding 3 10）。 */
+private val ChipPaddingV = 6.dp
+
+/** 声优 chips 两行之间的间距（.chips gap 4）。 */
+private val ChipRowGap = 4.dp
 
 /** 播放历史卡片的附加信息（web `WorkCard` 的 history prop）。 */
 data class HistoryMeta(
@@ -197,30 +206,32 @@ fun WorkCard(
                     minLines = 2,
                     overflow = TextOverflow.Ellipsis,
                 )
-                if (work.series.isNotBlank()) {
-                    CardInfoRow(
-                        "系列",
-                        work.series,
-                        onClick = if (isHistory) null else ({ onCond(FilterCond("series", work.series)) }),
-                    )
-                }
+                // 信息行固定三个槽位：数据缺失时留等高的空位，
+                // 保证同一行卡片的底边严格对齐（而不是随内容多少上下浮动）。
+                InfoSlot(
+                    label = "系列",
+                    value = work.series,
+                    onClick = if (isHistory) null else ({ onCond(FilterCond("series", work.series)) }),
+                )
                 if (isHistory) {
-                    CardInfoRow("播放时间", history?.timeLabel.orEmpty())
-                    CardInfoRow("播放时长", history?.durationLabel.orEmpty())
+                    InfoSlot("播放时间", history?.timeLabel.orEmpty())
+                    InfoSlot("播放时长", history?.durationLabel.orEmpty())
                 } else {
-                    if (work.circle.isNotBlank()) {
-                        CardInfoRow("社团", work.circle) { onCond(FilterCond("circle", work.circle)) }
-                    }
-                    if (work.salesCount != null) {
-                        CardInfoRow("销量", "%,d".format(work.salesCount))
-                    }
-                    if (work.playCount > 0) {
-                        CardInfoRow("播放", "%,d".format(work.playCount))
-                    }
+                    InfoSlot(
+                        label = "社团",
+                        value = work.circle,
+                        onClick = { onCond(FilterCond("circle", work.circle)) },
+                    )
+                    InfoSlot("销量", work.salesCount?.let { "%,d".format(it) }.orEmpty())
                 }
-                // 声优区固定占两行（chip 20 + gap 4 + chip 20 = 44dp）：
-                // 声优数量 1~4 个的卡片高度一致，网格里同一行的卡片底边才能对齐。
-                Box(modifier = Modifier.fillMaxWidth().heightIn(min = ActorBlockHeight)) {
+                // 声优区固定占两行高（按当前字体缩放换算）：
+                // 声优 0~4 个的卡片高度一致，网格里同一行的卡片底边才能对齐。
+                val chipHeight = with(LocalDensity.current) { 14.sp.toDp() } + ChipPaddingV
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = chipHeight * 2 + ChipRowGap),
+                ) {
                     if (work.actors.isNotEmpty()) {
                         FlowRow(
                             modifier = Modifier.fillMaxWidth(),
@@ -240,9 +251,18 @@ fun WorkCard(
 
 /** .row: flex / gap 8 / font-size 13；.label 用 muted，.value 用正文色。 */
 @Composable
-private fun CardInfoRow(label: String, value: String, onClick: (() -> Unit)? = null) {
+private fun CardInfoRow(
+    label: String,
+    value: String,
+    onClick: (() -> Unit)? = null,
+    invisible: Boolean = false,
+) {
     Row(
-        modifier = if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier,
+        modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(min = InfoRowHeight)
+            .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
+            .graphicsLayer { alpha = if (invisible) 0f else 1f },
         horizontalArrangement = Arrangement.spacedBy(8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -255,6 +275,21 @@ private fun CardInfoRow(label: String, value: String, onClick: (() -> Unit)? = n
             overflow = TextOverflow.Ellipsis,
         )
     }
+}
+
+/**
+ * 信息行槽位：没有数据时仍然渲染同样的一行（透明、不可点），
+ * 这样即使系统字体放大，卡片高度也保持一致 —— 只是看不见内容而已。
+ */
+@Composable
+private fun InfoSlot(label: String, value: String, onClick: (() -> Unit)? = null) {
+    val blank = value.isBlank()
+    CardInfoRow(
+        label = label,
+        value = value,
+        onClick = if (blank) null else onClick,
+        invisible = blank,
+    )
 }
 
 /** .cover-tag: 11px / padding 3 9 / radius 999 / 主题标签色 × 标签透明度。 */
