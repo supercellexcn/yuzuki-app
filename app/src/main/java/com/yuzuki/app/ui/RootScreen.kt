@@ -13,6 +13,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
@@ -22,8 +23,8 @@ import com.yuzuki.app.data.FilterCond
 import com.yuzuki.app.playback.PlayerHolder
 
 /**
- * 手机端根布局：顶部状态栏避让 + 内容区 + 底部 3 Tab。
- * 迷你播放条已移除；中间「播放器」Tab 直接打开全屏播放器，筛选 / 排序收进主页底部面板。
+ * 手机端根布局：顶部状态栏避让 + 内容区 + 底部 3 Tab + 侧栏抽屉 + 全屏播放器。
+ * 抽屉挂在根层级，才能盖住底部 Tab（与 web 的抽屉覆盖全屏一致）。
  */
 @Composable
 fun RootScreen(
@@ -35,7 +36,9 @@ fun RootScreen(
     val context = LocalContext.current
     val activity = context as? Activity
     val playState by PlayerHolder.state.collectAsState()
+    val userName by AppContainer.tokenStore.username.collectAsState(initial = null)
     var lastBackAt by remember { mutableLongStateOf(0L) }
+    var drawerOpen by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
         FavoritesState.refresh()
@@ -47,10 +50,11 @@ fun RootScreen(
         nav.replace(Route.Library)
     }
 
-    // 系统返回键与 UI 返回共用一套语义：全屏播放器 → 返回栈 / 回主页 → 双击退出
+    // 系统返回键与 UI 返回共用一套语义：抽屉 → 全屏播放器 → 返回栈 / 回主页 → 双击退出
     BackHandler(enabled = true) {
         val now = SystemClock.elapsedRealtime()
         when {
+            drawerOpen -> drawerOpen = false
             playState.fullscreen -> PlayerHolder.setFullscreen(false)
             nav.backOrHome() -> { }
             now - lastBackAt < 2000 -> activity?.finish()
@@ -67,11 +71,7 @@ fun RootScreen(
                 when (val route = nav.current) {
                     is Route.Library -> LibraryScreen(
                         onOpenWork = { nav.go(Route.Work(it)) },
-                        onOpenSettings = { nav.go(Route.Settings) },
-                        onOpenFavorites = { nav.go(Route.Favorites) },
-                        onOpenChangePassword = { nav.go(Route.ChangePassword) },
-                        onChangeServer = onChangeServer,
-                        onLogout = onLogout,
+                        onOpenDrawer = { drawerOpen = true },
                     )
                     is Route.Work -> WorkDetailScreen(
                         rj = route.rj,
@@ -123,7 +123,29 @@ fun RootScreen(
                     PlayerHolder.setFullscreen(false)
                     nav.go(Route.Work(rj))
                 },
+                onApplyCond = ::openLibraryWith,
             )
         }
+
+        SideDrawer(
+            visible = drawerOpen,
+            userName = userName ?: "",
+            onDismiss = { drawerOpen = false },
+            onOpenFavorites = { nav.replace(Route.Favorites) },
+            onOpenHistory = { nav.replace(Route.History) },
+            onOpenSettings = { nav.go(Route.Settings) },
+            onOpenChangePassword = { nav.go(Route.ChangePassword) },
+            onChangeServer = onChangeServer,
+            onLogout = onLogout,
+            onApplyCond = { cond ->
+                LibraryState.addCond(cond)
+                nav.replace(Route.Library)
+            },
+            onOpenViewSheet = {
+                LibraryState.openSheet()
+                nav.replace(Route.Library)
+            },
+            onAfterNavigate = { drawerOpen = false },
+        )
     }
 }

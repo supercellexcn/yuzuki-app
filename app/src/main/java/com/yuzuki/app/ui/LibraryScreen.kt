@@ -34,10 +34,7 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Switch
@@ -117,11 +114,7 @@ private const val GRID_GAP = 16
 @Composable
 fun LibraryScreen(
     onOpenWork: (String) -> Unit,
-    onOpenSettings: () -> Unit,
-    onOpenFavorites: () -> Unit,
-    onOpenChangePassword: () -> Unit,
-    onChangeServer: () -> Unit,
-    onLogout: () -> Unit,
+    onOpenDrawer: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val scope = rememberCoroutineScope()
@@ -137,7 +130,6 @@ fun LibraryScreen(
     var generation by remember { mutableStateOf(0) }
     var searchText by remember { mutableStateOf(LibraryState.query) }
     var sheetVisible by remember { mutableStateOf(false) }
-    var menuVisible by remember { mutableStateOf(false) }
     var expandedGroup by remember { mutableStateOf<String?>(null) }
     var counts by remember { mutableStateOf<Map<String, List<CountItem>>>(emptyMap()) }
 
@@ -225,6 +217,7 @@ fun LibraryScreen(
     }
 
     LaunchedEffect(LibraryState.scrollTopTicket) { gridState.scrollToItem(0) }
+    LaunchedEffect(LibraryState.sheetTicket) { if (LibraryState.sheetTicket > 0) sheetVisible = true }
     LaunchedEffect(Unit) { FavoritesState.refresh() }
     LaunchedEffect(Unit) {
         counts = mapOf(
@@ -266,17 +259,7 @@ fun LibraryScreen(
             searchText = searchText,
             onSearchChange = { searchText = it },
             total = total,
-            menuVisible = menuVisible,
-            onMenuVisible = { menuVisible = it },
-            onOpenFilter = { sheetVisible = true },
-            onImageMode = { LibraryState.imageMode = !LibraryState.imageMode },
-            onRandom = { LibraryState.toggleRandom() },
-            onScrollTop = { LibraryState.scrollToTop() },
-            onOpenFavorites = onOpenFavorites,
-            onOpenSettings = onOpenSettings,
-            onOpenChangePassword = onOpenChangePassword,
-            onChangeServer = onChangeServer,
-            onLogout = onLogout,
+            onOpenDrawer = onOpenDrawer,
             topbarColor = topbarColor,
             controlBg = controlBg,
         )
@@ -398,17 +381,7 @@ private fun LibraryTopBar(
     searchText: String,
     onSearchChange: (String) -> Unit,
     total: Int,
-    menuVisible: Boolean,
-    onMenuVisible: (Boolean) -> Unit,
-    onOpenFilter: () -> Unit,
-    onImageMode: () -> Unit,
-    onRandom: () -> Unit,
-    onScrollTop: () -> Unit,
-    onOpenFavorites: () -> Unit,
-    onOpenSettings: () -> Unit,
-    onOpenChangePassword: () -> Unit,
-    onChangeServer: () -> Unit,
-    onLogout: () -> Unit,
+    onOpenDrawer: () -> Unit,
     topbarColor: Color,
     controlBg: Color,
 ) {
@@ -421,58 +394,16 @@ private fun LibraryTopBar(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(6.dp),
         ) {
-            Box {
-                Box(
-                    modifier = Modifier
-                        .size(32.dp)
-                        .clip(CircleShape)
-                        .border(1.dp, WebColors.Border, CircleShape)
-                        .clickable { onMenuVisible(true) },
-                    contentAlignment = Alignment.Center,
-                ) {
-                    MenuIcon(WebColors.Text, Modifier.size(18.dp))
-                }
-                DropdownMenu(expanded = menuVisible, onDismissRequest = { onMenuVisible(false) }) {
-                    DropdownMenuItem(
-                        text = { Text("筛选与排序") },
-                        onClick = { onMenuVisible(false); onOpenFilter() },
-                    )
-                    DropdownMenuItem(
-                        text = { Text("图片模式") },
-                        onClick = { onMenuVisible(false); onImageMode() },
-                        trailingIcon = { Text(if (LibraryState.imageMode) "开" else "关") },
-                    )
-                    DropdownMenuItem(
-                        text = { Text("随机推荐") },
-                        onClick = { onMenuVisible(false); onRandom() },
-                        trailingIcon = { Text(if (LibraryState.randomMode) "开" else "关") },
-                    )
-                    DropdownMenuItem(
-                        text = { Text("回到顶部") },
-                        onClick = { onMenuVisible(false); onScrollTop() },
-                    )
-                    HorizontalDivider()
-                    DropdownMenuItem(
-                        text = { Text("收藏管理") },
-                        onClick = { onMenuVisible(false); onOpenFavorites() },
-                    )
-                    DropdownMenuItem(
-                        text = { Text("设置") },
-                        onClick = { onMenuVisible(false); onOpenSettings() },
-                    )
-                    DropdownMenuItem(
-                        text = { Text("修改密码") },
-                        onClick = { onMenuVisible(false); onOpenChangePassword() },
-                    )
-                    DropdownMenuItem(
-                        text = { Text("服务地址") },
-                        onClick = { onMenuVisible(false); onChangeServer() },
-                    )
-                    DropdownMenuItem(
-                        text = { Text("退出登录") },
-                        onClick = { onMenuVisible(false); onLogout() },
-                    )
-                }
+            // 菜单按钮：32 × 32 圆形 + 1px 边框，点击打开 web 式侧栏抽屉
+            Box(
+                modifier = Modifier
+                    .size(32.dp)
+                    .clip(CircleShape)
+                    .border(1.dp, WebColors.Border, CircleShape)
+                    .clickable(onClick = onOpenDrawer),
+                contentAlignment = Alignment.Center,
+            ) {
+                MenuIcon(WebColors.Text, Modifier.size(18.dp))
             }
 
             Row(
