@@ -1,0 +1,10 @@
+<resources>
+    <!-- 平台主题即可：界面由 Compose 与 WebView 渲染，不引入 AppCompat -->
+    <style name="Theme.Yuzuki" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@color/app_background</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:windowNoTitle">true</item>
+    </style>
+</resources>

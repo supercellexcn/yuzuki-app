@@ -1,0 +1,20 @@
+# 本地工具链与 SDK（体积大、机器相关，不入库）
+.toolchain/
+local.properties
+
+# Gradle / IDE 产物
+.gradle/
+build/
+*/build/
+.idea/
+*.iml
+.cxx/
+captures/
+.externalNativeBuild/
+
+# 会话与工具数据（保留在本地，不入库）
+.workbuddy/
+
+# 系统
+.DS_Store
+Thumbs.db
