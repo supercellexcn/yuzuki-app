@@ -90,9 +90,10 @@ fun MobileDock(
     var settleX by remember { mutableFloatStateOf(0f) }
     var settleY by remember { mutableFloatStateOf(0f) }
 
-    // 松手后的吸附动画：position 是两个独立的浮点状态，各自动画到目标点
-    LaunchedEffect(settleTicket) {
-        if (settleTicket == 0) return@LaunchedEffect
+    // 松手后的吸附动画：position 是两个独立的浮点状态，各自动画到目标点。
+    // 拖拽开始时 effect 重启并直接返回，等于取消未跑完的吸附动画。
+    LaunchedEffect(settleTicket, dragging) {
+        if (settleTicket == 0 || dragging) return@LaunchedEffect
         coroutineScope {
             launch { animate(posX, settleX, animationSpec = tween(300)) { v, _ -> posX = v } }
             launch { animate(posY, settleY, animationSpec = tween(300)) { v, _ -> posY = v } }
