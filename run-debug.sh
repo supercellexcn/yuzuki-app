@@ -11,6 +11,7 @@ else
 fi
 GRADLEW="$PROJ_DIR/gradlew"
 ADB="$PROJ_DIR/.toolchain/sdk/platform-tools/adb.exe"
+BUILD="debug"
 APK="$PROJ_DIR/app/build/outputs/apk/debug/app-debug.apk"
 ACT="com.yuzuki.app/.MainActivity"
 
@@ -26,7 +27,8 @@ usage() {
 默认: 编译 Debug 包 -> 安装到已连接设备 -> 启动 App
 
 选项:
-  --fast              跳过编译，直接安装现有 app-debug.apk（最快）
+  --release           构建 Release 包（体积更小、滑动更流畅，复用 debug 签名可直接装）
+  --fast              跳过编译，直接安装现有 APK（最快）
   --connect IP:PORT   先连接无线调试设备再执行
   --no-launch         只安装，不启动
   --log               启动后跟随 Logcat（Ctrl+C 结束）
@@ -40,6 +42,10 @@ EOF
 
 while [ $# -gt 0 ]; do
   case "$1" in
+    --release)
+      BUILD="release"
+      APK="$PROJ_DIR/app/build/outputs/apk/release/app-release.apk"
+      ;;
     --fast) FAST=1 ;;
     --no-launch) LAUNCH=0 ;;
     --log) FOLLOW_LOG=1 ;;
@@ -100,10 +106,14 @@ if [ "$FAST" -eq 1 ]; then
     exit 1
   fi
   echo "[2/3] 跳过编译，安装现有 APK ..."
-  "$ADB" install -r "$PROJ_WIN/app/build/outputs/apk/debug/app-debug.apk"
+  "$ADB" install -r "$PROJ_WIN/app/build/outputs/apk/$BUILD/$(basename "$APK")"
 else
-  echo "[2/3] 编译并安装 ..."
-  "$GRADLEW" -p "$PROJ_WIN" :app:installDebug --console=plain
+  echo "[2/3] 编译并安装（$BUILD）..."
+  if [ "$BUILD" = "release" ]; then
+    "$GRADLEW" -p "$PROJ_WIN" :app:installRelease --console=plain
+  else
+    "$GRADLEW" -p "$PROJ_WIN" :app:installDebug --console=plain
+  fi
 fi
 
 if [ "$LAUNCH" -eq 1 ]; then
@@ -114,7 +124,7 @@ else
 fi
 
 echo "完成，用时 $(( $(date +%s) - START ))s"
-echo "APK: $PROJ_WIN/app/build/outputs/apk/debug/app-debug.apk"
+echo "APK: $PROJ_WIN/app/build/outputs/apk/$BUILD/$(basename "$APK")"
 
 if [ "$FOLLOW_LOG" -eq 1 ]; then
   echo "跟随 Logcat（Ctrl+C 结束）..."

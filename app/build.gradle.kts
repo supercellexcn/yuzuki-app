@@ -24,6 +24,8 @@ android {
         }
         release {
             isMinifyEnabled = false
+            // 个人自用：release 复用 debug 签名，方便直接装机对比性能（不用于上架）
+            signingConfig = signingConfigs.getByName("debug")
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
         }
     }

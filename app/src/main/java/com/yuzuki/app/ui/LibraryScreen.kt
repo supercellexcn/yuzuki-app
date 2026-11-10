@@ -139,7 +139,14 @@ fun LibraryScreen(
                 if (gen != generation) return@launch
                 result.fold(
                     onSuccess = { response ->
-                        items = if (reset || LibraryState.randomMode) response.items else items + response.items
+                        // 按 rj 去重：排序键相同（added_at 并列）时跨页可能重复，
+                        // 重复 key 会让瀑布流错位/跳动
+                        items = if (reset || LibraryState.randomMode) {
+                            response.items
+                        } else {
+                            val seen = items.mapTo(HashSet()) { it.rjCode }
+                            items + response.items.filter { seen.add(it.rjCode) }
+                        }
                         total = response.total
                         page = response.page
                         endReached = LibraryState.randomMode || PagingLogic.endReached(

@@ -59,12 +59,20 @@ export JAVA_HOME=/d/asmr-app/.toolchain/jdk17   # 换成你自己的 JDK 17 亦�
 ./gradlew :app:assembleDebug
 ./gradlew :app:testDebugUnitTest
 # 产物：app/build/outputs/apk/debug/app-debug.apk
+
+./gradlew :app:assembleRelease                  # 日常自用请装这个
+# 产物：app/build/outputs/apk/release/app-release.apk（约 10MB）
 ```
+
+> **Debug 还是 Release**：`debuggable` 的包会让 Compose 的布局/绘制慢一大截 ——
+> 同一台机器实测列表滑动 janky 帧 debug 约 12%、release 约 2%。日常安装使用请装 `release` 包
+> （已复用 debug 签名，可直接 `install -r` 覆盖安装，不必先卸载）。
 
 **一键装机到手机**（省掉手动传 APK / 点安装）：手机开启 USB 调试并授权后执行
 
 ```bash
-./run-debug.sh                  # 编译 → 安装 → 启动
+./run-debug.sh                  # 编译 Debug → 安装 → 启动
+./run-debug.sh --release        # 编译 Release → 安装 → 启动（体验最流畅）
 ./run-debug.sh --fast           # 跳过编译，直接安装已有 APK（最快）
 ./run-debug.sh --log            # 启动后跟随 Logcat
 ./run-debug.sh --connect IP:5555  # 无线调试（首次需 USB 执行 adb tcpip 5555）
