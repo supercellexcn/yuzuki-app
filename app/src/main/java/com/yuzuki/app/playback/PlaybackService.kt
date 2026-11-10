@@ -1,5 +1,6 @@
 package com.yuzuki.app.playback
 
+
 import android.app.PendingIntent
 import android.content.Intent
 import androidx.media3.common.AudioAttributes
@@ -8,6 +9,8 @@ import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.DefaultHttpDataSource
+import androidx.media3.exoplayer.DefaultLoadControl
+import androidx.media3.extractor.DefaultExtractorsFactory
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.session.MediaSession
@@ -39,8 +42,29 @@ class PlaybackService : MediaSessionService() {
             .setReadTimeoutMs(30_000)
         val dataSourceFactory = DefaultDataSource.Factory(this, httpFactory)
 
+        // 在线媒体是几百 MB 的无损单文件，远距离 seek 需要重新拉一段数据。
+        // 默认 LoadControl（50s 缓冲）在这种文件上容易在 seek 后长时间停在 BUFFERING，
+        // 被 ExoPlayer 判成「Playback stuck buffering and not loading」直接报错；
+        // 这里把回缓冲阈值和总缓冲都放大。
+        val loadControl = DefaultLoadControl.Builder()
+            .setBufferDurationsMs(
+                60_000,   // minBufferMs：先攒 60s 再起播
+                180_000,  // maxBufferMs：最多缓存 180s
+                1_000,    // bufferForPlaybackMs
+                5_000,    // bufferForPlaybackAfterRebufferMs
+            )
+            .build()
+
+        // 关键：FLAC 等无损文件常常不带 seek table（索引），远距离 seek 时
+        // FlacExtractor 找不到锚点，会认为「已加载完」而不继续拉数据，
+        // 表现出来就是「进度条点到后面 → 卡在缓冲 + Playback stuck buffering」。
+        // 打开按码率估算的 seek（CBR seeking）后，可以用时间 × 码率估算字节偏移。
+        val extractorsFactory = DefaultExtractorsFactory()
+            .setConstantBitrateSeekingEnabled(true)
+
         val exo = ExoPlayer.Builder(this)
-            .setMediaSourceFactory(DefaultMediaSourceFactory(dataSourceFactory))
+            .setMediaSourceFactory(DefaultMediaSourceFactory(dataSourceFactory, extractorsFactory))
+            .setLoadControl(loadControl)
             .setAudioAttributes(
                 AudioAttributes.Builder()
                     .setContentType(C.AUDIO_CONTENT_TYPE_MUSIC)
@@ -50,6 +74,8 @@ class PlaybackService : MediaSessionService() {
             )
             .setHandleAudioBecomingNoisy(true)
             .build()
+        // 不要用 CLOSEST_SYNC：FLAC 通常没有 seek table，取不到同步点索引时会退化到 0，
+        // 表现为「往进度条后面点就跳回开头」。远距离 seek 用默认 EXACT，靠 Range 取目标段。
         // NAS 是网络流，息屏后需要保持 WiFi 与 CPU 可用，否则会被挂起
         exo.setWakeMode(C.WAKE_MODE_NETWORK)
         player = exo

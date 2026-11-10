@@ -102,6 +102,20 @@ object PlaybackController {
         withController { it.seekTo(target) }
     }
 
+    /**
+     * 进度条按比例 seek：时长的唯一来源是 player 自己。
+     * 不能用 UI 状态里的 durationMs —— 它在 seek / 重新 prepare 时会瞬时无效，
+     * 一旦被兜成 0，进度条算出来就是 seek 到开头。
+     */
+    fun seekToRatio(ratio: Float) {
+        withController { c ->
+            val dur = c.duration.takeIf { it > 0 && it != C.TIME_UNSET } ?: return@withController
+            val target = (dur * ratio.coerceIn(0f, 1f)).toLong()
+            _state.value = _state.value.copy(positionMs = target)
+            c.seekTo(target)
+        }
+    }
+
     fun seekBy(seconds: Int) = withController {
         it.seekTo((it.currentPosition + seconds * 1000L).coerceAtLeast(0))
     }
@@ -241,7 +255,10 @@ object PlaybackController {
         override fun run() {
             val c = controller
             if (c != null) {
-                val duration = c.duration.takeIf { it > 0 && it != C.TIME_UNSET } ?: 0L
+                // 注意：seek / 重新 prepare 期间 c.duration 会短暂回到 0，
+                // 不能把 0 写回 state，否则进度条 ratio 会算成 0，点后面就 seek 到 0
+                val duration = c.duration.takeIf { it > 0 && it != C.TIME_UNSET }
+                    ?: _state.value.durationMs
                 _state.value = _state.value.copy(
                     positionMs = c.currentPosition.coerceAtLeast(0),
                     durationMs = duration,
@@ -254,7 +271,8 @@ object PlaybackController {
     /** 连接成功后整体同步一次，之后由 Listener + ticker 增量更新。 */
     private fun syncFromController() {
         val c = controller ?: return
-        val duration = c.duration.takeIf { it > 0 && it != C.TIME_UNSET } ?: 0L
+        val duration = c.duration.takeIf { it > 0 && it != C.TIME_UNSET }
+            ?: _state.value.durationMs
         _state.value = _state.value.copy(
             playing = c.isPlaying,
             positionMs = c.currentPosition.coerceAtLeast(0),

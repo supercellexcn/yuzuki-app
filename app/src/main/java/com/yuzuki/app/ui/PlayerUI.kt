@@ -364,15 +364,20 @@ fun FullscreenPlayer(
                         modifier = Modifier.fillMaxWidth(),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        val duration = state.durationMs.coerceAtLeast(1L)
+                        // 注意：不能用 coerceAtLeast(1) 兜底 —— duration 无效时会变成 1ms，
+                        // 进度条比例乘出来几乎是 0，点了后面就跳回开头
+                        val duration = state.durationMs.coerceAtLeast(0L)
                         val value = seekPreview ?: state.positionMs.toFloat().coerceAtMost(duration.toFloat())
                         Text(fmtTime(value.toLong()), fontSize = 13.sp, color = Color.White)
                         ProgressSlider(
-                            progress = (value / duration).coerceIn(0f, 1f),
+                            progress = if (duration > 0f) (value / duration).coerceIn(0f, 1f) else 0f,
                             modifier = Modifier.weight(1f).padding(horizontal = 12.dp),
-                            onChange = { ratio -> seekPreview = ratio * duration },
-                            onCommit = {
-                                seekPreview?.let { PlaybackController.seekTo(it.toLong()) }
+                            onChange = { ratio ->
+                                if (duration > 0f) seekPreview = ratio * duration
+                            },
+                            onCommit = { ratio ->
+                                // 只传比例，时长由 player 提供：状态里的 duration 可能瞬时无效
+                                PlaybackController.seekToRatio(ratio)
                                 seekPreview = null
                             },
                         )
@@ -568,7 +573,7 @@ private fun ProgressSlider(
     progress: Float,
     modifier: Modifier = Modifier,
     onChange: (Float) -> Unit,
-    onCommit: () -> Unit,
+    onCommit: (Float) -> Unit,
 ) {
     Box(
         modifier = modifier
@@ -576,20 +581,24 @@ private fun ProgressSlider(
             .height(32.dp)
             .pointerInput(Unit) {
                 detectTapGestures { offset ->
-                    onChange((offset.x / size.width).coerceIn(0f, 1f))
-                    onCommit()
+                    val ratio = (offset.x / size.width).coerceIn(0f, 1f)
+                    onChange(ratio)
+                    onCommit(ratio)
                 }
             }
             .pointerInput(Unit) {
+                var lastX = 0f
                 detectHorizontalDragGestures(
                     onDragStart = { offset ->
+                        lastX = offset.x
                         onChange((offset.x / size.width).coerceIn(0f, 1f))
                     },
                     onHorizontalDrag = { change, _ ->
+                        lastX = change.position.x
                         onChange((change.position.x / size.width).coerceIn(0f, 1f))
                     },
-                    onDragEnd = { onCommit() },
-                    onDragCancel = { onCommit() },
+                    onDragEnd = { onCommit((lastX / size.width).coerceIn(0f, 1f)) },
+                    onDragCancel = { onCommit((lastX / size.width).coerceIn(0f, 1f)) },
                 )
             },
     ) {
