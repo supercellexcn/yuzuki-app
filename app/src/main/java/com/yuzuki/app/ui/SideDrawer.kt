@@ -65,7 +65,8 @@ import com.yuzuki.app.ui.theme.WebColors
  * web 移动端的侧边抽屉（AppSidebar.vue @media max-width 760）：
  * 宽 260px、固定左侧滑出、不透明面板色底、左侧 1px 边框、半透明黑遮罩。
  *
- * 结构照抄：品牌 → 四个分类筛选项 → 分隔线 → 我的收藏 / 最近播放 → 用户 / 设置。
+ * 结构照抄：品牌 → 四个分类筛选项 → 分隔线 → 我的收藏 → 用户 / 设置。
+ * 「最近播放」与「视图与排序」入口已移除（历史走底部 Tab，视图 / 随机由悬浮控件承载）。
  */
 private val DrawerWidth = 260.dp
 
@@ -85,13 +86,11 @@ fun SideDrawer(
     userName: String,
     onDismiss: () -> Unit,
     onOpenFavorites: () -> Unit,
-    onOpenHistory: () -> Unit,
     onOpenSettings: () -> Unit,
     onOpenChangePassword: () -> Unit,
     onChangeServer: () -> Unit,
     onLogout: () -> Unit,
     onApplyCond: (FilterCond) -> Unit,
-    onOpenViewSheet: () -> Unit,
     onAfterNavigate: () -> Unit,
 ) {
     val appearance = LocalAppearance.current
@@ -194,16 +193,6 @@ fun SideDrawer(
                         label = "我的收藏",
                         icon = "star",
                         onClick = { onAfterNavigate(); onOpenFavorites() },
-                    )
-                    DrawerItem(
-                        label = "最近播放",
-                        icon = "history",
-                        onClick = { onAfterNavigate(); onOpenHistory() },
-                    )
-                    DrawerItem(
-                        label = "视图与排序",
-                        icon = "series",
-                        onClick = { onAfterNavigate(); onOpenViewSheet() },
                     )
                 }
 

@@ -6,13 +6,19 @@ import android.graphics.BitmapFactory
 import android.util.LruCache
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -22,12 +28,15 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.produceState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.yuzuki.app.data.AppContainer
 import com.yuzuki.app.data.HostPolicy
 import com.yuzuki.app.ui.theme.GlassPill
@@ -36,6 +45,7 @@ import com.yuzuki.app.ui.theme.LocalAppearance
 import com.yuzuki.app.ui.theme.ShapeCard
 import com.yuzuki.app.ui.theme.ShapeItem
 import com.yuzuki.app.ui.theme.ShapePill
+import com.yuzuki.app.ui.theme.WebColors
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
@@ -139,6 +149,69 @@ fun Chip(
             modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
         )
     }
+}
+
+/**
+ * web 顶栏（App.vue `.topbar`）：min-height 56 / padding 8 10 / 底色 topbar-color / 底边 1px。
+ * 非媒体库页面（作品详情、播放历史）只有左侧菜单按钮，没有搜索与排序控件。
+ */
+@Composable
+fun WebTopBar(onOpenDrawer: () -> Unit, modifier: Modifier = Modifier) {
+    val appearance = LocalAppearance.current
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .background(WebColors.topbar(appearance.navColor, appearance.panelAlpha)),
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(min = 56.dp)
+                .padding(horizontal = 10.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(32.dp)
+                    .clip(CircleShape)
+                    .border(1.dp, WebColors.Border, CircleShape)
+                    .clickable(onClick = onOpenDrawer),
+                contentAlignment = Alignment.Center,
+            ) {
+                MenuIcon(WebColors.Text, Modifier.size(18.dp))
+            }
+        }
+        Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(WebColors.Border))
+    }
+}
+
+/** web `BackButton.vue`：40×40 圆形、1px 边框、面板底、20px 左箭头。 */
+@Composable
+fun WebBackButton(onClick: () -> Unit, modifier: Modifier = Modifier) {
+    val appearance = LocalAppearance.current
+    Box(
+        modifier = modifier
+            .size(40.dp)
+            .clip(CircleShape)
+            .background(WebColors.panel(appearance.navColor, appearance.panelAlpha))
+            .border(1.dp, WebColors.Border, CircleShape)
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        BackArrowIcon(WebColors.Text, Modifier.size(20.dp))
+    }
+}
+
+/** `.section-title`：16px / 600 / margin-top 8（区块间距由列表的 16 给出）。 */
+@Composable
+fun WebSectionTitle(text: String, modifier: Modifier = Modifier) {
+    Text(
+        text = text,
+        fontSize = 16.sp,
+        fontWeight = FontWeight.SemiBold,
+        color = WebColors.Text,
+        modifier = modifier.padding(top = 8.dp),
+    )
 }
 
 @Composable

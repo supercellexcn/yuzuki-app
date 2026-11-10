@@ -416,6 +416,148 @@ fun SideIcon(kind: String, tint: Color, modifier: Modifier = Modifier) {
     }
 }
 
+// ---------------------------------------------------------------- 详情页 / 悬浮控件图标
+
+/** 返回箭头：web `BackButton.vue` 的 lucide arrow-left（M19 12H5 / M12 19l-7-7 7-7）。 */
+@Composable
+fun BackArrowIcon(tint: Color, modifier: Modifier = Modifier) {
+    Canvas(modifier) {
+        val u = size.minDimension / VIEW
+        val stroke = 2f * u
+        drawLine(tint, Offset(19f * u, 12f * u), Offset(5f * u, 12f * u), stroke, StrokeCap.Round)
+        drawLine(tint, Offset(12f * u, 19f * u), Offset(5f * u, 12f * u), stroke, StrokeCap.Round)
+        drawLine(tint, Offset(5f * u, 12f * u), Offset(12f * u, 5f * u), stroke, StrokeCap.Round)
+    }
+}
+
+/** 文件列表类型图标：音频 / 视频 / 图片 / 其它（web FileList 的 SidebarIcon）。 */
+@Composable
+fun FileKindIcon(kind: String, tint: Color, modifier: Modifier = Modifier) {
+    Canvas(modifier) {
+        val u = size.minDimension / VIEW
+        val stroke = 1.7f * u
+        val s = Stroke(stroke, cap = StrokeCap.Round, join = StrokeJoin.Round)
+        when (kind) {
+            // music：八分音符
+            "music" -> {
+                drawLine(tint, Offset(9f * u, 18f * u), Offset(9f * u, 7f * u), stroke, StrokeCap.Round)
+                drawLine(tint, Offset(9f * u, 7f * u), Offset(18f * u, 5f * u), stroke, StrokeCap.Round)
+                drawLine(tint, Offset(18f * u, 5f * u), Offset(18f * u, 15f * u), stroke, StrokeCap.Round)
+                drawCircle(tint, 2.6f * u, Offset(6.4f * u, 18f * u), style = s)
+                drawCircle(tint, 2.6f * u, Offset(15.4f * u, 15f * u), style = s)
+            }
+            // video：方框 + 播放三角
+            "video" -> {
+                drawRoundRect(
+                    color = tint,
+                    topLeft = Offset(2.5f * u, 5f * u),
+                    size = Size(19f * u, 14f * u),
+                    cornerRadius = androidx.compose.ui.geometry.CornerRadius(3f * u),
+                    style = s,
+                )
+                val tri = Path().apply {
+                    moveTo(10f * u, 9f * u)
+                    lineTo(15.5f * u, 12f * u)
+                    lineTo(10f * u, 15f * u)
+                    close()
+                }
+                drawPath(tri, tint)
+            }
+            // image：相框 + 山 + 太阳
+            "image" -> {
+                drawRoundRect(
+                    color = tint,
+                    topLeft = Offset(3f * u, 4.5f * u),
+                    size = Size(18f * u, 15f * u),
+                    cornerRadius = androidx.compose.ui.geometry.CornerRadius(3f * u),
+                    style = s,
+                )
+                drawCircle(tint, 1.6f * u, Offset(8.5f * u, 9f * u))
+                val hill = Path().apply {
+                    moveTo(4.5f * u, 17f * u)
+                    lineTo(10f * u, 12f * u)
+                    lineTo(14f * u, 16f * u)
+                    lineTo(16.5f * u, 13.5f * u)
+                    lineTo(20f * u, 17f * u)
+                }
+                drawPath(hill, tint, style = s)
+            }
+            // file：折角文档
+            else -> {
+                val p = Path().apply {
+                    moveTo(13f * u, 3f * u)
+                    lineTo(6f * u, 3f * u)
+                    lineTo(6f * u, 21f * u)
+                    lineTo(18f * u, 21f * u)
+                    lineTo(18f * u, 8f * u)
+                    lineTo(13f * u, 3f * u)
+                    close()
+                }
+                drawPath(p, tint, style = s)
+                drawLine(tint, Offset(13f * u, 3f * u), Offset(13f * u, 8f * u), stroke, StrokeCap.Round)
+                drawLine(tint, Offset(13f * u, 8f * u), Offset(18f * u, 8f * u), stroke, StrokeCap.Round)
+            }
+        }
+    }
+}
+
+/** 目录展开箭头（默认朝右，展开后旋转 90°）。 */
+@Composable
+fun ChevronRightIcon(tint: Color, modifier: Modifier = Modifier) {
+    Canvas(modifier) {
+        val u = size.minDimension / VIEW
+        val stroke = 1.7f * u
+        drawLine(tint, Offset(9.5f * u, 5f * u), Offset(16.5f * u, 12f * u), stroke, StrokeCap.Round)
+        drawLine(tint, Offset(16.5f * u, 12f * u), Offset(9.5f * u, 19f * u), stroke, StrokeCap.Round)
+    }
+}
+
+/** 文件夹。 */
+@Composable
+fun FolderIcon(tint: Color, modifier: Modifier = Modifier) {
+    Canvas(modifier) {
+        val u = size.minDimension / VIEW
+        val stroke = 1.7f * u
+        val p = Path().apply {
+            moveTo(3f * u, 7f * u)
+            lineTo(3f * u, 19f * u)
+            lineTo(21f * u, 19f * u)
+            lineTo(21f * u, 7f * u)
+            lineTo(12f * u, 7f * u)
+            lineTo(10f * u, 4.5f * u)
+            lineTo(3f * u, 4.5f * u)
+            close()
+        }
+        drawPath(p, tint, style = Stroke(stroke, cap = StrokeCap.Round, join = StrokeJoin.Round))
+    }
+}
+
+/** 悬浮控件的「返回首页」：房子。 */
+@Composable
+fun HomeIcon(tint: Color, modifier: Modifier = Modifier) {
+    Canvas(modifier) {
+        val u = size.minDimension / VIEW
+        val stroke = 1.8f * u
+        val s = Stroke(stroke, cap = StrokeCap.Round, join = StrokeJoin.Round)
+        val roof = Path().apply {
+            moveTo(3.5f * u, 10.5f * u)
+            lineTo(12f * u, 3.5f * u)
+            lineTo(20.5f * u, 10.5f * u)
+        }
+        drawPath(roof, tint, style = s)
+        val body = Path().apply {
+            moveTo(5.5f * u, 9.5f * u)
+            lineTo(5.5f * u, 20f * u)
+            lineTo(18.5f * u, 20f * u)
+            lineTo(18.5f * u, 9.5f * u)
+        }
+        drawPath(body, tint, style = s)
+        drawLine(tint, Offset(10f * u, 20f * u), Offset(10f * u, 14f * u), stroke, StrokeCap.Round)
+        drawLine(tint, Offset(10f * u, 14f * u), Offset(14f * u, 14f * u), stroke, StrokeCap.Round)
+        drawLine(tint, Offset(14f * u, 14f * u), Offset(14f * u, 20f * u), stroke, StrokeCap.Round)
+    }
+}
+
 /** 实心五角星（侧栏「我的收藏」用）。 */
 @Composable
 fun SolidStarIcon(tint: Color, modifier: Modifier = Modifier) {

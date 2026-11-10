@@ -28,10 +28,6 @@ object LibraryState {
     var scrollTopTicket by mutableStateOf(0)
         private set
 
-    /** 侧栏「视图与排序」→ 回到库页并打开底部面板（web 移动端由悬浮圆盘承载）。 */
-    var sheetTicket by mutableStateOf(0)
-        private set
-
     fun restore(prefs: LibraryPrefs) {
         query = prefs.q
         conds = prefs.conditions.take(5)
@@ -71,7 +67,6 @@ object LibraryState {
 
     fun toggleRandom() { randomMode = !randomMode }
     fun scrollToTop() { scrollTopTicket++ }
-    fun openSheet() { sheetTicket++ }
     fun home() {
         query = ""
         conds = emptyList()
@@ -87,6 +82,17 @@ object LibraryState {
     private fun persistAsync() {
         libraryScope.launch { runCatching { persist() } }
     }
+}
+
+/**
+ * 移动端悬浮控件（web `MobileDock.vue`）与页面之间的最小契约：
+ * 只广播「回到顶部」，由各页面自己的滚动容器消费。
+ */
+object DockState {
+    var scrollTopTicket by mutableStateOf(0)
+        private set
+
+    fun scrollToTop() { scrollTopTicket++ }
 }
 
 object WallpaperState {

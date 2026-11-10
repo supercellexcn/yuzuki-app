@@ -77,6 +77,8 @@ fun RootScreen(
                         rj = route.rj,
                         onBack = { nav.backOrHome() },
                         onOpenWork = { nav.go(Route.Work(it)) },
+                        onOpenLibrary = { nav.replace(Route.Library) },
+                        onOpenDrawer = { drawerOpen = true },
                     )
                     is Route.Favorites -> FavoritesScreen(
                         onOpenWork = { nav.go(Route.Work(it)) },
@@ -84,6 +86,8 @@ fun RootScreen(
                     )
                     is Route.History -> HistoryScreen(
                         onOpenWork = { nav.go(Route.Work(it)) },
+                        onBackToLibrary = { nav.replace(Route.Library) },
+                        onOpenDrawer = { drawerOpen = true },
                     )
                     is Route.Settings -> SettingsScreen()
                     is Route.ChangePassword -> ChangePasswordScreen(
@@ -116,6 +120,11 @@ fun RootScreen(
             }
         }
 
+        // 移动端悬浮快捷控件（web MobileDock）：内容之上、抽屉与全屏播放器之下
+        if (!playState.fullscreen) {
+            MobileDock(onGoHome = { nav.replace(Route.Library) })
+        }
+
         if (playState.fullscreen) {
             FullscreenPlayer(
                 onClose = { PlayerHolder.setFullscreen(false) },
@@ -132,17 +141,12 @@ fun RootScreen(
             userName = userName ?: "",
             onDismiss = { drawerOpen = false },
             onOpenFavorites = { nav.replace(Route.Favorites) },
-            onOpenHistory = { nav.replace(Route.History) },
             onOpenSettings = { nav.go(Route.Settings) },
             onOpenChangePassword = { nav.go(Route.ChangePassword) },
             onChangeServer = onChangeServer,
             onLogout = onLogout,
             onApplyCond = { cond ->
                 LibraryState.addCond(cond)
-                nav.replace(Route.Library)
-            },
-            onOpenViewSheet = {
-                LibraryState.openSheet()
                 nav.replace(Route.Library)
             },
             onAfterNavigate = { drawerOpen = false },
