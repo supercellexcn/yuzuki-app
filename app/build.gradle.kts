@@ -63,6 +63,10 @@ dependencies {
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
 
+    // S3：Media3 播放内核与系统媒体会话（版本按方案 §8 锁定）
+    implementation("androidx.media3:media3-exoplayer:1.4.1")
+    implementation("androidx.media3:media3-session:1.4.1")
+
     debugImplementation("androidx.compose.ui:ui-tooling")
 
     // S1 白名单策略的 JVM 断言（方案 §10）

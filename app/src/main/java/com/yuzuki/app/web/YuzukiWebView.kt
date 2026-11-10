@@ -12,11 +12,14 @@ import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.webkit.WebSettingsCompat
 import androidx.webkit.WebViewFeature
+import com.yuzuki.app.data.HostPolicy
 import com.yuzuki.app.data.ServerConfig
+import com.yuzuki.app.playback.PlayerHolder
+import org.json.JSONObject
 import java.io.ByteArrayInputStream
 
 /** 专用 WebView：加载现有 web 页，App 不重画任何界面（方案 C4）。 */
-@SuppressLint("SetJavaScriptEnabled")
+@SuppressLint("SetJavaScriptEnabled", "AddJavascriptInterface")
 class YuzukiWebView(
     context: Context,
     private val baseUrl: String,
@@ -27,17 +30,32 @@ class YuzukiWebView(
     private val onPathChanged: (String) -> Unit = {},
 ) : WebView(context) {
 
+    private val jsBridge = JsBridge(context, baseUrl)
     private val documentStart: Boolean
+    private var bridgeEnabled = false
 
-    // token 写入 + S2 导航辅助；两个脚本都必须在页面自身 JS 执行前生效
-    private val scripts: List<String> = listOf(
+    private val eventSink: (String) -> Unit = { json ->
+        post {
+            val quoted = JSONObject.quote(json)
+            evaluateJavascript(
+                "window.__yuzukiOnNativeEvent&&window.__yuzukiOnNativeEvent($quoted)",
+                null,
+            )
+        }
+    }
+
+    // 注入顺序：token → nav → bridge，全部必须在页面自身 JS 执行前生效
+    private val scripts: List<String> = listOfNotNull(
         BridgeInjector.tokenScript(token),
         NavScript.SCRIPT,
+        BridgeInjector.bridgeScript(context),
     )
 
     init {
         configureSettings()
+        syncJavascriptInterface("$baseUrl/")
         documentStart = installInjection()
+        PlayerHolder.eventSink = eventSink
         webViewClient = YuzukiClient()
         webChromeClient = WebChromeClient()
         loadUrl("$baseUrl/")
@@ -67,17 +85,25 @@ class YuzukiWebView(
             @Suppress("DEPRECATION")
             WebSettingsCompat.setForceDark(settings, WebSettingsCompat.FORCE_DARK_OFF)
         }
-        // S3 才启用 addJavascriptInterface，且仅在 host 校验通过时（方案 §6.4）
     }
 
-    private fun installInjection(): Boolean {
-        // S3 在此追加 bridge.js（Audio / MediaSession 双代理）
-        return BridgeInjector.install(
-            webView = this,
-            baseUrl = baseUrl,
-            scripts = scripts,
-        )
+    /** addJavascriptInterface 仅在 host 校验通过时启用（方案 §6.4）。 */
+    private fun syncJavascriptInterface(url: String) {
+        val allowed = HostPolicy.isAllowedUrl(url, baseUrl)
+        if (allowed && !bridgeEnabled) {
+            addJavascriptInterface(jsBridge, "YuzukiNative")
+            bridgeEnabled = true
+        } else if (!allowed && bridgeEnabled) {
+            removeJavascriptInterface("YuzukiNative")
+            bridgeEnabled = false
+        }
     }
+
+    private fun installInjection(): Boolean = BridgeInjector.install(
+        webView = this,
+        baseUrl = baseUrl,
+        scripts = scripts,
+    )
 
     private inner class YuzukiClient : WebViewClient() {
         /** data:/blob: 是页面内联资源，不产生出站请求，不参与 host 白名单。 */
@@ -112,6 +138,7 @@ class YuzukiWebView(
         }
 
         override fun onPageStarted(view: WebView, url: String, favicon: Bitmap?) {
+            syncJavascriptInterface(url)
             if (!documentStart) {
                 // 低版本 WebView 回退，就绪性由 onPageFinished 断言
                 scripts.forEach { view.evaluateJavascript(it, null) }
@@ -139,6 +166,7 @@ class YuzukiWebView(
     }
 
     override fun destroy() {
+        if (PlayerHolder.eventSink === eventSink) PlayerHolder.eventSink = null
         stopLoading()
         super.destroy()
     }

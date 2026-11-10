@@ -20,6 +20,7 @@
 | Android SDK | Platform 35 + Build Tools 35.0.0 |
 | compileSdk / targetSdk / minSdk | 35 / 35 / 26 |
 | AGP / Kotlin / Compose BOM | 8.7.3 / 2.0.21 / 2024.10.00 |
+| Media3 / webkit / OkHttp | 1.4.1 / 1.12.1 / 4.12.0 |
 
 本机工具链位于 `.toolchain/`（JDK 17、Gradle、Android SDK），**不入库**。
 SDK 路径写在 `local.properties`（同样不入库）：
@@ -53,30 +54,38 @@ export JAVA_HOME=/d/asmr-app/.toolchain/jdk17   # 换成你自己的 JDK 17 亦�
 | S0 | 工程骨架、主题圆角令牌、构建工具链 | ✅ 完成 |
 | S1 | 服务器设置、host 白名单、TokenStore、YuzukiApi、WebView + token 注入 | ✅ 完成 |
 | S2 | RootScreen / BottomTabs / 导航注入 | ✅ 完成 |
-| S3 | bridge.js 双代理 / JsBridge / PlaybackService | ⏳ |
+| S3 | bridge.js 双代理 / JsBridge / PlaybackService | ✅ 完成 |
 | S4 | 锁屏封面 / 前台通知 / AudioFocus | ⏳ |
 | S5 | web 端零改动回归与 A1–A5 断言 | ⏳ |
 | S6 | 离线缓存（P1） | ⏳ |
 
-> 验证结果（S0/S1/S2）：`testDebugUnitTest`（`HostPolicy` 6 例 + `NavScript` 5 例）全部通过，
-> `assembleDebug` 构建成功，产物 `app/build/outputs/apk/debug/app-debug.apk`（约 11 MB）；
-> `git -C D:\node\yuzuki status --porcelain` 为空，web 端零改动。
+> 验证结果（S0–S3）：`testDebugUnitTest` 共 20 例（`HostPolicy` 6 + `NavScript` 5 +
+> `NativeEvents` 4 + `BridgeScriptContract` 5）全部通过、0 失败 0 错误；`assembleDebug` 构建成功，
+> 产物 `app/build/outputs/apk/debug/app-debug.apk`；`git -C D:\node\yuzuki status --porcelain` 为空，web 端零改动。
 
 > 实现说明：方案 §4 明确 App 调用 `POST /api/auth/login`，因此 S1 增加了一个原生登录页
 > `ui/LoginScreen.kt`（§8 文件清单未列出）。首次登录强制改密仍完全交给 WebView 内现有的
 > `/change-password` 路由，App 不重复实现改密页。
 >
-> S2 的 `__yuzukiNav` / `__yuzukiOpenPlayer` 由独立的 `NavScript` 做文档级注入，未提前引入
-> 依赖 `YuzukiNative` 的 bridge.js（否则 `window.Audio` 会被替换却没有原生播放内核）。
-> **S3 写 bridge.js 时必须用 `if (!window.__yuzukiNav)` 守卫，不得覆盖现有实现。**
-> 底部 Tab 栏通过 WebView `padding(bottom = 56dp)` 避让，不叠加覆盖，保证 `innerHeight`
-> 与 `.bottom-player`、`MobileDock` 吸附计算正确。
+> S2 的 `__yuzukiNav` / `__yuzukiOpenPlayer` 由独立的 `NavScript` 做文档级注入；S3 的
+> `yuzuki-bridge.js` 用 `if (!window.__yuzukiNav)` 守卫，确实不覆盖 S2 实现（有静态断言保证）。
+> 底部 Tab 栏通过 WebView `padding(bottom = 56dp)` 避让，不叠加覆盖。
+>
+> S3 注入顺序为 token → nav → bridge，三者都在页面自身 JS 执行前生效。`navigator.mediaSession`
+> 是**代理而非删除**：前端 `mediaSessionSupported()` 用 `'mediaSession' in navigator` 判定，删除后
+> 就不再写元数据，锁屏会拿不到封面 / 标题 / 声优。ExoPlayer 由 `PlaybackService` 持有，
+> `PlayerHolder` 单例桥接 WebView 与 Service 并每 250ms 回推 `timeupdate`；文档级注入时页面尚未
+> `new Audio()`，状态快照先暂存、`NativeAudio` 构造后回放一次。前端 `logout()` / 401 清 token 会经
+> `Storage.prototype.removeItem` hook 调 `JsBridge.logout()`，同步清 Keystore 并停播放服务。
 
 ## 安全边界
 
 - 所有出站口（WebView 导航 / 资源请求、OkHttp，后续还包括封面加载）统一走
   `ServerConfig.isAllowedUrl()`，要求 host 与端口和已保存地址**完全一致**。
 - 外链一律拦截、不跳系统浏览器：媒体 URL 带 `?token=`，外跳有泄露风险。
+- `addJavascriptInterface("YuzukiNative")` 仅在 host 校验通过时启用；`setSource(url)` 再次校验，
+  并禁止跨协议重定向，媒体 URL 的 `?token=` 不会外带。
+- bridge 日志脱敏（`token=` 替换为 `token=***`），bridge 方法均有 try/catch 与参数校验。
 - token 不进入日志、崩溃上报与外链 URL。
 - `usesCleartextTraffic=true` 仅用于局域网 HTTP，叠加运行时 host 白名单；
   不使用编译期 `network_security_config.xml`（无法按运行时 IP 通配）。
@@ -87,8 +96,10 @@ export JAVA_HOME=/d/asmr-app/.toolchain/jdk17   # 换成你自己的 JDK 17 亦�
 - 明文 HTTP 的 token 在局域网可被嗅探；若要公网访问，必须先给 nginx 加 HTTPS。
 - WebView 退到后台被冻结时，前端 `navigator.sendBeacon` 的时长回写可能延迟或丢失，由 P1 原生补报队列兜底。
 - 服务地址是运行时配置，工程内不内置任何固定 IP。
-- S1 尚未接入 JS bridge：在网页端点「退出登录」后，原生 Keystore 中的 token 不会同步清除，
-  WebView 重新加载时可能被重新注入；S3 接入 `JsBridge.logout()` 后补齐（方案 §4）。
+- S3 使用 MediaSession **默认 Callback**：锁屏封面下载、换曲按钮转发、前台通知与电池优化引导留到 S4。
+- `POST_NOTIFICATIONS` 已声明但尚未做运行时申请（S4），前台服务通知在真机上的表现未验证。
+- S3 的播放链路断言（`setSource` 带 token、ExoPlayer `BUFFERING→READY`、`/api/plays` 新增同 userId
+  记录、flac/mkv 解码）需真机 + 局域网服务，本轮只做编译与静态断言。
 
 ## 约定
 

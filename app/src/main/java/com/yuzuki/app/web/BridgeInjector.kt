@@ -1,5 +1,6 @@
 package com.yuzuki.app.web
 
+import android.content.Context
 import android.webkit.WebView
 import androidx.webkit.WebViewCompat
 import androidx.webkit.WebViewFeature
@@ -12,8 +13,9 @@ object BridgeInjector {
     const val BRIDGE_READY_EXPR = "window.__YUZUKI_BRIDGE_READY__ === true"
     const val NAV_READY_EXPR = "window.__YUZUKI_NAV_READY__ === true"
 
-    /** S2 起同时断言 token 注入与导航脚本就绪。 */
-    val READY_EXPR: String = "($TOKEN_READY_EXPR) && ($NAV_READY_EXPR)"
+    /** S3 起同时断言 token / 导航 / 双代理三个脚本就绪。 */
+    val READY_EXPR: String =
+        "($TOKEN_READY_EXPR) && ($NAV_READY_EXPR) && ($BRIDGE_READY_EXPR)"
 
     /** token 写进同源 localStorage，前端 authStore.init() 会自动恢复登录态。 */
     fun tokenScript(token: String): String {
@@ -29,6 +31,11 @@ object BridgeInjector {
             })();
         """.trimIndent()
     }
+
+    /** assets/bridge/yuzuki-bridge.js；读取失败返回 null，让就绪断言失败而不是崩溃。 */
+    fun bridgeScript(context: Context): String? = runCatching {
+        context.assets.open("bridge/yuzuki-bridge.js").bufferedReader().use { it.readText() }
+    }.getOrNull()
 
     fun supportsDocumentStart(): Boolean =
         WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)

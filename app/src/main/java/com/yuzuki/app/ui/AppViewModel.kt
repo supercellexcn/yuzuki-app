@@ -1,16 +1,20 @@
 package com.yuzuki.app.ui
 
 import android.app.Application
+import android.content.Intent
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.yuzuki.app.SessionEvents
 import com.yuzuki.app.data.ApiException
 import com.yuzuki.app.data.LoginResult
 import com.yuzuki.app.data.ServerConfig
 import com.yuzuki.app.data.TokenStore
 import com.yuzuki.app.data.YuzukiApi
+import com.yuzuki.app.playback.PlaybackService
+import com.yuzuki.app.playback.PlayerHolder
 import kotlinx.coroutines.launch
 
 /** 启动链路：health → me 校验 token → WebView；异常分别落到设置 / 登录 / 不可达（方案 §4）。 */
@@ -33,6 +37,10 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
     init {
         bootstrap()
+        // 前端退出登录 / 401 清 token 时同步收掉原生登录态（方案 §4、A5）
+        viewModelScope.launch {
+            SessionEvents.logout.collect { handleLogout() }
+        }
     }
 
     fun bootstrap() {
@@ -91,6 +99,14 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
     fun onBridgeUnavailable() {
         state = State.Fatal("请升级 Android System WebView 后重试")
+    }
+
+    private suspend fun handleLogout() {
+        tokenStore.clear()
+        PlayerHolder.stop()
+        val app = getApplication<Application>()
+        runCatching { app.stopService(Intent(app, PlaybackService::class.java)) }
+        state = State.Login
     }
 
     private suspend fun checkAndEnter(base: String) {
