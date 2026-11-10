@@ -2,6 +2,9 @@
 .toolchain/
 local.properties
 
+# 临时产物
+.tmp/
+
 # Gradle / IDE 产物
 .kotlin/
 .gradle/
