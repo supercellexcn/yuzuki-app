@@ -57,6 +57,18 @@ export JAVA_HOME=/d/asmr-app/.toolchain/jdk17   # 换成你自己的 JDK 17 亦�
 # 产物：app/build/outputs/apk/debug/app-debug.apk
 ```
 
+**一键装机到手机**（省掉手动传 APK / 点安装）：手机开启 USB 调试并授权后执行
+
+```bash
+./run-debug.sh                  # 编译 → 安装 → 启动
+./run-debug.sh --fast           # 跳过编译，直接安装已有 APK（最快）
+./run-debug.sh --log            # 启动后跟随 Logcat
+./run-debug.sh --connect IP:5555  # 无线调试（首次需 USB 执行 adb tcpip 5555）
+```
+
+Windows 下也可直接双击 `run-debug.bat`（默认完整流程）。`--help` 查看全部选项。
+脚本只做构建 / 安装 / 启动，不改业务代码；无已授权设备时会立即报错，不会白跑一次构建。
+
 依赖走阿里云 Maven 镜像（`settings.gradle.kts`），Gradle 发行版走腾讯镜像
 （`gradle/wrapper/gradle-wrapper.properties`）。
 
