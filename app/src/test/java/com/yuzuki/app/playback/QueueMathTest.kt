@@ -29,6 +29,18 @@ class QueueMathTest {
         assertEquals(listOf(1L, 2L), QueueMath.playable(files).map { it.id })
     }
 
+    @Test
+    fun 循环模式三态按单曲列表关闭轮转() {
+        assertEquals(RepeatMode.ONE, QueueMath.cycleRepeat(RepeatMode.OFF))
+        assertEquals(RepeatMode.ALL, QueueMath.cycleRepeat(RepeatMode.ONE))
+        assertEquals(RepeatMode.OFF, QueueMath.cycleRepeat(RepeatMode.ALL))
+    }
+
+    @Test
+    fun mediaId可还原作品号与文件id() {
+        assertEquals("RJ01234567/42", QueueMath.mediaId("RJ01234567", 42))
+    }
+
     private fun file(id: Long, kind: String, isDir: Boolean) = MediaFile(
         id = id, filename = "$id", relPath = "dir/$id", ext = "", kind = kind,
         isDir = isDir, size = 0, sortOrder = id.toInt(),

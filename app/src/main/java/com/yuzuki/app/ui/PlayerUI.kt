@@ -54,7 +54,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.yuzuki.app.data.AppContainer
 import com.yuzuki.app.data.FilterCond
-import com.yuzuki.app.playback.PlayerHolder
+import com.yuzuki.app.playback.PlaybackController
+import com.yuzuki.app.playback.RepeatMode
 import com.yuzuki.app.ui.theme.LocalAppearance
 import com.yuzuki.app.ui.theme.WebColors
 import kotlinx.coroutines.launch
@@ -77,7 +78,7 @@ fun FullscreenPlayer(
     onApplyCond: (FilterCond) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val state by PlayerHolder.state.collectAsState()
+    val state by PlaybackController.state.collectAsState()
     val item = state.current
     val scope = rememberCoroutineScope()
     val appearance = LocalAppearance.current
@@ -296,18 +297,31 @@ fun FullscreenPlayer(
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
                             // 顺序（默认）→ 点击变随机
-                            IconTap(onClick = { PlayerHolder.toggleShuffle() }) {
+                            IconTap(onClick = { PlaybackController.toggleShuffle() }) {
                                 ShuffleIcon(
                                     tint = if (state.shuffle) accent else Color.White,
                                     modifier = Modifier.size(24.dp),
                                 )
                             }
-                            // 单曲循环
-                            IconTap(onClick = { PlayerHolder.toggleLoop() }) {
-                                RepeatIcon(
-                                    tint = if (state.loop) accent else Color.White,
-                                    modifier = Modifier.size(24.dp),
-                                )
+                            // 循环：关闭 → 单曲循环 → 列表循环（单曲时在右下角标 1）
+                            IconTap(onClick = { PlaybackController.cycleRepeat() }) {
+                                Box {
+                                    RepeatIcon(
+                                        tint = if (state.repeat == RepeatMode.OFF) Color.White else accent,
+                                        modifier = Modifier.size(24.dp),
+                                    )
+                                    if (state.repeat == RepeatMode.ONE) {
+                                        Text(
+                                            "1",
+                                            fontSize = 9.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = accent,
+                                            modifier = Modifier
+                                                .align(Alignment.BottomEnd)
+                                                .offset(x = 3.dp, y = 2.dp),
+                                        )
+                                    }
+                                }
                             }
                         }
                     }
@@ -325,7 +339,7 @@ fun FullscreenPlayer(
                             modifier = Modifier.weight(1f).padding(horizontal = 12.dp),
                             onChange = { ratio -> seekPreview = ratio * duration },
                             onCommit = {
-                                seekPreview?.let { PlayerHolder.seekTo(it.toLong()) }
+                                seekPreview?.let { PlaybackController.seekTo(it.toLong()) }
                                 seekPreview = null
                             },
                         )
@@ -348,17 +362,17 @@ fun FullscreenPlayer(
                                 }
                             }
                             CenterCell {
-                                IconTap(onClick = { PlayerHolder.prev() }) {
+                                IconTap(onClick = { PlaybackController.prev() }) {
                                     PrevIcon(Color.White, Modifier.size(26.dp))
                                 }
                             }
                             CenterCell {
-                                IconTap(onClick = { PlayerHolder.seekBy(-seekSeconds) }) {
+                                IconTap(onClick = { PlaybackController.seekBy(-seekSeconds) }) {
                                     RewindIcon(Color.White, Modifier.size(26.dp))
                                 }
                             }
                             CenterCell {
-                                IconTap(size = 54.dp, onClick = { PlayerHolder.toggle() }) {
+                                IconTap(size = 54.dp, onClick = { PlaybackController.toggle() }) {
                                     if (state.playing) {
                                         PauseIcon(Color.White, Modifier.size(38.dp))
                                     } else {
@@ -367,12 +381,12 @@ fun FullscreenPlayer(
                                 }
                             }
                             CenterCell {
-                                IconTap(onClick = { PlayerHolder.seekBy(seekSeconds) }) {
+                                IconTap(onClick = { PlaybackController.seekBy(seekSeconds) }) {
                                     ForwardIcon(Color.White, Modifier.size(26.dp))
                                 }
                             }
                             CenterCell {
-                                IconTap(onClick = { PlayerHolder.next() }) {
+                                IconTap(onClick = { PlaybackController.next() }) {
                                     NextIcon(Color.White, Modifier.size(26.dp))
                                 }
                             }
@@ -387,7 +401,7 @@ fun FullscreenPlayer(
                         if (volumeVisible) {
                             VolumePopup(
                                 value = state.volume,
-                                onChange = { PlayerHolder.setVolume(it) },
+                                onChange = { PlaybackController.setVolume(it) },
                                 background = panelSolid,
                                 modifier = Modifier
                                     .align(Alignment.BottomStart)
@@ -453,7 +467,7 @@ fun FullscreenPlayer(
                                 .clip(RoundedCornerShape(8.dp))
                                 .background(if (playing) accent.copy(alpha = 0.2f) else Color.Transparent)
                                 .clickable {
-                                    PlayerHolder.play(item.rj, file, item.work, state.queue)
+                                    PlaybackController.play(item.rj, file, item.work, state.queue)
                                     playlistVisible = false
                                 }
                                 .padding(horizontal = 12.dp, vertical = 10.dp),

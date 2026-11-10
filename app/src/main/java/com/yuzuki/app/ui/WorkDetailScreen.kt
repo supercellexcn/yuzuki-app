@@ -63,7 +63,7 @@ import com.yuzuki.app.data.FilterCond
 import com.yuzuki.app.data.MediaFile
 import com.yuzuki.app.data.Work
 import com.yuzuki.app.data.WorkDetail
-import com.yuzuki.app.playback.PlayerHolder
+import com.yuzuki.app.playback.PlaybackController
 import com.yuzuki.app.ui.theme.LocalAppearance
 import com.yuzuki.app.ui.theme.WebColors
 import kotlinx.coroutines.Dispatchers
@@ -125,7 +125,7 @@ fun WorkDetailScreen(
 ) {
     val scope = rememberCoroutineScope()
     val listState = rememberLazyListState()
-    val playState by PlayerHolder.state.collectAsState()
+    val playState by PlaybackController.state.collectAsState()
     val appearance = LocalAppearance.current
     val nav = appearance.navColor
 
@@ -260,8 +260,8 @@ fun WorkDetailScreen(
                         viewerIndex = list.indexOfFirst { it.id == file.id }.coerceAtLeast(0)
                     },
                     onOpenFile = { file ->
-                        PlayerHolder.play(rj, file, work, queue)
-                        PlayerHolder.setFullscreen(true)
+                        PlaybackController.play(rj, file, work, queue)
+                        PlaybackController.setFullscreen(true)
                     },
                     onImageAction = { file, kind -> scope.launch { runImageAction(rj, file, kind, onCover = { coverVersion = System.currentTimeMillis() }, onMessage = { message = it }) } },
                 )

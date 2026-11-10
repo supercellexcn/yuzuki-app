@@ -11,8 +11,8 @@ import com.yuzuki.app.SessionEvents
 import com.yuzuki.app.data.ApiException
 import com.yuzuki.app.data.AppContainer
 import com.yuzuki.app.data.LoginResult
+import com.yuzuki.app.playback.PlaybackController
 import com.yuzuki.app.playback.PlaybackService
-import com.yuzuki.app.playback.PlayerHolder
 import kotlinx.coroutines.launch
 
 /** 启动链路：health → me → 主界面；首次登录强制改密由原生页面完成（方案 §5 / A5）。 */
@@ -127,7 +127,8 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     private suspend fun handleLogout() {
         tokens.clear()
         api.token = null
-        PlayerHolder.stop()
+        PlaybackController.stop()
+        PlaybackController.disconnect()
         runCatching { getApplication<Application>().stopService(Intent(getApplication(), PlaybackService::class.java)) }
         state = State.Login
     }

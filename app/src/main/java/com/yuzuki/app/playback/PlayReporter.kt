@@ -56,7 +56,7 @@ class PlayReporter(
         }
     }
 
-    /** 播放中由 PlayerHolder 每 30s 调用一次。 */
+    /** 播放中由 PlaybackAgent 每 30s 调用一次。 */
     fun tick() = sendIfNeeded()
 
     fun pause() {

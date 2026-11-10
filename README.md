@@ -23,12 +23,16 @@ ui/theme/    Material 3 配色 + Surface 组件封装（Glass* 为兼容层）·
 data/        Models（DTO + org.json 解析）· YuzukiApi（全量 REST）· AppContainer（服务定位）
              SettingsRepository · PrefsRepository · LibraryRepository（在线优先 + 离线兜底）
              OfflineCache（JSON 快照 / 封面 / 音频 / 播放记录补报队列）
-playback/    PlaybackService（MediaSessionService）· PlayerHolder（状态唯一真相源 + 原生队列）
+playback/    PlaybackService（MediaSessionService，唯一持有 ExoPlayer 与 MediaSession）
+             PlaybackController（MediaController 客户端 + StateFlow 投影）
+             PlaybackAgent（元数据 / 封面 / 播放记录 / 断网重试）
              PlayReporter（播放记录 / 时长 / 离线补报）· QueueMath · ArtworkLoader
 ```
 
-播放状态由 `PlaybackService` 持有的 ExoPlayer 单向流向 UI（`StateFlow`），不再有 JS 事件桥；
-锁屏上一曲 / 下一曲经 `ForwardingPlayer` 直接驱动原生队列。
+播放队列整体作为 ExoPlayer playlist 下发，上一曲 / 下一曲 / 自动切歌 / 单曲循环 / 列表循环
+全部由 ExoPlayer 自己推进，所以通知栏、锁屏、蓝牙耳机与 App 内看到的永远是同一首歌；
+UI 经 `MediaController` 下指令、从 `StateFlow` 读状态，Activity 里不持有播放器实例，
+页面重建 / 息屏 / 切 App 都不影响播放。
 
 ## 构建环境
 
@@ -99,19 +103,24 @@ Windows 下也可直接双击 `run-debug.bat`（默认完整流程）。`--help`
 | N6 | 完整设置页（全量读写、扫描 / 推荐、上传、危险操作） | ✅ |
 | N7 | 离线缓存（JSON 快照、音频下载、播放记录补报队列） | ✅ |
 | N8 | A1–A5 同源回归、真机锁屏 / 解码 / 上传断言 | ⏳ 需局域网服务与真机 |
+| N9 | 系统媒体控制对齐（MediaController 迁移、队列进 playlist、三态循环、封面磁盘缓存、断网退避重试） | ✅ 静态验证通过，真机回归待 N8 |
 
 **已完成的验证（2026-11-10）**：
 
 - `assembleDebug` 成功，`app-debug.apk` 约 19MB；`compileDebugKotlin` / `compileDebugUnitTestKotlin` 无错误。
-- `testDebugUnitTest` 共 **25 例全过、0 失败 0 错误**：`HostPolicy` 6 + `Models` 5 + `QueueMath` 2 + `GlassSpec` 4 + `NavLogic` 8（返回栈兜底 / 分页预取与末页判定）。
+- `testDebugUnitTest` 共 **36 例全过、0 失败 0 错误**：`HostPolicy` 6 + `Models` 5 + `QueueMath` 4（队列边界 / 可播放过滤 / 循环三态 / mediaId）+ `GlassSpec` 4 + `NavLogic` 8 + `WebColors` 9。
 - 静态断言：源码中 `WebView` / `addJavascriptInterface` / `evaluateJavascript` 零命中；
   `androidx.webkit` 依赖已移除，`web/` 目录与 `yuzuki-bridge.js` 已删除。
 - 界面清晰度静态断言：`blur(` / `Color.White` / `copy(alpha` / 壁纸背景调用 / 高光渐变 全部零命中。
 - 移动端交互静态断言：`MobileDock` / 随 `loading` 条件销毁的分页 `LaunchedEffect` 零命中；返回统一走 `AppNav.backOrHome()`。
+- 媒体控制静态断言：`PlayerHolder` 零命中（播放器实例只存在于 `PlaybackService`）；`NotificationCompat` /
+  `NotificationChannel` 零命中（通知与锁屏由 `MediaSessionService` 自动生成，未自绘）；`MediaController`
+  为 UI 唯一指令入口；`setTitle` / `setArtist` / `setAlbumTitle` / `setDurationMs` / `setArtworkData` 全部命中。
 - `git -C D:\node\yuzuki status --porcelain` 为空 → web 端 / 后端零改动。
 
 **仍待验证**：A1–A5 接口同源断言、锁屏 metadata 与 `artworkData`、连续 `next()` 3 次通知不消失、
-息屏 5 分钟进度增长、flac/mkv 解码、base64 图片上传返回码、断网离线回放与补报去重。
+息屏 5 分钟进度增长、蓝牙耳机按键、通知点击直达播放页、flac/mkv 解码、base64 图片上传返回码、
+断网离线回放与补报去重。
 
 ## 安全边界
 

@@ -20,7 +20,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import com.yuzuki.app.data.AppContainer
 import com.yuzuki.app.data.FilterCond
-import com.yuzuki.app.playback.PlayerHolder
+import com.yuzuki.app.playback.PlaybackController
 
 /**
  * 手机端根布局：顶部状态栏避让 + 内容区 + 底部 3 Tab + 侧栏抽屉 + 全屏播放器。
@@ -35,7 +35,7 @@ fun RootScreen(
     val nav = rememberAppNav()
     val context = LocalContext.current
     val activity = context as? Activity
-    val playState by PlayerHolder.state.collectAsState()
+    val playState by PlaybackController.state.collectAsState()
     val userName by AppContainer.tokenStore.username.collectAsState(initial = null)
     var lastBackAt by remember { mutableLongStateOf(0L) }
     var drawerOpen by remember { mutableStateOf(false) }
@@ -55,7 +55,7 @@ fun RootScreen(
         val now = SystemClock.elapsedRealtime()
         when {
             drawerOpen -> drawerOpen = false
-            playState.fullscreen -> PlayerHolder.setFullscreen(false)
+            playState.fullscreen -> PlaybackController.setFullscreen(false)
             nav.backOrHome() -> { }
             now - lastBackAt < 2000 -> activity?.finish()
             else -> {
@@ -100,9 +100,9 @@ fun RootScreen(
                 // 这样三大导航始终可见，播放器控件整体上移。
                 if (playState.fullscreen) {
                     FullscreenPlayer(
-                        onClose = { PlayerHolder.setFullscreen(false) },
+                        onClose = { PlaybackController.setFullscreen(false) },
                         onOpenWork = { rj ->
-                            PlayerHolder.setFullscreen(false)
+                            PlaybackController.setFullscreen(false)
                             nav.go(Route.Work(rj))
                         },
                         onApplyCond = ::openLibraryWith,
@@ -121,13 +121,13 @@ fun RootScreen(
                     onSelect = { tab ->
                         when (tab) {
                             MainTab.Library -> {
-                                if (playState.fullscreen) PlayerHolder.setFullscreen(false)
+                                if (playState.fullscreen) PlaybackController.setFullscreen(false)
                                 if (nav.current == Route.Library) LibraryState.scrollToTop()
                                 else nav.replace(Route.Library)
                             }
-                            MainTab.Player -> PlayerHolder.setFullscreen(true)
+                            MainTab.Player -> PlaybackController.setFullscreen(true)
                             MainTab.History -> {
-                                if (playState.fullscreen) PlayerHolder.setFullscreen(false)
+                                if (playState.fullscreen) PlaybackController.setFullscreen(false)
                                 if (nav.current != Route.History) nav.replace(Route.History)
                             }
                         }
