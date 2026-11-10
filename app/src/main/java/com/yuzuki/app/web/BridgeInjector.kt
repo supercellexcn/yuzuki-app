@@ -10,6 +10,10 @@ object BridgeInjector {
     const val TOKEN_READY_EXPR =
         "window.__YUZUKI_TOKEN_READY__ === true && !!localStorage.getItem('yuzuki_token')"
     const val BRIDGE_READY_EXPR = "window.__YUZUKI_BRIDGE_READY__ === true"
+    const val NAV_READY_EXPR = "window.__YUZUKI_NAV_READY__ === true"
+
+    /** S2 起同时断言 token 注入与导航脚本就绪。 */
+    val READY_EXPR: String = "($TOKEN_READY_EXPR) && ($NAV_READY_EXPR)"
 
     /** token 写进同源 localStorage，前端 authStore.init() 会自动恢复登录态。 */
     fun tokenScript(token: String): String {

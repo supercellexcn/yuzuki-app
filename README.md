@@ -52,19 +52,25 @@ export JAVA_HOME=/d/asmr-app/.toolchain/jdk17   # 换成你自己的 JDK 17 亦�
 |---|---|---|
 | S0 | 工程骨架、主题圆角令牌、构建工具链 | ✅ 完成 |
 | S1 | 服务器设置、host 白名单、TokenStore、YuzukiApi、WebView + token 注入 | ✅ 完成 |
-| S2 | RootScreen / BottomTabs / 导航注入 | ⏳ |
+| S2 | RootScreen / BottomTabs / 导航注入 | ✅ 完成 |
 | S3 | bridge.js 双代理 / JsBridge / PlaybackService | ⏳ |
 | S4 | 锁屏封面 / 前台通知 / AudioFocus | ⏳ |
 | S5 | web 端零改动回归与 A1–A5 断言 | ⏳ |
 | S6 | 离线缓存（P1） | ⏳ |
 
-> 验证结果（S0/S1）：`testDebugUnitTest` 6 个白名单断言全部通过（0 失败、0 错误），
+> 验证结果（S0/S1/S2）：`testDebugUnitTest`（`HostPolicy` 6 例 + `NavScript` 5 例）全部通过，
 > `assembleDebug` 构建成功，产物 `app/build/outputs/apk/debug/app-debug.apk`（约 11 MB）；
 > `git -C D:\node\yuzuki status --porcelain` 为空，web 端零改动。
 
 > 实现说明：方案 §4 明确 App 调用 `POST /api/auth/login`，因此 S1 增加了一个原生登录页
 > `ui/LoginScreen.kt`（§8 文件清单未列出）。首次登录强制改密仍完全交给 WebView 内现有的
 > `/change-password` 路由，App 不重复实现改密页。
+>
+> S2 的 `__yuzukiNav` / `__yuzukiOpenPlayer` 由独立的 `NavScript` 做文档级注入，未提前引入
+> 依赖 `YuzukiNative` 的 bridge.js（否则 `window.Audio` 会被替换却没有原生播放内核）。
+> **S3 写 bridge.js 时必须用 `if (!window.__yuzukiNav)` 守卫，不得覆盖现有实现。**
+> 底部 Tab 栏通过 WebView `padding(bottom = 56dp)` 避让，不叠加覆盖，保证 `innerHeight`
+> 与 `.bottom-player`、`MobileDock` 吸附计算正确。
 
 ## 安全边界
 

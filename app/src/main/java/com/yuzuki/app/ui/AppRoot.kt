@@ -10,7 +10,6 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.systemBarsPadding
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
@@ -19,7 +18,6 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -29,23 +27,21 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.yuzuki.app.R
 import com.yuzuki.app.ui.theme.ShapeCard
 import com.yuzuki.app.ui.theme.ShapePill
-import com.yuzuki.app.web.YuzukiWebView
 
 @Composable
 fun AppRoot(vm: AppViewModel = viewModel()) {
     val context = LocalContext.current
     val activity = context as? Activity
-    var webViewRef by remember { mutableStateOf<WebView?>(null) }
+    val webViewRef = remember { mutableStateOf<WebView?>(null) }
     var lastBackAt by remember { mutableLongStateOf(0L) }
 
     // 返回键：WebView 内优先回退，最后一层双击退出（方案 §5.1）
     BackHandler(enabled = true) {
-        val wv = webViewRef
+        val wv = webViewRef.value
         val now = SystemClock.elapsedRealtime()
         when {
             wv?.canGoBack() == true -> wv.goBack()
@@ -86,25 +82,14 @@ fun AppRoot(vm: AppViewModel = viewModel()) {
             onRetry = vm::bootstrap,
         )
 
-        is AppViewModel.State.Web -> key(s.baseUrl, s.token) {
-            AndroidView(
-                modifier = Modifier.fillMaxSize().statusBarsPadding(),
-                factory = { ctx ->
-                    YuzukiWebView(
-                        context = ctx,
-                        baseUrl = s.baseUrl,
-                        token = s.token,
-                        serverConfig = vm.serverConfig,
-                        onUnreachable = { vm.onUnreachable(s.baseUrl) },
-                        onBridgeUnavailable = vm::onBridgeUnavailable,
-                    ).also { webViewRef = it }
-                },
-                onRelease = { view ->
-                    if (webViewRef === view) webViewRef = null
-                    view.destroy()
-                },
-            )
-        }
+        is AppViewModel.State.Web -> RootScreen(
+            baseUrl = s.baseUrl,
+            token = s.token,
+            serverConfig = vm.serverConfig,
+            webViewRef = webViewRef,
+            onUnreachable = { vm.onUnreachable(s.baseUrl) },
+            onBridgeUnavailable = vm::onBridgeUnavailable,
+        )
     }
 }
 

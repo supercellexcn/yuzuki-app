@@ -24,9 +24,16 @@ class YuzukiWebView(
     private val serverConfig: ServerConfig,
     private val onUnreachable: () -> Unit,
     private val onBridgeUnavailable: () -> Unit,
+    private val onPathChanged: (String) -> Unit = {},
 ) : WebView(context) {
 
     private val documentStart: Boolean
+
+    // token 写入 + S2 导航辅助；两个脚本都必须在页面自身 JS 执行前生效
+    private val scripts: List<String> = listOf(
+        BridgeInjector.tokenScript(token),
+        NavScript.SCRIPT,
+    )
 
     init {
         configureSettings()
@@ -64,11 +71,11 @@ class YuzukiWebView(
     }
 
     private fun installInjection(): Boolean {
-        // S1 只注入 token 脚本；S3 在此追加 bridge.js（Audio / MediaSession 双代理）
+        // S3 在此追加 bridge.js（Audio / MediaSession 双代理）
         return BridgeInjector.install(
             webView = this,
             baseUrl = baseUrl,
-            scripts = listOf(BridgeInjector.tokenScript(token)),
+            scripts = scripts,
         )
     }
 
@@ -107,13 +114,18 @@ class YuzukiWebView(
         override fun onPageStarted(view: WebView, url: String, favicon: Bitmap?) {
             if (!documentStart) {
                 // 低版本 WebView 回退，就绪性由 onPageFinished 断言
-                view.evaluateJavascript(BridgeInjector.tokenScript(token), null)
+                scripts.forEach { view.evaluateJavascript(it, null) }
             }
         }
 
         override fun onPageFinished(view: WebView, url: String) {
-            view.evaluateJavascript("(${BridgeInjector.TOKEN_READY_EXPR})") { value ->
+            view.evaluateJavascript("(${BridgeInjector.READY_EXPR})") { value ->
                 if (value != "true") post { onBridgeUnavailable() }
+            }
+            // 同步当前路由到原生 Tab 选中态（覆盖 SPA 回退 loadUrl 与首次加载）
+            view.evaluateJavascript("location.pathname") { value ->
+                val path = value?.trim('"').orEmpty()
+                if (path.isNotEmpty()) post { onPathChanged(path) }
             }
         }
 
