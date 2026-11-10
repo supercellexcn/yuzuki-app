@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.FlowRowOverflow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
@@ -236,7 +237,10 @@ fun WorkCard(
                         FlowRow(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.spacedBy(4.dp),
-                            verticalArrangement = Arrangement.spacedBy(4.dp),
+                            verticalArrangement = Arrangement.spacedBy(ChipRowGap),
+                            // 最多两行：名字再长也只会被裁掉，不会把卡片撑高
+                            maxLines = 2,
+                            overflow = FlowRowOverflow.Clip,
                         ) {
                             work.actors.take(4).forEach { actor ->
                                 ActorChip(actor, actorBg) { onCond(FilterCond("actor", actor)) }
