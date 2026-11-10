@@ -3,6 +3,7 @@ package com.yuzuki.app.ui
 import androidx.compose.foundation.Canvas
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
@@ -651,5 +652,58 @@ fun HomeIcon(tint: Color, modifier: Modifier = Modifier) {
 fun SolidStarIcon(tint: Color, modifier: Modifier = Modifier) {
     Canvas(modifier) {
         drawPath(starPath(size), tint, style = Stroke(width = size.minDimension * 0.085f, join = StrokeJoin.Round))
+    }
+}
+
+/** 视图切换：列表 = 三条等长横线（与汉堡图标同形，表达「逐行列表」）。 */
+@Composable
+fun ViewListIcon(tint: Color, modifier: Modifier = Modifier) {
+    Canvas(modifier) {
+        val u = size.minDimension / VIEW
+        val stroke = 1.8f * u
+        listOf(7f, 12f, 17f).forEach { y ->
+            drawLine(tint, Offset(3.5f * u, y * u), Offset(20.5f * u, y * u), stroke, StrokeCap.Round)
+        }
+    }
+}
+
+/** 视图切换：详情 = 长方形框 + 下三分之一处的分隔线（封面在上、信息在下）。 */
+@Composable
+fun ViewDetailIcon(tint: Color, modifier: Modifier = Modifier) {
+    Canvas(modifier) {
+        val u = size.minDimension / VIEW
+        val stroke = 1.7f * u
+        val left = 3.4f * u
+        val top = 3.6f * u
+        val side = 17.2f * u
+        drawRoundRect(
+            color = tint,
+            topLeft = Offset(left, top),
+            size = Size(side, side),
+            cornerRadius = CornerRadius(2.8f * u),
+            style = Stroke(stroke),
+        )
+        // 下 1/3 的分割线：3.6 + 17.2 * 0.66 ≈ 15
+        drawLine(
+            tint,
+            Offset(left, 15f * u),
+            Offset(left + side, 15f * u),
+            stroke,
+            StrokeCap.Round,
+        )
+    }
+}
+
+/** 视图切换：图片 = 实心圆角方块（只显示封面）。 */
+@Composable
+fun ViewImageIcon(tint: Color, modifier: Modifier = Modifier) {
+    Canvas(modifier) {
+        val u = size.minDimension / VIEW
+        drawRoundRect(
+            color = tint,
+            topLeft = Offset(3.6f * u, 3.6f * u),
+            size = Size(16.8f * u, 16.8f * u),
+            cornerRadius = CornerRadius(3.2f * u),
+        )
     }
 }

@@ -187,9 +187,19 @@ fun MobileDock(
             DockButton(label = "T", active = false) {
                 if (!dragging && SystemClock.elapsedRealtime() >= suppressUntil) DockState.scrollToTop()
             }
-            DockButton(label = "M", active = LibraryState.imageMode) {
+            // 视图切换：列表 → 详情 → 图片，图标随当前形态变化
+            DockButton(
+                active = LibraryState.view != LibraryView.Detail,
+                icon = { tint ->
+                    when (LibraryState.view) {
+                        LibraryView.List -> ViewListIcon(tint, Modifier.size(18.dp))
+                        LibraryView.Detail -> ViewDetailIcon(tint, Modifier.size(18.dp))
+                        LibraryView.Image -> ViewImageIcon(tint, Modifier.size(18.dp))
+                    }
+                },
+            ) {
                 if (!dragging && SystemClock.elapsedRealtime() >= suppressUntil) {
-                    LibraryState.imageMode = !LibraryState.imageMode
+                    LibraryState.cycleView()
                 }
             }
             DockButton(label = "R", active = LibraryState.randomMode) {
@@ -206,8 +216,10 @@ fun MobileDock(
 private fun DockButton(
     label: String? = null,
     active: Boolean,
+    icon: (@Composable (Color) -> Unit)? = null,
     onClick: () -> Unit,
 ) {
+    val tint = if (active) MaterialTheme.colorScheme.onPrimary else WebColors.Text
     Box(
         modifier = Modifier
             .size(36.dp)
@@ -216,15 +228,10 @@ private fun DockButton(
             .clickable(onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
-        if (label == null) {
-            HomeIcon(WebColors.Text, Modifier.size(18.dp))
-        } else {
-            Text(
-                label,
-                fontSize = 14.sp,
-                fontWeight = FontWeight.Bold,
-                color = if (active) MaterialTheme.colorScheme.onPrimary else WebColors.Text,
-            )
+        when {
+            icon != null -> icon(tint)
+            label == null -> HomeIcon(tint, Modifier.size(18.dp))
+            else -> Text(label, fontSize = 14.sp, fontWeight = FontWeight.Bold, color = tint)
         }
     }
 }

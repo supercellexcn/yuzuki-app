@@ -1,5 +1,6 @@
 package com.yuzuki.app.ui
 
+import android.content.Context
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -19,7 +20,10 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items as lazyColumnItems
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.staggeredgrid.LazyVerticalStaggeredGrid
 import androidx.compose.foundation.lazy.staggeredgrid.StaggeredGridCells
 import androidx.compose.foundation.lazy.staggeredgrid.StaggeredGridItemSpan
@@ -27,6 +31,7 @@ import androidx.compose.foundation.lazy.staggeredgrid.items
 import androidx.compose.foundation.lazy.staggeredgrid.rememberLazyStaggeredGridState
 import androidx.compose.foundation.lazy.items as lazyItems
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
@@ -47,6 +52,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -85,6 +91,9 @@ private const val PAGE_PAD_TOP = 14
 private const val PAGE_PAD_BOTTOM = 24
 private const val GRID_GAP = 16
 
+/** SharedPreferences(yuzuki_ui) 里记录库页视图形态的键。 */
+private const val KEY_LIBRARY_VIEW = "library_view"
+
 @Composable
 fun LibraryScreen(
     onOpenWork: (String) -> Unit,
@@ -92,7 +101,10 @@ fun LibraryScreen(
     modifier: Modifier = Modifier,
 ) {
     val scope = rememberCoroutineScope()
+    val context = LocalContext.current
+    val uiPrefs = remember { context.getSharedPreferences("yuzuki_ui", Context.MODE_PRIVATE) }
     val gridState = rememberLazyStaggeredGridState()
+    val listState = rememberLazyListState()
     var items by remember { mutableStateOf<List<Work>>(emptyList()) }
     var total by remember { mutableStateOf(0) }
     var page by remember { mutableStateOf(1) }
@@ -196,32 +208,60 @@ fun LibraryScreen(
         endReached = false
         loadMoreError = null
         items = emptyList()
+        // 换筛选 / 换排序后必须回顶部，否则会停在旧列表的滚动位置
+        gridState.requestScrollToItem(0)
+        listState.requestScrollToItem(0)
         requestPage(reset = true)
     }
 
-    LaunchedEffect(LibraryState.scrollTopTicket) { gridState.scrollToItem(0) }
+    // 视图形态（列表 / 详情 / 图片）记忆：与悬浮 M 键、顶栏按钮共用同一份状态
+    LaunchedEffect(Unit) {
+        val saved = uiPrefs.getString(KEY_LIBRARY_VIEW, null)
+        LibraryView.entries.firstOrNull { it.name == saved }?.let { LibraryState.view = it }
+        // 进页面先回顶部，别沿用上一次停留的位置
+        // 用 requestScrollToItem：空列表时 scrollToItem 会一直挂起等待 remeasure
+        gridState.requestScrollToItem(0)
+        listState.requestScrollToItem(0)
+    }
+    LaunchedEffect(LibraryState.view) {
+        uiPrefs.edit().putString(KEY_LIBRARY_VIEW, LibraryState.view.name).apply()
+    }
+
+    LaunchedEffect(LibraryState.scrollTopTicket) {
+        gridState.requestScrollToItem(0)
+        listState.requestScrollToItem(0)
+    }
     // 悬浮控件的「回到顶部」
     LaunchedEffect(DockState.scrollTopTicket) {
-        if (DockState.scrollTopTicket > 0) gridState.animateScrollToItem(0)
+        if (DockState.scrollTopTicket > 0) {
+            gridState.animateScrollToItem(0)
+            listState.animateScrollToItem(0)
+        }
     }
     LaunchedEffect(Unit) { FavoritesState.refresh() }
 
     val columns = if (LocalConfiguration.current.screenWidthDp >= 600) 3 else 2
 
-    // 瀑布流：可见最大下标 + 1 即「已看到的作品数」（末位 footer 的 index 会被截断到 items.size）
-    val shouldLoadMore by remember {
+    // 列表模式一行一张卡，取行下标；网格模式取两列里最大的下标（footer 的 index 会被截断到 items.size）
+    val lastVisible by remember {
         derivedStateOf {
-            val last = gridState.layoutInfo.visibleItemsInfo.maxOfOrNull { it.index } ?: -1
-            val seen = (last + 1).coerceIn(0, items.size)
-            PagingLogic.shouldLoadMore(
-                seen, items.size, total, loading, endReached, LibraryState.randomMode,
-            )
+            val raw = if (LibraryState.view == LibraryView.List) {
+                listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: -1
+            } else {
+                gridState.layoutInfo.visibleItemsInfo.maxOfOrNull { it.index } ?: -1
+            }
+            (raw + 1).coerceIn(0, items.size)
         }
     }
-    LaunchedEffect(Unit) {
-        snapshotFlow { shouldLoadMore }
-            .distinctUntilChanged()
-            .collect { if (it) requestPage(reset = false) }
+    // 用「可见下标」当 key：滚到底一次、且条件仍成立时也能继续取下一页
+    LaunchedEffect(lastVisible, items.size, total, endReached, loading) {
+        if (loading || endReached || LibraryState.randomMode) return@LaunchedEffect
+        if (PagingLogic.shouldLoadMore(
+                lastVisible, items.size, total, loading, endReached, LibraryState.randomMode,
+            )
+        ) {
+            requestPage(reset = false)
+        }
     }
 
     val appearance = LocalAppearance.current
@@ -241,6 +281,7 @@ fun LibraryScreen(
             onSearchChange = { searchText = it },
             total = total,
             onOpenDrawer = onOpenDrawer,
+            onCycleView = { LibraryState.cycleView() },
             topbarColor = topbarColor,
             controlBg = controlBg,
         )
@@ -268,6 +309,43 @@ fun LibraryScreen(
                 modifier = Modifier.padding(horizontal = PAGE_PAD_H.dp).fillMaxWidth(),
                 onRetry = { requestPage(reset = true) },
             )
+            // 列表模式：一行一个作品，整片圆角容器 + 行间 1px 分隔
+            LibraryState.view == LibraryView.List -> Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .padding(horizontal = PAGE_PAD_H.dp)
+                    .clip(RoundedCornerShape(14.dp)),
+            ) {
+                LazyColumn(
+                    state = listState,
+                    contentPadding = PaddingValues(
+                        top = if (hasFilter) 12.dp else PAGE_PAD_TOP.dp,
+                        bottom = PAGE_PAD_BOTTOM.dp,
+                    ),
+                    modifier = Modifier.fillMaxSize(),
+                ) {
+                    lazyColumnItems(items, key = { it.rjCode }) { work ->
+                        WorkRow(
+                            work = work,
+                            rowBg = cardBg,
+                            actorBg = actorBg,
+                            onOpen = { onOpenWork(work.rjCode) },
+                            onCond = { cond -> LibraryState.addCond(cond) },
+                            showDivider = work.rjCode != items.lastOrNull()?.rjCode,
+                        )
+                    }
+                    item(key = "footer") {
+                        LibraryFooter(
+                            loading = loading,
+                            loadMoreError = loadMoreError,
+                            endReached = endReached,
+                            hasItems = items.isNotEmpty(),
+                            hasFilter = hasFilter,
+                            onRetry = { requestPage(reset = false) },
+                        )
+                    }
+                }
+            }
             else -> LazyVerticalStaggeredGrid(
                 columns = StaggeredGridCells.Fixed(columns),
                 state = gridState,
@@ -296,35 +374,55 @@ fun LibraryScreen(
                     )
                 }
                 item(span = StaggeredGridItemSpan.FullLine, key = "footer") {
-                    Box(
-                        modifier = Modifier.fillMaxWidth().height(56.dp),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        when {
-                            loading -> CircularProgressIndicator(modifier = Modifier.size(28.dp))
-                            loadMoreError != null -> Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                Text(loadMoreError ?: "加载失败", style = MaterialTheme.typography.labelSmall)
-                                TextButton(onClick = { requestPage(reset = false) }) { Text("重试") }
-                            }
-                            endReached && items.isNotEmpty() -> Text(
-                                "—— 已经加载所有 ——",
-                                fontSize = 14.sp,
-                                color = WebColors.Muted,
-                            )
-                            !loading && items.isEmpty() -> Text(
-                                if (hasFilter) "没有匹配的作品"
-                                else "暂无作品，请先在「设置」中配置 ASMR 源路径并扫描。",
-                                fontSize = 15.sp,
-                                color = WebColors.Muted,
-                                textAlign = TextAlign.Center,
-                            )
-                        }
-                    }
+                    LibraryFooter(
+                        loading = loading,
+                        loadMoreError = loadMoreError,
+                        endReached = endReached,
+                        hasItems = items.isNotEmpty(),
+                        hasFilter = hasFilter,
+                        onRetry = { requestPage(reset = false) },
+                    )
                 }
             }
         }
     }
 
+}
+
+/** 列表底部：加载中 / 加载失败重试 / 已加载全部 / 空态。 */
+@Composable
+private fun LibraryFooter(
+    loading: Boolean,
+    loadMoreError: String?,
+    endReached: Boolean,
+    hasItems: Boolean,
+    hasFilter: Boolean,
+    onRetry: () -> Unit,
+) {
+    Box(
+        modifier = Modifier.fillMaxWidth().height(56.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        when {
+            loading -> CircularProgressIndicator(modifier = Modifier.size(28.dp))
+            loadMoreError != null -> Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Text(loadMoreError, style = MaterialTheme.typography.labelSmall)
+                TextButton(onClick = onRetry) { Text("重试") }
+            }
+            endReached && hasItems -> Text(
+                "—— 已经加载所有 ——",
+                fontSize = 14.sp,
+                color = WebColors.Muted,
+            )
+            !loading && !hasItems -> Text(
+                if (hasFilter) "没有匹配的作品"
+                else "暂无作品，请先在「设置」中配置 ASMR 源路径并扫描。",
+                fontSize = 15.sp,
+                color = WebColors.Muted,
+                textAlign = TextAlign.Center,
+            )
+        }
+    }
 }
 
 // ---------------------------------------------------------------- 顶栏
@@ -339,6 +437,7 @@ private fun LibraryTopBar(
     onSearchChange: (String) -> Unit,
     total: Int,
     onOpenDrawer: () -> Unit,
+    onCycleView: () -> Unit,
     topbarColor: Color,
     controlBg: Color,
 ) {
@@ -411,6 +510,24 @@ private fun LibraryTopBar(
                             modifier = Modifier.size(16.dp),
                         )
                     }
+                }
+            }
+
+            // 视图切换：列表 → 详情 → 图片（图标即当前形态，与左侧菜单钮同尺寸对称）
+            Box(
+                modifier = Modifier
+                    .size(32.dp)
+                    .clip(CircleShape)
+                    .border(1.dp, WebColors.Border, CircleShape)
+                    .clickable(onClick = onCycleView),
+                contentAlignment = Alignment.Center,
+            ) {
+                val tint = if (LibraryState.view == LibraryView.Detail) WebColors.Text
+                else MaterialTheme.colorScheme.primary
+                when (LibraryState.view) {
+                    LibraryView.List -> ViewListIcon(tint, Modifier.size(18.dp))
+                    LibraryView.Detail -> ViewDetailIcon(tint, Modifier.size(18.dp))
+                    LibraryView.Image -> ViewImageIcon(tint, Modifier.size(18.dp))
                 }
             }
         }

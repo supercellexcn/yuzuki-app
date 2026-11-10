@@ -359,3 +359,115 @@ private fun ActorChip(text: String, background: Color, onClick: () -> Unit) {
         )
     }
 }
+
+/**
+ * 列表模式的一行：左侧 64dp 方形封面（左上角收藏星），右侧标题 + 「社团 · 销量」+ 声优 chips。
+ * 行底色由调用方给（列表整片同色），行末 1px 分隔线由 [showDivider] 控制。
+ */
+@Composable
+fun WorkRow(
+    work: Work,
+    rowBg: Color,
+    actorBg: Color,
+    onOpen: () -> Unit,
+    onCond: (FilterCond) -> Unit = {},
+    showDivider: Boolean = true,
+) {
+    val scope = rememberCoroutineScope()
+    val fav = FavoritesState.workRjs.contains(work.rjCode)
+    val coverUrl = remember(work.rjCode, work.coverUrl) {
+        if (work.coverUrl.startsWith("http")) work.coverUrl
+        else AppContainer.api.authedUrl(work.coverUrl)
+    }
+
+    Column(modifier = Modifier.fillMaxWidth().background(rowBg)) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable(onClick = onOpen)
+                .padding(horizontal = 12.dp, vertical = 10.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(64.dp)
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(Color(0xFF0D0F12)),
+            ) {
+                RemoteImage(
+                    url = coverUrl,
+                    modifier = Modifier.fillMaxSize(),
+                    placeholder = Color(0xFF0D0F12),
+                )
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.TopStart)
+                        .padding(3.dp)
+                        .size(20.dp)
+                        .clip(CircleShape)
+                        .background(Color(0xB3000000))
+                        .clickable { scope.launch { FavoritesState.toggleWork(work.rjCode) } },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    FavoriteStarIcon(
+                        favored = fav,
+                        tint = if (fav) MaterialTheme.colorScheme.primary else Color.White,
+                        modifier = Modifier.size(12.dp),
+                    )
+                }
+            }
+
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                Text(
+                    work.title.ifBlank { work.rjCode },
+                    fontSize = 15.sp,
+                    lineHeight = 20.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = WebColors.Text,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    if (work.circle.isNotBlank()) {
+                        Text(
+                            work.circle,
+                            fontSize = 12.sp,
+                            lineHeight = 16.sp,
+                            color = WebColors.Muted,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier
+                                .weight(1f, fill = false)
+                                .clickable { onCond(FilterCond("circle", work.circle)) },
+                        )
+                    }
+                    if (work.salesCount != null) {
+                        Text(
+                            "销量 ${"%,d".format(work.salesCount)}",
+                            fontSize = 12.sp,
+                            lineHeight = 16.sp,
+                            color = WebColors.Muted,
+                            maxLines = 1,
+                        )
+                    }
+                }
+                if (work.actors.isNotEmpty()) {
+                    ActorChips(
+                        actors = work.actors.take(3),
+                        background = actorBg,
+                        onClick = { onCond(FilterCond("actor", it)) },
+                    )
+                }
+            }
+        }
+        if (showDivider) {
+            Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(WebColors.Border))
+        }
+    }
+}

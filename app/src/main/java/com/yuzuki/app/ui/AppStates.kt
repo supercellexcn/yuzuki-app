@@ -13,6 +13,14 @@ import kotlinx.coroutines.launch
 
 private val libraryScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
+/**
+ * 库页的三种展现形态：
+ * - [List]   列表：一行一个作品（小封面 + 标题 + 社团/销量 + 声优）
+ * - [Detail] 详情：封面 1:1 + 标题/系列/社团/销量/声优卡片（默认）
+ * - [Image]  图片：只显示封面（原来的 M 模式）
+ */
+enum class LibraryView { List, Detail, Image }
+
 /** 媒体库界面状态：抽屉、顶栏、悬浮按钮与列表共享，避免层层传参。 */
 object LibraryState {
     var query by mutableStateOf("")
@@ -23,7 +31,7 @@ object LibraryState {
         private set
     var order by mutableStateOf("desc")
         private set
-    var imageMode by mutableStateOf(false)
+    var view by mutableStateOf(LibraryView.Detail)
     var randomMode by mutableStateOf(false)
     var scrollTopTicket by mutableStateOf(0)
         private set
@@ -33,6 +41,18 @@ object LibraryState {
         conds = prefs.conditions.take(5)
         sort = prefs.sort
         order = prefs.order
+    }
+
+    /** 兼容既有渲染代码：只有「图片」形态才只画封面。 */
+    val imageMode: Boolean get() = view == LibraryView.Image
+
+    /** 顶栏按钮 / 悬浮 M 键：列表 → 详情 → 图片 → 列表。 */
+    fun cycleView() {
+        view = when (view) {
+            LibraryView.List -> LibraryView.Detail
+            LibraryView.Detail -> LibraryView.Image
+            LibraryView.Image -> LibraryView.List
+        }
     }
 
     fun updateQuery(value: String) { query = value }

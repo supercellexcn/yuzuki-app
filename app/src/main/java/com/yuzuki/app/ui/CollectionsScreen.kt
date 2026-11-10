@@ -21,6 +21,7 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items as gridItems
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.staggeredgrid.LazyVerticalStaggeredGrid
 import androidx.compose.foundation.lazy.staggeredgrid.StaggeredGridCells
@@ -175,7 +176,6 @@ fun FavoritesScreen(
 /** web HistoryView 的 pageSize 固定 20（不跟随设置）。 */
 private const val HISTORY_PAGE_SIZE = 20
 
-private val HistoryListShape = RoundedCornerShape(8.dp)
 
 private const val HISTORY_VIEW_KEY = "yuzuki_history_view"
 
@@ -233,24 +233,27 @@ fun HistoryScreen(
         }
     }
 
-    // 列表模式下所有行都在同一个 item 里，用「是否滚到列表末尾」判断翻页
-    val shouldLoadMore by remember {
-        derivedStateOf {
-            val info = listState.layoutInfo
-            val last = info.visibleItemsInfo.lastOrNull()?.index ?: 0
-            !cardView && hasMore && !loading && last >= info.totalItemsCount - 2
-        }
+    // 用「可见下标」当 key：滚到末尾后条件仍成立时也能继续取下一页
+    // （旧写法 LaunchedEffect(shouldLoadMore) 在值一直是 true 时不会再次触发，导致停在第一页之后）
+    val listLast by remember {
+        derivedStateOf { listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: -1 }
     }
-    LaunchedEffect(shouldLoadMore) { if (shouldLoadMore) load(false) }
-
-    val shouldLoadMoreGrid by remember {
-        derivedStateOf {
-            val info = cardState.layoutInfo
-            val last = info.visibleItemsInfo.maxOfOrNull { it.index } ?: 0
-            cardView && hasMore && !loading && last >= info.totalItemsCount - 4
-        }
+    val cardLast by remember {
+        derivedStateOf { cardState.layoutInfo.visibleItemsInfo.maxOfOrNull { it.index } ?: -1 }
     }
-    LaunchedEffect(shouldLoadMoreGrid) { if (shouldLoadMoreGrid) load(false) }
+    LaunchedEffect(cardView, listLast, cardLast, records.size, hasMore, loading) {
+        if (loading || !hasMore) return@LaunchedEffect
+        val nearEnd = if (cardView) {
+            val total = cardState.layoutInfo.totalItemsCount
+            total > 0 && cardLast >= total - 3
+        } else {
+            val total = listState.layoutInfo.totalItemsCount
+            total > 0 && listLast >= total - 2
+        }
+        // 必须开独立协程：本 effect 的 key 含 loading，直接 await load 会被
+        // loading=true 引发的重启取消，导致 loading 永远为 true、卡在「加载中…」
+        if (nearEnd) scope.launch { load(false) }
+    }
 
     fun setCard(value: Boolean) {
         cardView = value
@@ -328,20 +331,23 @@ fun HistoryScreen(
                 if (records.isEmpty()) {
                     item(key = "empty") { HistoryEmpty(loading, error) }
                 } else {
-                    item(key = "rows") {
-                        Column(
+                    // 一行一个 item：记录多时也能虚拟化滚动，翻页靠「可见下标」判断
+                    itemsIndexed(records, key = { _, record -> "p${record.playId}" }) { index, record ->
+                        val shape = historyRowShape(
+                            first = index == 0,
+                            last = index == records.lastIndex,
+                        )
+                        Box(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .clip(HistoryListShape)
-                                .border(1.dp, WebColors.Border, HistoryListShape),
+                                .clip(shape)
+                                .background(cardBg),
                         ) {
-                            records.forEachIndexed { index, record ->
-                                HistoryRow(
-                                    record = record,
-                                    onOpen = { onOpenWork(record.work.rjCode) },
-                                    showDivider = index != records.lastIndex,
-                                )
-                            }
+                            HistoryRow(
+                                record = record,
+                                onOpen = { onOpenWork(record.work.rjCode) },
+                                showDivider = index != records.lastIndex,
+                            )
                         }
                     }
                     item(key = "end") { HistoryEndTip(loading, hasMore, loaded) }
@@ -350,6 +356,14 @@ fun HistoryScreen(
         }
     }
 }
+
+/** 列表整片首行/末行圆角，中间行直角（等价整片圆角容器）。 */
+private fun historyRowShape(first: Boolean, last: Boolean) = RoundedCornerShape(
+    topStart = if (first) 14.dp else 0.dp,
+    topEnd = if (first) 14.dp else 0.dp,
+    bottomStart = if (last) 14.dp else 0.dp,
+    bottomEnd = if (last) 14.dp else 0.dp,
+)
 
 /** .head：标题 + 共 N 段 + 列表/卡片切换。 */
 @Composable
