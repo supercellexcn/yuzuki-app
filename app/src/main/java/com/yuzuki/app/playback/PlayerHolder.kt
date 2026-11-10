@@ -30,6 +30,8 @@ data class PlayState(
     val durationMs: Long = 0L,
     val volume: Float = 1f,
     val loop: Boolean = false,
+    /** 随机播放（顺序为默认）；关闭时按队列顺序前进。 */
+    val shuffle: Boolean = false,
     val fullscreen: Boolean = false,
     val error: String? = null,
 )
@@ -167,6 +169,13 @@ object PlayerHolder {
     fun next() {
         val s = _state.value
         val cur = s.current ?: return
+        if (s.shuffle && s.queue.size > 1) {
+            val pick = s.queue.filter { it.id != cur.file.id }.randomOrNull()
+            if (pick != null) {
+                play(cur.rj, pick, cur.work, s.queue)
+                return
+            }
+        }
         val idx = QueueMath.nextIndex(s.queue.map { it.id }, cur.file.id)
         if (idx < 0) return
         play(cur.rj, s.queue[idx], cur.work, s.queue)
@@ -197,6 +206,9 @@ object PlayerHolder {
         update { it.copy(volume = value) }
         player?.volume = value
     }
+
+    /** 顺序 / 随机切换（默认顺序）。 */
+    fun toggleShuffle() = update { it.copy(shuffle = !it.shuffle) }
 
     fun toggleLoop() = runOnMain {
         val value = !_state.value.loop

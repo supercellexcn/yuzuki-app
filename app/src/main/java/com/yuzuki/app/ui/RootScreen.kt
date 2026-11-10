@@ -95,23 +95,39 @@ fun RootScreen(
                         onChange = { old, new -> AppContainer.api.changePassword(old, new) },
                     )
                 }
+
+                // 全屏播放器画在内容区里（底部 Tab 之上），
+                // 这样三大导航始终可见，播放器控件整体上移。
+                if (playState.fullscreen) {
+                    FullscreenPlayer(
+                        onClose = { PlayerHolder.setFullscreen(false) },
+                        onOpenWork = { rj ->
+                            PlayerHolder.setFullscreen(false)
+                            nav.go(Route.Work(rj))
+                        },
+                        onApplyCond = ::openLibraryWith,
+                    )
+                }
             }
 
             // 详情页沉浸式阅读，隐藏底部 Tab；返回箭头 + 系统返回键负责退出
-            if (nav.current !is Route.Work && !playState.fullscreen) {
+            if (nav.current !is Route.Work) {
                 MainNavigationBar(
-                    selected = when (nav.current) {
-                        is Route.History -> MainTab.History
+                    selected = when {
+                        playState.fullscreen -> MainTab.Player
+                        nav.current is Route.History -> MainTab.History
                         else -> MainTab.Library
                     },
                     onSelect = { tab ->
                         when (tab) {
                             MainTab.Library -> {
+                                if (playState.fullscreen) PlayerHolder.setFullscreen(false)
                                 if (nav.current == Route.Library) LibraryState.scrollToTop()
                                 else nav.replace(Route.Library)
                             }
                             MainTab.Player -> PlayerHolder.setFullscreen(true)
                             MainTab.History -> {
+                                if (playState.fullscreen) PlayerHolder.setFullscreen(false)
                                 if (nav.current != Route.History) nav.replace(Route.History)
                             }
                         }
@@ -120,20 +136,9 @@ fun RootScreen(
             }
         }
 
-        // 移动端悬浮快捷控件（web MobileDock）：内容之上、抽屉与全屏播放器之下
+        // 移动端悬浮快捷控件（web MobileDock）：内容之上、抽屉之下
         if (!playState.fullscreen) {
             MobileDock(onGoHome = { nav.replace(Route.Library) })
-        }
-
-        if (playState.fullscreen) {
-            FullscreenPlayer(
-                onClose = { PlayerHolder.setFullscreen(false) },
-                onOpenWork = { rj ->
-                    PlayerHolder.setFullscreen(false)
-                    nav.go(Route.Work(rj))
-                },
-                onApplyCond = ::openLibraryWith,
-            )
         }
 
         SideDrawer(

@@ -257,18 +257,106 @@ fun NextIcon(tint: Color, modifier: Modifier = Modifier) {
     }
 }
 
-/** 重复播放：两条环形箭头。 */
+/** 重复播放：两条反向水平箭头（播放器视觉稿的右上角图标）。 */
 @Composable
 fun RepeatIcon(tint: Color, modifier: Modifier = Modifier) {
     Canvas(modifier) {
         val u = size.minDimension / VIEW
+        val stroke = 1.8f * u
+        // 上：左端短竖线 → 向右横线 → 右端箭头
+        drawLine(tint, Offset(4f * u, 5.6f * u), Offset(4f * u, 8.4f * u), stroke, StrokeCap.Round)
+        drawLine(tint, Offset(4f * u, 8.4f * u), Offset(19.4f * u, 8.4f * u), stroke, StrokeCap.Round)
+        drawLine(tint, Offset(16.4f * u, 5.4f * u), Offset(19.6f * u, 8.4f * u), stroke, StrokeCap.Round)
+        drawLine(tint, Offset(16.4f * u, 11.4f * u), Offset(19.6f * u, 8.4f * u), stroke, StrokeCap.Round)
+        // 下：右端短竖线 → 向左横线 → 左端箭头
+        drawLine(tint, Offset(20f * u, 18.4f * u), Offset(20f * u, 15.6f * u), stroke, StrokeCap.Round)
+        drawLine(tint, Offset(20f * u, 15.6f * u), Offset(4.6f * u, 15.6f * u), stroke, StrokeCap.Round)
+        drawLine(tint, Offset(7.6f * u, 12.6f * u), Offset(4.4f * u, 15.6f * u), stroke, StrokeCap.Round)
+        drawLine(tint, Offset(7.6f * u, 18.6f * u), Offset(4.4f * u, 15.6f * u), stroke, StrokeCap.Round)
+    }
+}
+
+/** 顺序 / 随机：两条交叉箭头。 */
+@Composable
+fun ShuffleIcon(tint: Color, modifier: Modifier = Modifier) {
+    Canvas(modifier) {
+        val u = size.minDimension / VIEW
+        val stroke = 1.8f * u
+        drawLine(tint, Offset(3.8f * u, 7f * u), Offset(8.6f * u, 7f * u), stroke, StrokeCap.Round)
+        drawLine(tint, Offset(8.6f * u, 7f * u), Offset(15.4f * u, 17f * u), stroke, StrokeCap.Round)
+        drawLine(tint, Offset(15.4f * u, 17f * u), Offset(20.2f * u, 17f * u), stroke, StrokeCap.Round)
+        drawLine(tint, Offset(17.2f * u, 14f * u), Offset(20.4f * u, 17f * u), stroke, StrokeCap.Round)
+        drawLine(tint, Offset(17.2f * u, 20f * u), Offset(20.4f * u, 17f * u), stroke, StrokeCap.Round)
+
+        drawLine(tint, Offset(3.8f * u, 17f * u), Offset(8.6f * u, 17f * u), stroke, StrokeCap.Round)
+        drawLine(tint, Offset(8.6f * u, 17f * u), Offset(15.4f * u, 7f * u), stroke, StrokeCap.Round)
+        drawLine(tint, Offset(15.4f * u, 7f * u), Offset(20.2f * u, 7f * u), stroke, StrokeCap.Round)
+        drawLine(tint, Offset(17.2f * u, 4f * u), Offset(20.4f * u, 7f * u), stroke, StrokeCap.Round)
+        drawLine(tint, Offset(17.2f * u, 10f * u), Offset(20.4f * u, 7f * u), stroke, StrokeCap.Round)
+    }
+}
+
+/** 圆圈内一个 i：跳转作品详情。 */
+@Composable
+fun InfoCircleIcon(tint: Color, modifier: Modifier = Modifier) {
+    Canvas(modifier) {
+        val u = size.minDimension / VIEW
         val stroke = 1.7f * u
-        drawLine(tint, Offset(5f * u, 9f * u), Offset(17f * u, 9f * u), stroke, StrokeCap.Round)
-        drawLine(tint, Offset(14.5f * u, 6.5f * u), Offset(17.5f * u, 9f * u), stroke, StrokeCap.Round)
-        drawLine(tint, Offset(14.5f * u, 11.5f * u), Offset(17.5f * u, 9f * u), stroke, StrokeCap.Round)
-        drawLine(tint, Offset(19f * u, 15f * u), Offset(7f * u, 15f * u), stroke, StrokeCap.Round)
-        drawLine(tint, Offset(9.5f * u, 12.5f * u), Offset(6.5f * u, 15f * u), stroke, StrokeCap.Round)
-        drawLine(tint, Offset(9.5f * u, 17.5f * u), Offset(6.5f * u, 15f * u), stroke, StrokeCap.Round)
+        drawCircle(tint, radius = 9.2f * u, center = Offset(12f * u, 12f * u), style = Stroke(stroke))
+        drawCircle(tint, radius = 1.15f * u, center = Offset(12f * u, 8.1f * u))
+        drawLine(tint, Offset(12f * u, 11.2f * u), Offset(12f * u, 16.4f * u), stroke, StrokeCap.Round)
+    }
+}
+
+/** 快退：双三角朝左（竖边在右、尖端在左）。 */
+@Composable
+fun RewindIcon(tint: Color, modifier: Modifier = Modifier) {
+    Canvas(modifier) {
+        val u = size.minDimension / VIEW
+        listOf(10.4f, 19.6f).forEach { base ->
+            val tri = Path().apply {
+                moveTo(base * u, 5.4f * u)
+                lineTo(base * u, 18.6f * u)
+                lineTo((base - 6.6f) * u, 12f * u)
+                close()
+            }
+            drawPath(tri, tint)
+        }
+    }
+}
+
+/** 快进：双三角朝右（竖边在左、尖端在右）。 */
+@Composable
+fun ForwardIcon(tint: Color, modifier: Modifier = Modifier) {
+    Canvas(modifier) {
+        val u = size.minDimension / VIEW
+        listOf(4.4f, 13.6f).forEach { base ->
+            val tri = Path().apply {
+                moveTo(base * u, 5.4f * u)
+                lineTo(base * u, 18.6f * u)
+                lineTo((base + 6.6f) * u, 12f * u)
+                close()
+            }
+            drawPath(tri, tint)
+        }
+    }
+}
+
+/** 均衡器：四根高低不同的竖条（播放器右下角，预留 EQ 入口）。 */
+@Composable
+fun EqualizerIcon(tint: Color, modifier: Modifier = Modifier) {
+    Canvas(modifier) {
+        val u = size.minDimension / VIEW
+        val w = 2.6f * u
+        val bars = listOf(4.4f to 13f, 8.8f to 6.5f, 13.2f to 10f, 17.6f to 4f)
+        bars.forEach { (x, top) ->
+            drawRoundRect(
+                color = tint,
+                topLeft = Offset(x * u - w / 2, top * u),
+                size = Size(w, 19.6f * u - top * u),
+                cornerRadius = androidx.compose.ui.geometry.CornerRadius(w / 2),
+            )
+        }
     }
 }
 

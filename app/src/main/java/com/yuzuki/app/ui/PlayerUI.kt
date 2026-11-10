@@ -1,23 +1,26 @@
 package com.yuzuki.app.ui
 
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -46,26 +49,24 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.yuzuki.app.data.AppContainer
 import com.yuzuki.app.data.FilterCond
-import com.yuzuki.app.data.MediaFile
-import com.yuzuki.app.data.Work
-import com.yuzuki.app.playback.PlayItem
 import com.yuzuki.app.playback.PlayerHolder
 import com.yuzuki.app.ui.theme.LocalAppearance
-import com.yuzuki.app.ui.theme.ShapePill
 import com.yuzuki.app.ui.theme.WebColors
 import kotlinx.coroutines.launch
+import kotlin.math.roundToInt
 
 /**
- * 全屏播放器：按 web 的 FullscreenPlayer.vue 逐条还原（CSS px = dp）。
- *
- * 与 web 的唯一差异：去掉顶部 36px 的下拉把手（用户明确不要那条小白条），
- * 下滑关闭手势保留，作用在封面与信息区上，控件区不参与。
+ * 全屏播放器。信息区沿用 web `FullscreenPlayer.vue` 的结构（去掉顶部把手），
+ * 控件区按用户提供的播放器视觉稿重排：
+ *   ① 图标行：收藏星 / 详情(i) / 播放列表 …… 顺序随机 / 循环
+ *   ② 进度行：左侧已播时间 · 白色细轨道 + 圆点 · 右侧总时长
+ *   ③ 主按钮行：音量 / 上一曲 / 快退 / 播放 / 快进 / 下一曲 / 均衡器（预留）
  */
-private val PanelRadius = RoundedCornerShape(12.dp)
 private val ChipShape = RoundedCornerShape(4.dp)
 
 @OptIn(ExperimentalLayoutApi::class)
@@ -84,6 +85,7 @@ fun FullscreenPlayer(
     val accentFg = MaterialTheme.colorScheme.onPrimary
     // .fs-scrim = var(--panel)
     val scrim = WebColors.panel(appearance.navColor, appearance.panelAlpha)
+    val panelSolid = WebColors.panel(appearance.navColor, 1f)
     val genreBg = WebColors.tagBg(appearance.tagColor, appearance.genreTagAlpha)
     val actorBg = WebColors.tagBg(appearance.actorColor, appearance.actorTagAlpha)
     val seekSeconds = AppContainer.settings.current.seekSeconds
@@ -91,6 +93,7 @@ fun FullscreenPlayer(
     var dragY by remember { mutableStateOf(0f) }
     var seekPreview by remember { mutableStateOf<Float?>(null) }
     var playlistVisible by remember { mutableStateOf(false) }
+    var volumeVisible by remember { mutableStateOf(false) }
 
     val work = item?.work
     val workFav = item != null && FavoritesState.workRjs.contains(item.rj)
@@ -119,8 +122,20 @@ fun FullscreenPlayer(
     ) {
         Box(modifier = Modifier.fillMaxSize().background(scrim))
 
+        // 音量弹条的点击外部关闭层（在内容之下，不遮挡控件）
+        if (volumeVisible) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null,
+                    ) { volumeVisible = false },
+            )
+        }
+
         Column(modifier = Modifier.fillMaxSize()) {
-            // ---- .fs-cover：flex 1，居中，contain ----
+            // ---- 封面：flex 1，居中，contain ----
             Box(
                 modifier = Modifier
                     .weight(1f)
@@ -141,11 +156,11 @@ fun FullscreenPlayer(
             }
 
             if (item != null) {
-                // ---- .fs-info：padding 4 20 10 / gap 6 ----
+                // ---- .fs-info：标题 / 文件名 / 社团 / 声优 / 类型 ----
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(start = 20.dp, end = 20.dp, top = 4.dp, bottom = 10.dp)
+                        .padding(start = 20.dp, end = 20.dp, top = 4.dp, bottom = 8.dp)
                         .then(dragToClose),
                     verticalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
@@ -154,6 +169,13 @@ fun FullscreenPlayer(
                         fontSize = 16.sp,
                         fontWeight = FontWeight.Bold,
                         color = WebColors.Text,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    Text(
+                        item.file.filename.ifBlank { "—" },
+                        fontSize = 13.sp,
+                        color = WebColors.Muted,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
@@ -238,165 +260,140 @@ fun FullscreenPlayer(
                     }
                 }
 
-                // ---- .fs-controls：padding 10 20 26 / gap 12 ----
+                // ---- 控件区（按视觉稿）----
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(start = 20.dp, end = 20.dp, top = 10.dp, bottom = 26.dp),
+                        .padding(start = 20.dp, end = 20.dp, top = 8.dp, bottom = 14.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
-                    // .fs-row：三个 small 按钮，两端对齐
+                    // ① 图标行：收藏星 / 详情 / 播放列表 …… 顺序随机 / 循环
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        SmallButton(
-                            text = "播放列表",
-                            border = WebColors.Border,
-                            contentColor = WebColors.Text,
-                            onClick = { playlistVisible = true },
-                        ) { PlaylistIcon(WebColors.Text, Modifier.size(13.dp)) }
-
-                        SmallButton(
-                            text = if (workFav) "已收藏" else "收藏",
-                            border = if (workFav) Color(0xFFF56C6C) else WebColors.Border,
-                            background = if (workFav) Color(0xFFF56C6C) else Color.Transparent,
-                            contentColor = if (workFav) Color.White else WebColors.Text,
-                            onClick = { item?.let { scope.launch { FavoritesState.toggleWork(it.rj) } } },
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(22.dp),
+                            verticalAlignment = Alignment.CenterVertically,
                         ) {
-                            val tint = if (workFav) Color.White else WebColors.Text
-                            if (workFav) {
-                                FavoriteStarIcon(true, tint, Modifier.size(13.dp))
-                            } else {
-                                FavoriteStarIcon(false, tint, Modifier.size(13.dp))
+                            IconTap(onClick = { scope.launch { FavoritesState.toggleWork(item.rj) } }) {
+                                FavoriteStarIcon(
+                                    favored = workFav,
+                                    tint = if (workFav) accent else Color.White,
+                                    modifier = Modifier.size(24.dp),
+                                )
+                            }
+                            IconTap(onClick = { onOpenWork(item.rj) }) {
+                                InfoCircleIcon(Color.White, Modifier.size(24.dp))
+                            }
+                            IconTap(onClick = { playlistVisible = true }) {
+                                PlaylistIcon(Color.White, Modifier.size(24.dp))
                             }
                         }
-
-                        SmallButton(
-                            text = "跳转详情",
-                            border = WebColors.Border,
-                            contentColor = WebColors.Text,
-                            onClick = { item?.let { onOpenWork(it.rj) } },
-                        ) { ExternalIcon(WebColors.Text, Modifier.size(13.dp)) }
+                        Spacer(Modifier.weight(1f))
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(22.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            // 顺序（默认）→ 点击变随机
+                            IconTap(onClick = { PlayerHolder.toggleShuffle() }) {
+                                ShuffleIcon(
+                                    tint = if (state.shuffle) accent else Color.White,
+                                    modifier = Modifier.size(24.dp),
+                                )
+                            }
+                            // 单曲循环
+                            IconTap(onClick = { PlayerHolder.toggleLoop() }) {
+                                RepeatIcon(
+                                    tint = if (state.loop) accent else Color.White,
+                                    modifier = Modifier.size(24.dp),
+                                )
+                            }
+                        }
                     }
 
-                    // 进度条 + 时间
-                    Box {
+                    // ② 进度行：已播时间 · 轨道 · 总时长
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
                         val duration = state.durationMs.coerceAtLeast(1L)
                         val value = seekPreview ?: state.positionMs.toFloat().coerceAtMost(duration.toFloat())
-                        WebSlider(
+                        Text(fmtTime(value.toLong()), fontSize = 13.sp, color = Color.White)
+                        ProgressSlider(
                             progress = (value / duration).coerceIn(0f, 1f),
-                            accent = accent,
-                            onChange = { ratio ->
-                                seekPreview = ratio * duration
-                            },
+                            modifier = Modifier.weight(1f).padding(horizontal = 12.dp),
+                            onChange = { ratio -> seekPreview = ratio * duration },
                             onCommit = {
                                 seekPreview?.let { PlayerHolder.seekTo(it.toLong()) }
                                 seekPreview = null
                             },
                         )
-                        Row(modifier = Modifier.fillMaxWidth().padding(top = 22.dp)) {
-                            Text(fmtTime(state.positionMs), fontSize = 12.sp, color = WebColors.Muted)
-                            Spacer(Modifier.weight(1f))
-                            Text(fmtTime(state.durationMs), fontSize = 12.sp, color = WebColors.Muted)
-                        }
+                        Text(fmtTime(state.durationMs), fontSize = 13.sp, color = Color.White)
                     }
 
-                    Text(
-                        item.file.filename.ifBlank { "未开始播放" },
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        color = WebColors.Text,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-
-                    // 六个圆形按钮：重复 / 上一曲 / 快退 / 播放 / 快进 / 下一曲
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.Center,
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        RoundButton(
-                            size = 44.dp,
-                            active = state.loop,
-                            accent = accent,
-                            border = WebColors.Border,
-                            onClick = { PlayerHolder.toggleLoop() },
-                        ) { tint ->
-                            RepeatIcon(tint, Modifier.size(17.dp))
-                        }
-                        Spacer(Modifier.width(8.dp))
-                        RoundButton(
-                            size = 44.dp,
-                            accent = accent,
-                            border = WebColors.Border,
-                            onClick = { PlayerHolder.prev() },
-                        ) { tint ->
-                            PrevIcon(tint, Modifier.size(17.dp))
-                        }
-                        Spacer(Modifier.width(8.dp))
-                        RoundButton(
-                            size = 44.dp,
-                            accent = accent,
-                            border = WebColors.Border,
-                            onClick = { PlayerHolder.seekBy(-seekSeconds) },
-                        ) { tint ->
-                            Text("-$seekSeconds", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = tint)
-                        }
-                        Spacer(Modifier.width(8.dp))
-                        // 主按钮：46 圆，强调色底
-                        Box(
-                            modifier = Modifier
-                                .size(46.dp)
-                                .clip(CircleShape)
-                                .background(accent)
-                                .clickable { PlayerHolder.toggle() },
-                            contentAlignment = Alignment.Center,
+                    // ③ 主按钮行：音量 / 上一曲 / 快退 / 播放 / 快进 / 下一曲 / 均衡器
+                    Box(modifier = Modifier.fillMaxWidth()) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
                         ) {
-                            if (state.playing) {
-                                PauseIcon(accentFg, Modifier.size(19.dp))
-                            } else {
-                                PlayIcon(accentFg, Modifier.size(19.dp))
+                            CenterCell {
+                                IconTap(onClick = { volumeVisible = !volumeVisible }) {
+                                    VolumeIcon(
+                                        on = state.volume > 0f,
+                                        tint = if (volumeVisible) accent else Color.White,
+                                        modifier = Modifier.size(22.dp),
+                                    )
+                                }
+                            }
+                            CenterCell {
+                                IconTap(onClick = { PlayerHolder.prev() }) {
+                                    PrevIcon(Color.White, Modifier.size(26.dp))
+                                }
+                            }
+                            CenterCell {
+                                IconTap(onClick = { PlayerHolder.seekBy(-seekSeconds) }) {
+                                    RewindIcon(Color.White, Modifier.size(26.dp))
+                                }
+                            }
+                            CenterCell {
+                                IconTap(size = 54.dp, onClick = { PlayerHolder.toggle() }) {
+                                    if (state.playing) {
+                                        PauseIcon(Color.White, Modifier.size(38.dp))
+                                    } else {
+                                        PlayIcon(Color.White, Modifier.size(38.dp))
+                                    }
+                                }
+                            }
+                            CenterCell {
+                                IconTap(onClick = { PlayerHolder.seekBy(seekSeconds) }) {
+                                    ForwardIcon(Color.White, Modifier.size(26.dp))
+                                }
+                            }
+                            CenterCell {
+                                IconTap(onClick = { PlayerHolder.next() }) {
+                                    NextIcon(Color.White, Modifier.size(26.dp))
+                                }
+                            }
+                            // 均衡器入口：暂不接功能，留给后续 EQ
+                            CenterCell {
+                                IconTap(onClick = { }) {
+                                    EqualizerIcon(Color.White, Modifier.size(22.dp))
+                                }
                             }
                         }
-                        Spacer(Modifier.width(8.dp))
-                        RoundButton(
-                            size = 44.dp,
-                            accent = accent,
-                            border = WebColors.Border,
-                            onClick = { PlayerHolder.seekBy(seekSeconds) },
-                        ) { tint ->
-                            Text("+$seekSeconds", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = tint)
-                        }
-                        Spacer(Modifier.width(8.dp))
-                        RoundButton(
-                            size = 44.dp,
-                            accent = accent,
-                            border = WebColors.Border,
-                            onClick = { PlayerHolder.next() },
-                        ) { tint ->
-                            NextIcon(tint, Modifier.size(17.dp))
-                        }
-                    }
 
-                    // 音量
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(10.dp),
-                    ) {
-                        Box(modifier = Modifier.size(18.dp), contentAlignment = Alignment.Center) {
-                            VolumeIcon(state.volume > 0f, WebColors.Muted, Modifier.size(18.dp))
+                        if (volumeVisible) {
+                            VolumePopup(
+                                value = state.volume,
+                                onChange = { PlayerHolder.setVolume(it) },
+                                background = panelSolid,
+                                modifier = Modifier
+                                    .align(Alignment.BottomStart)
+                                    .offset(y = (-52).dp),
+                            )
                         }
-                        WebSlider(
-                            progress = state.volume.coerceIn(0f, 1f),
-                            accent = accent,
-                            modifier = Modifier.weight(1f),
-                            onChange = { PlayerHolder.setVolume(it) },
-                            onCommit = {},
-                        )
                     }
                 }
             } else {
@@ -409,7 +406,7 @@ fun FullscreenPlayer(
             }
         }
 
-        // ---- 播放列表（pl-panel：底部 55%，顶部圆角 12）----
+        // ---- 播放列表（底部 55%，顶部圆角 12）----
         if (playlistVisible && item != null) {
             Box(
                 modifier = Modifier
@@ -423,7 +420,7 @@ fun FullscreenPlayer(
                     .fillMaxWidth()
                     .fillMaxHeight(0.55f)
                     .clip(RoundedCornerShape(topStart = 12.dp, topEnd = 12.dp))
-                    .background(WebColors.panel(appearance.navColor, 1f))
+                    .background(panelSolid)
                     .border(1.dp, WebColors.Border, RoundedCornerShape(topStart = 12.dp, topEnd = 12.dp)),
             ) {
                 Row(
@@ -489,53 +486,161 @@ private fun applyFilter(onApplyCond: (FilterCond) -> Unit, onClose: () -> Unit, 
     onClose()
 }
 
-/** el-button size=small：高 24 / padding 0 11 / radius 12 / 1px 边框 / 12px。 */
+/** 播放器里的纯图标按钮：无边框、无底色，只有一个 ≥44dp 的触控区。 */
 @Composable
-private fun SmallButton(
-    text: String,
-    border: Color,
-    background: Color = Color.Transparent,
-    contentColor: Color = WebColors.Text,
+private fun IconTap(
+    size: Dp = 44.dp,
     onClick: () -> Unit,
-    icon: @Composable () -> Unit,
+    content: @Composable () -> Unit,
 ) {
-    Row(
-        modifier = Modifier
-            .height(24.dp)
-            .clip(RoundedCornerShape(12.dp))
-            .background(background)
-            .border(1.dp, border, RoundedCornerShape(12.dp))
-            .clickable(onClick = onClick)
-            .padding(horizontal = 11.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(4.dp),
+    Box(
+        modifier = Modifier.size(size).clip(CircleShape).clickable(onClick = onClick),
+        contentAlignment = Alignment.Center,
     ) {
-        icon()
-        Text(text, fontSize = 12.sp, color = contentColor, maxLines = 1)
+        content()
     }
 }
 
-/** .fbtn：44 圆 / 1px 边框；active 时强调色边框 + 淡底。 */
+/** 主按钮行的一格：等分宽度，图标居中。 */
 @Composable
-private fun RoundButton(
-    size: androidx.compose.ui.unit.Dp,
-    accent: Color,
-    border: Color,
-    active: Boolean = false,
-    onClick: () -> Unit,
-    content: @Composable (Color) -> Unit,
+private fun RowScope.CenterCell(content: @Composable () -> Unit) {
+    Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.Center) {
+        content()
+    }
+}
+
+/** 进度条：白色细轨道 + 白色圆点，点击 / 拖动都能跳转。 */
+@Composable
+private fun ProgressSlider(
+    progress: Float,
+    modifier: Modifier = Modifier,
+    onChange: (Float) -> Unit,
+    onCommit: () -> Unit,
 ) {
-    val tint = if (active) accent else WebColors.Text
     Box(
-        modifier = Modifier
-            .size(size)
-            .clip(CircleShape)
-            .background(if (active) accent.copy(alpha = 0.2f) else Color.Transparent)
-            .border(1.dp, if (active) accent else border, CircleShape)
-            .clickable(onClick = onClick),
-        contentAlignment = Alignment.Center,
+        modifier = modifier
+            .fillMaxWidth()
+            .height(28.dp)
+            .pointerInput(Unit) {
+                detectTapGestures { offset ->
+                    onChange((offset.x / size.width).coerceIn(0f, 1f))
+                    onCommit()
+                }
+            }
+            .pointerInput(Unit) {
+                detectHorizontalDragGestures(
+                    onDragStart = { offset ->
+                        onChange((offset.x / size.width).coerceIn(0f, 1f))
+                    },
+                    onHorizontalDrag = { change, _ ->
+                        onChange((change.position.x / size.width).coerceIn(0f, 1f))
+                    },
+                    onDragEnd = { onCommit() },
+                    onDragCancel = { onCommit() },
+                )
+            },
     ) {
-        content(tint)
+        Canvas(modifier = Modifier.fillMaxSize()) {
+            val cy = size.height / 2f
+            val trackH = 3.5.dp.toPx()
+            val knobR = 8.dp.toPx()
+            val usable = (size.width - knobR * 2).coerceAtLeast(1f)
+            val x = knobR + usable * progress.coerceIn(0f, 1f)
+
+            drawRoundRect(
+                color = Color(0x59FFFFFF),
+                topLeft = Offset(knobR, cy - trackH / 2),
+                size = Size(usable, trackH),
+                cornerRadius = CornerRadius(trackH / 2),
+            )
+            drawRoundRect(
+                color = Color.White,
+                topLeft = Offset(knobR, cy - trackH / 2),
+                size = Size((x - knobR).coerceAtLeast(0f), trackH),
+                cornerRadius = CornerRadius(trackH / 2),
+            )
+            drawCircle(color = Color.White, radius = knobR, center = Offset(x, cy))
+        }
+    }
+}
+
+/** 音量弹条：音量图标上方竖排的小面板，内含竖向滑块与百分比。 */
+@Composable
+private fun VolumePopup(
+    value: Float,
+    onChange: (Float) -> Unit,
+    background: Color,
+    modifier: Modifier = Modifier,
+) {
+    Column(
+        modifier = modifier
+            .width(46.dp)
+            .clip(RoundedCornerShape(23.dp))
+            .background(background)
+            .border(1.dp, WebColors.Border, RoundedCornerShape(23.dp))
+            .padding(vertical = 10.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        VerticalVolumeSlider(
+            value = value,
+            onChange = onChange,
+            modifier = Modifier.width(30.dp).height(118.dp),
+        )
+        Text(
+            "${(value.coerceIn(0f, 1f) * 100).roundToInt()}",
+            fontSize = 11.sp,
+            color = WebColors.Muted,
+        )
+    }
+}
+
+@Composable
+private fun VerticalVolumeSlider(
+    value: Float,
+    onChange: (Float) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Box(
+        modifier = modifier
+            .pointerInput(Unit) {
+                detectTapGestures { offset ->
+                    onChange(1f - (offset.y / size.height).coerceIn(0f, 1f))
+                }
+            }
+            .pointerInput(Unit) {
+                detectVerticalDragGestures(
+                    onDragStart = { offset ->
+                        onChange(1f - (offset.y / size.height).coerceIn(0f, 1f))
+                    },
+                    onVerticalDrag = { change, _ ->
+                        onChange(1f - (change.position.y / size.height).coerceIn(0f, 1f))
+                    },
+                )
+            },
+    ) {
+        Canvas(modifier = Modifier.fillMaxSize()) {
+            val cx = size.width / 2f
+            val trackW = 4.dp.toPx()
+            val knobR = 7.dp.toPx()
+            val top = knobR
+            val bottom = size.height - knobR
+            val y = bottom - (bottom - top) * value.coerceIn(0f, 1f)
+
+            drawRoundRect(
+                color = Color(0x59FFFFFF),
+                topLeft = Offset(cx - trackW / 2, top),
+                size = Size(trackW, (bottom - top).coerceAtLeast(1f)),
+                cornerRadius = CornerRadius(trackW / 2),
+            )
+            drawRoundRect(
+                color = Color.White,
+                topLeft = Offset(cx - trackW / 2, y),
+                size = Size(trackW, (bottom - y).coerceAtLeast(0f)),
+                cornerRadius = CornerRadius(trackW / 2),
+            )
+            drawCircle(color = Color.White, radius = knobR, center = Offset(cx, y))
+        }
     }
 }
 
@@ -578,65 +683,6 @@ private fun FavChip(
                 color = Color.White.copy(alpha = 0.85f),
             )
         }
-    }
-}
-
-/** el-slider 的等价实现：6px 轨道 + 20px 圆形滑块，点击 / 拖动都能跳转。 */
-@Composable
-private fun WebSlider(
-    progress: Float,
-    accent: Color,
-    modifier: Modifier = Modifier,
-    onChange: (Float) -> Unit,
-    onCommit: () -> Unit,
-) {
-    var widthPx by remember { mutableStateOf(1f) }
-    Box(
-        modifier = modifier
-            .fillMaxWidth()
-            .height(24.dp)
-            .pointerInput(Unit) {
-                detectTapGestures { offset ->
-                    onChange((offset.x / size.width).coerceIn(0f, 1f))
-                    onCommit()
-                }
-            }
-            .pointerInput(Unit) {
-                detectHorizontalDragGestures(
-                    onDragStart = { offset ->
-                        onChange((offset.x / size.width).coerceIn(0f, 1f))
-                    },
-                    onHorizontalDrag = { change, _ ->
-                        onChange((change.position.x / size.width).coerceIn(0f, 1f))
-                    },
-                    onDragEnd = { onCommit() },
-                    onDragCancel = { onCommit() },
-                )
-            },
-    ) {
-        androidx.compose.foundation.Canvas(modifier = Modifier.fillMaxSize()) {
-            widthPx = size.width
-            val cy = size.height / 2f
-            val trackH = 6.dp.toPx()
-            val knobR = 10.dp.toPx()
-            val usable = size.width - knobR * 2
-            val x = knobR + usable * progress.coerceIn(0f, 1f)
-
-            drawRoundRect(
-                color = Color(0x33FFFFFF),
-                topLeft = Offset(knobR, cy - trackH / 2),
-                size = Size(usable, trackH),
-                cornerRadius = CornerRadius(trackH / 2),
-            )
-            drawRoundRect(
-                color = accent,
-                topLeft = Offset(knobR, cy - trackH / 2),
-                size = Size((x - knobR).coerceAtLeast(0f), trackH),
-                cornerRadius = CornerRadius(trackH / 2),
-            )
-            drawCircle(color = Color.White, radius = knobR, center = Offset(x, cy))
-        }
-        Spacer(Modifier.width(0.dp))
     }
 }
 
