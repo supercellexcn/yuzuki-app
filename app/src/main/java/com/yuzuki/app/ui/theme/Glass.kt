@@ -77,19 +77,21 @@ object GlassSpec {
 }
 
 /**
- * 服务端外观设置（模糊 / 透明度 / 壁纸）在 Material 3 版本里不参与渲染：
- * 为保证文字与图片清晰，卡片一律使用不透明 surfaceContainer 系列颜色。
- * 这些字段仍保留，供设置页写回服务端（网页端继续生效）与单测覆盖。
+ * 服务端外观设置。配色公式与网页端 `useAppearance.ts` 完全一致：
+ * 主题色、面板 / 控件 / 标签透明度都直接参与渲染，保证两端观感一致。
  */
 data class Appearance(
-    val themeColor: String = "#A888F8",
-    val actorColor: String = "#8E7CC3",
-    val tagColor: String = "#6E8EC9",
-    val actorTagAlpha: Float = 0.8f,
-    val genreTagAlpha: Float = 0.8f,
-    val panelAlpha: Float = 0.85f,
-    val filelistAlpha: Float = 0.85f,
-    val controlAlpha: Float = 0.85f,
+    /** 处理后的强调色（原色对比度不足时已按 WCAG 提亮）。 */
+    val themeColor: String = "#A78BFA",
+    /** 用户原始主题色：面板混色、卡片信息区、顶栏底色都用它。 */
+    val navColor: String = "#A78BFA",
+    val actorColor: String = "#7BC86C",
+    val tagColor: String = "#F2A65A",
+    val actorTagAlpha: Float = 1f,
+    val genreTagAlpha: Float = 0.3f,
+    val panelAlpha: Float = 0.62f,
+    val filelistAlpha: Float = 0.62f,
+    val controlAlpha: Float = 0.7f,
     val panelBlur: Float = 0f,
     val tagBlur: Float = 0f,
     val wallpaperBlur: Float = 0f,
@@ -97,28 +99,31 @@ data class Appearance(
     val wallpaperVersion: Long = 0L,
     val animationMs: Int = 250,
     val cardSize: String = "medium",
-    val cardWidth: Int = 160,
+    val cardWidth: Int = 180,
 ) {
     companion object {
-        fun from(s: AppSettings) = Appearance(
-            // 未自定义时严格使用视觉稿的紫色；自定义色仍按 WCAG 提亮，避免暗色文字看不清
-            themeColor = s.themeColorNav.takeIf { it.isNotBlank() }
-                ?.let { GlassSpec.brighten(it) } ?: "#A888F8",
-            actorColor = s.themeColorActor.takeIf { it.isNotBlank() } ?: "#8E7CC3",
-            tagColor = s.themeColorTag.takeIf { it.isNotBlank() } ?: "#6E8EC9",
-            actorTagAlpha = GlassSpec.alpha(s.actorTagOpacity),
-            genreTagAlpha = GlassSpec.alpha(s.genreTagOpacity),
-            panelAlpha = GlassSpec.alpha(s.panelOpacity),
-            filelistAlpha = GlassSpec.alpha(s.filelistOpacity),
-            controlAlpha = GlassSpec.alpha(s.controlOpacity),
-            panelBlur = GlassSpec.blurDp(s.panelBlur),
-            tagBlur = GlassSpec.blurDp(s.tagBlur),
-            wallpaperBlur = GlassSpec.blurDp(s.wallpaperBlur),
-            wallpaperEnabled = s.wallpaperMobileEnabled,
-            animationMs = GlassSpec.animationMs(s.animationDuration),
-            cardSize = s.cardSize,
-            cardWidth = s.cardWidth,
-        )
+        fun from(s: AppSettings): Appearance {
+            val nav = s.themeColorNav.takeIf { it.isNotBlank() } ?: "#A78BFA"
+            return Appearance(
+                // 与 web 的 readableAccent 一致：够亮就保持原色，不够才提亮
+                themeColor = WebColors.toHex(WebColors.accent(nav)),
+                navColor = nav,
+                actorColor = s.themeColorActor.takeIf { it.isNotBlank() } ?: "#7BC86C",
+                tagColor = s.themeColorTag.takeIf { it.isNotBlank() } ?: "#F2A65A",
+                actorTagAlpha = GlassSpec.alpha(s.actorTagOpacity),
+                genreTagAlpha = GlassSpec.alpha(s.genreTagOpacity),
+                panelAlpha = GlassSpec.alpha(s.panelOpacity),
+                filelistAlpha = GlassSpec.alpha(s.filelistOpacity),
+                controlAlpha = GlassSpec.alpha(s.controlOpacity),
+                panelBlur = GlassSpec.blurDp(s.panelBlur),
+                tagBlur = GlassSpec.blurDp(s.tagBlur),
+                wallpaperBlur = GlassSpec.blurDp(s.wallpaperBlur),
+                wallpaperEnabled = s.wallpaperMobileEnabled,
+                animationMs = GlassSpec.animationMs(s.animationDuration),
+                cardSize = s.cardSize,
+                cardWidth = s.cardWidth,
+            )
+        }
 
         val Default = Appearance()
     }

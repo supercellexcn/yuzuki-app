@@ -16,10 +16,10 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
@@ -28,6 +28,7 @@ import androidx.compose.foundation.lazy.grid.items as gridItems
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.items as lazyItems
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
@@ -39,7 +40,6 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -56,12 +56,14 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -69,17 +71,25 @@ import com.yuzuki.app.data.AppContainer
 import com.yuzuki.app.data.CountItem
 import com.yuzuki.app.data.FilterCond
 import com.yuzuki.app.data.Work
+import com.yuzuki.app.data.WorksResponse
 import com.yuzuki.app.ui.theme.GlassItem
 import com.yuzuki.app.ui.theme.GlassSpec
+import com.yuzuki.app.ui.theme.LocalAppearance
 import com.yuzuki.app.ui.theme.ShapeItem
 import com.yuzuki.app.ui.theme.ShapePill
+import com.yuzuki.app.ui.theme.WebColors
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 
-/** 与 web 的 SORT_OPTIONS 完全一致：入库 / 发售 / 销量（标签是两个字，顶栏才放得下）。 */
+/*
+ * 本文件所有尺寸都是 web 端 CSS 的 px 原值 —— 网页在 412px 视口下的布局
+ * 与 Android 412dp 屏一一对应，因此 CSS px 可直接当作 dp 使用，不做任何换算。
+ */
+
+/** 与 web 的 SORT_OPTIONS 完全一致（标签是两个字，排序胶囊才装得下）。 */
 private val TOP_SORTS = listOf(
     "added" to "入库",
     "release" to "发售",
@@ -94,27 +104,16 @@ private val SHEET_SORTS = listOf(
     "updated" to "更新时间",
 )
 
-// 卡片配色取自参考图实拍取色（不透明，禁止玻璃半透明叠层）
-private val CardMetaColor = Color(0xFF604050)
-private val CardBorderColor = Color(0xFF4A3A46)
-private val CardTextColor = Color(0xFFF8F8F8)
-private val CardSubTextColor = Color(0xFFC9BCC6)
-private val CoverBaseColor = Color(0xFF0D0F12)
-private val CoverTagColor = Color(0xFF282830)
-private val ActorPillColor = Color(0xFF78C868)
-private val ActorPillTextColor = Color(0xFF101010)
+/** 卡片圆角 10 / 封面圆角 9（web 的 .work-card / .cover）。 */
+private val CardShape = RoundedCornerShape(10.dp)
 
-// 顶栏配色：纯黑背景上的紫黑控件（与底部 Tab 同一套色）
-private val BarControlColor = Color(0xFF141119)
-private val BarControlBorder = Color(0xFF2A2430)
-private val SortActiveBg = Color(0xFF2A2140)
-private val CondChipBg = Color(0xFFE9E6EE)
-private val CondChipText = Color(0xFF16121C)
-private val ClearChipBg = Color(0xFF24242A)
+/** 页面级间距（.content padding: 14px 20px 24px / .grid gap: 16px）。 */
+private const val PAGE_PAD_H = 20
+private const val PAGE_PAD_TOP = 14
+private const val PAGE_PAD_BOTTOM = 24
+private const val GRID_GAP = 16
 
-private val CardShape = RoundedCornerShape(12.dp)
-
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun LibraryScreen(
     onOpenWork: (String) -> Unit,
@@ -162,7 +161,7 @@ fun LibraryScreen(
                 val result = if (LibraryState.randomMode) {
                     val size = PagingLogic.pageSize(AppContainer.settings.current.pageSize)
                     AppContainer.api.randomWorks(LibraryState.query, LibraryState.conds, size * 3)
-                        .map { com.yuzuki.app.data.WorksResponse(it, it.size, 1, it.size) }
+                        .map { WorksResponse(it, it.size, 1, it.size) }
                 } else {
                     val size = PagingLogic.pageSize(AppContainer.settings.current.pageSize)
                     AppContainer.library.works(
@@ -250,6 +249,15 @@ fun LibraryScreen(
             .collect { if (it) requestPage(reset = false) }
     }
 
+    val appearance = LocalAppearance.current
+    val nav = appearance.navColor
+    val topbarColor = WebColors.topbar(nav, appearance.panelAlpha)
+    val controlBg = WebColors.control(appearance.controlAlpha)
+    val cardBg = WebColors.panel(nav, appearance.panelAlpha)
+    val metaBg = WebColors.cardMeta(nav)
+    val genreBg = WebColors.tagBg(appearance.tagColor, appearance.genreTagAlpha)
+    val actorBg = WebColors.tagBg(appearance.actorColor, appearance.actorTagAlpha)
+
     val columns = if (LocalConfiguration.current.screenWidthDp >= 600) 3 else 2
     val hasFilter = searchText.isNotBlank() || LibraryState.conds.isNotEmpty()
 
@@ -269,6 +277,8 @@ fun LibraryScreen(
             onOpenChangePassword = onOpenChangePassword,
             onChangeServer = onChangeServer,
             onLogout = onLogout,
+            topbarColor = topbarColor,
+            controlBg = controlBg,
         )
 
         if (hasFilter) {
@@ -291,21 +301,30 @@ fun LibraryScreen(
         when {
             error != null && items.isEmpty() -> StateBox(
                 message = error ?: "加载失败",
-                modifier = Modifier.weight(1f).fillMaxWidth().padding(12.dp),
+                modifier = Modifier.padding(horizontal = PAGE_PAD_H.dp).fillMaxWidth(),
                 onRetry = { requestPage(reset = true) },
             )
             else -> LazyVerticalGrid(
                 columns = GridCells.Fixed(columns),
                 state = gridState,
-                contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = 4.dp, bottom = 16.dp),
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
+                contentPadding = PaddingValues(
+                    start = PAGE_PAD_H.dp,
+                    end = PAGE_PAD_H.dp,
+                    top = if (hasFilter) 12.dp else PAGE_PAD_TOP.dp,
+                    bottom = PAGE_PAD_BOTTOM.dp,
+                ),
+                horizontalArrangement = Arrangement.spacedBy(GRID_GAP.dp),
+                verticalArrangement = Arrangement.spacedBy(GRID_GAP.dp),
                 modifier = Modifier.weight(1f),
             ) {
                 gridItems(items, key = { it.rjCode }) { work ->
                     WorkCard(
                         work = work,
                         imageMode = LibraryState.imageMode,
+                        cardBg = cardBg,
+                        metaBg = metaBg,
+                        genreBg = genreBg,
+                        actorBg = actorBg,
                         onOpen = { onOpenWork(work.rjCode) },
                         onCond = { cond -> LibraryState.addCond(cond) },
                     )
@@ -323,13 +342,15 @@ fun LibraryScreen(
                             }
                             endReached && items.isNotEmpty() -> Text(
                                 "—— 已经加载所有 ——",
-                                fontSize = 13.sp,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                fontSize = 14.sp,
+                                color = WebColors.Muted,
                             )
                             !loading && items.isEmpty() -> Text(
-                                if (hasFilter) "没有匹配的作品" else "暂无作品，请先在「设置」中配置 ASMR 源路径并扫描。",
-                                fontSize = 13.sp,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                if (hasFilter) "没有匹配的作品"
+                                else "暂无作品，请先在「设置」中配置 ASMR 源路径并扫描。",
+                                fontSize = 15.sp,
+                                color = WebColors.Muted,
+                                textAlign = TextAlign.Center,
                             )
                         }
                     }
@@ -367,6 +388,10 @@ private fun sortTitle(sort: String, order: String): String {
 }
 
 // ---------------------------------------------------------------- 顶栏
+// .topbar: min-height 56 / padding 8 10 / gap 6 / bg topbar-color / border-bottom 1px
+// .top-btn: 32x32 圆形 + 1px 边框
+// .topbar-controls: height 38 / gap 6；搜索胶囊 padding 0 10 / radius 999
+// 排序胶囊: padding 0 5 / gap 2；sort-tab 28 高 padding 0 7 12px；order-toggle 26x26
 
 @Composable
 private fun LibraryTopBar(
@@ -384,132 +409,159 @@ private fun LibraryTopBar(
     onOpenChangePassword: () -> Unit,
     onChangeServer: () -> Unit,
     onLogout: () -> Unit,
+    topbarColor: Color,
+    controlBg: Color,
 ) {
-    Row(
-        modifier = Modifier.fillMaxWidth().padding(start = 12.dp, end = 10.dp, top = 8.dp, bottom = 8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
-    ) {
-        Box {
-            Box(
-                modifier = Modifier
-                    .size(36.dp)
-                    .clip(ShapeItem)
-                    .background(BarControlColor)
-                    .border(1.dp, BarControlBorder, ShapeItem)
-                    .clickable { onMenuVisible(true) },
-                contentAlignment = Alignment.Center,
+    Column(modifier = Modifier.fillMaxWidth().background(topbarColor)) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(min = 56.dp)
+                .padding(horizontal = 10.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            Box {
+                Box(
+                    modifier = Modifier
+                        .size(32.dp)
+                        .clip(CircleShape)
+                        .border(1.dp, WebColors.Border, CircleShape)
+                        .clickable { onMenuVisible(true) },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    MenuIcon(WebColors.Text, Modifier.size(18.dp))
+                }
+                DropdownMenu(expanded = menuVisible, onDismissRequest = { onMenuVisible(false) }) {
+                    DropdownMenuItem(
+                        text = { Text("筛选与排序") },
+                        onClick = { onMenuVisible(false); onOpenFilter() },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("图片模式") },
+                        onClick = { onMenuVisible(false); onImageMode() },
+                        trailingIcon = { Text(if (LibraryState.imageMode) "开" else "关") },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("随机推荐") },
+                        onClick = { onMenuVisible(false); onRandom() },
+                        trailingIcon = { Text(if (LibraryState.randomMode) "开" else "关") },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("回到顶部") },
+                        onClick = { onMenuVisible(false); onScrollTop() },
+                    )
+                    HorizontalDivider()
+                    DropdownMenuItem(
+                        text = { Text("收藏管理") },
+                        onClick = { onMenuVisible(false); onOpenFavorites() },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("设置") },
+                        onClick = { onMenuVisible(false); onOpenSettings() },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("修改密码") },
+                        onClick = { onMenuVisible(false); onOpenChangePassword() },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("服务地址") },
+                        onClick = { onMenuVisible(false); onChangeServer() },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("退出登录") },
+                        onClick = { onMenuVisible(false); onLogout() },
+                    )
+                }
+            }
+
+            Row(
+                modifier = Modifier.weight(1f).height(38.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
             ) {
-                MenuIcon(MaterialTheme.colorScheme.onSurface, Modifier.size(18.dp))
-            }
-            DropdownMenu(expanded = menuVisible, onDismissRequest = { onMenuVisible(false) }) {
-                DropdownMenuItem(
-                    text = { Text("图片模式") },
-                    onClick = { onMenuVisible(false); onImageMode() },
-                    trailingIcon = { Text(if (LibraryState.imageMode) "开" else "关") },
+                SearchPill(
+                    value = searchText,
+                    onValueChange = onSearchChange,
+                    placeholder = when {
+                        LibraryState.randomMode -> "在${total}个随机推荐中搜索"
+                        total > 0 -> "在${total}个作品中搜索"
+                        else -> "搜索标题 / RJ号 / 声优 / 标签"
+                    },
+                    background = controlBg,
+                    modifier = Modifier.weight(1f),
                 )
-                DropdownMenuItem(
-                    text = { Text("随机推荐") },
-                    onClick = { onMenuVisible(false); onRandom() },
-                    trailingIcon = { Text(if (LibraryState.randomMode) "开" else "关") },
-                )
-                DropdownMenuItem(
-                    text = { Text("回到顶部") },
-                    onClick = { onMenuVisible(false); onScrollTop() },
-                )
-                HorizontalDivider()
-                DropdownMenuItem(
-                    text = { Text("收藏管理") },
-                    onClick = { onMenuVisible(false); onOpenFavorites() },
-                )
-                DropdownMenuItem(
-                    text = { Text("设置") },
-                    onClick = { onMenuVisible(false); onOpenSettings() },
-                )
-                DropdownMenuItem(
-                    text = { Text("修改密码") },
-                    onClick = { onMenuVisible(false); onOpenChangePassword() },
-                )
-                DropdownMenuItem(
-                    text = { Text("服务地址") },
-                    onClick = { onMenuVisible(false); onChangeServer() },
-                )
-                DropdownMenuItem(
-                    text = { Text("退出登录") },
-                    onClick = { onMenuVisible(false); onLogout() },
-                )
-            }
-        }
 
-        SearchField(
-            value = searchText,
-            onValueChange = onSearchChange,
-            placeholder = when {
-                LibraryState.randomMode -> "在${total}个随机推荐中搜索"
-                total > 0 -> "在${total}个作品中搜索"
-                else -> "搜索标题 / RJ号 / 声优 / 标签"
-            },
-            modifier = Modifier.weight(1f),
-        )
-
-        Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
-            TOP_SORTS.forEach { (key, label) ->
-                SortTabButton(
-                    label = label,
-                    active = LibraryState.sort == key,
-                    onClick = { LibraryState.updateSort(key) },
-                )
+                Row(
+                    modifier = Modifier
+                        .height(38.dp)
+                        .clip(ShapePill)
+                        .background(controlBg)
+                        .border(1.dp, WebColors.Border, ShapePill)
+                        .padding(horizontal = 5.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(2.dp),
+                ) {
+                    TOP_SORTS.forEach { (key, label) ->
+                        SortTabButton(
+                            label = label,
+                            active = LibraryState.sort == key,
+                            onClick = { LibraryState.updateSort(key) },
+                        )
+                    }
+                    Box(
+                        modifier = Modifier
+                            .padding(start = 4.dp)
+                            .size(26.dp)
+                            .clip(ShapePill)
+                            .clickable { LibraryState.toggleOrder() },
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        SortOrderIcon(
+                            descending = LibraryState.order == "desc",
+                            tint = WebColors.Text,
+                            modifier = Modifier.size(16.dp),
+                        )
+                    }
+                }
             }
         }
-
-        CircleIconButton(onClick = { LibraryState.toggleOrder() }) {
-            SortOrderIcon(
-                descending = LibraryState.order == "desc",
-                tint = MaterialTheme.colorScheme.onSurface,
-                modifier = Modifier.size(18.dp),
-            )
-        }
-
-        CircleIconButton(onClick = onOpenFilter) {
-            FunnelIcon(MaterialTheme.colorScheme.onSurface, Modifier.size(19.dp))
-        }
+        Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(WebColors.Border))
     }
 }
 
+/** 搜索胶囊：web 的 el-input 没有放大镜图标，只有 placeholder 与清空 ×。 */
 @Composable
-private fun SearchField(
+private fun SearchPill(
     value: String,
     onValueChange: (String) -> Unit,
     placeholder: String,
+    background: Color,
     modifier: Modifier = Modifier,
 ) {
-    val colors = MaterialTheme.colorScheme
     BasicTextField(
         value = value,
         onValueChange = onValueChange,
         singleLine = true,
-        textStyle = TextStyle(color = colors.onSurface, fontSize = 13.sp),
-        cursorBrush = SolidColor(colors.primary),
+        textStyle = TextStyle(color = WebColors.Text, fontSize = 12.sp),
+        cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
         modifier = modifier,
         decorationBox = { inner ->
             Row(
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .height(40.dp)
+                    .fillMaxSize()
                     .clip(ShapePill)
-                    .background(BarControlColor)
-                    .border(1.dp, BarControlBorder, ShapePill)
-                    .padding(start = 12.dp, end = 8.dp),
+                    .background(background)
+                    .border(1.dp, WebColors.Border, ShapePill)
+                    .padding(start = 10.dp, end = 6.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                SearchIcon(colors.onSurfaceVariant, Modifier.size(16.dp))
-                Spacer(Modifier.width(7.dp))
                 Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.CenterStart) {
                     if (value.isEmpty()) {
                         Text(
                             text = placeholder,
                             fontSize = 12.sp,
-                            color = colors.onSurfaceVariant,
+                            color = WebColors.Muted,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                         )
@@ -518,13 +570,10 @@ private fun SearchField(
                 }
                 if (value.isNotEmpty()) {
                     Box(
-                        modifier = Modifier
-                            .size(28.dp)
-                            .clip(ShapePill)
-                            .clickable { onValueChange("") },
+                        modifier = Modifier.size(24.dp).clip(CircleShape).clickable { onValueChange("") },
                         contentAlignment = Alignment.Center,
                     ) {
-                        ClearIcon(colors.onSurfaceVariant, Modifier.size(13.dp))
+                        ClearIcon(WebColors.Muted, Modifier.size(12.dp))
                     }
                 }
             }
@@ -532,14 +581,16 @@ private fun SearchField(
     )
 }
 
+/** sort-tab：28 高 / padding 0 7 / 12px；选中 = 强调色底 + 深色文字 + 600。 */
 @Composable
 private fun SortTabButton(label: String, active: Boolean, onClick: () -> Unit) {
     val interaction = remember { MutableInteractionSource() }
+    val accent = MaterialTheme.colorScheme.primary
     Box(
         modifier = Modifier
             .height(28.dp)
             .clip(ShapePill)
-            .background(if (active) SortActiveBg else Color.Transparent)
+            .background(if (active) accent else Color.Transparent)
             .clickable(interactionSource = interaction, indication = null, onClick = onClick)
             .padding(horizontal = 7.dp),
         contentAlignment = Alignment.Center,
@@ -548,25 +599,13 @@ private fun SortTabButton(label: String, active: Boolean, onClick: () -> Unit) {
             text = label,
             fontSize = 12.sp,
             fontWeight = if (active) FontWeight.SemiBold else FontWeight.Normal,
-            color = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+            color = if (active) MaterialTheme.colorScheme.onPrimary else WebColors.Text,
         )
     }
 }
 
-@Composable
-private fun CircleIconButton(onClick: () -> Unit, content: @Composable () -> Unit) {
-    Box(
-        modifier = Modifier
-            .size(30.dp)
-            .clip(ShapePill)
-            .clickable(onClick = onClick),
-        contentAlignment = Alignment.Center,
-    ) {
-        content()
-    }
-}
-
 // ---------------------------------------------------------------- 已选条件
+// .status-row: gap 12；el-tag: 24 高 / padding 0 9 / 12px / 白 35% 底 + 深灰字
 
 @Composable
 private fun ActiveCondRow(
@@ -577,13 +616,15 @@ private fun ActiveCondRow(
     onClearAll: () -> Unit,
 ) {
     Row(
-        modifier = Modifier.fillMaxWidth().padding(start = 12.dp, end = 10.dp, bottom = 8.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(start = PAGE_PAD_H.dp, end = PAGE_PAD_H.dp, top = 14.dp, bottom = 2.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         LazyRow(
             modifier = Modifier.weight(1f),
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             if (query.isNotBlank()) {
                 item { ActiveCondChip("搜索: $query", onRemoveQuery) }
@@ -594,14 +635,14 @@ private fun ActiveCondRow(
         }
         Box(
             modifier = Modifier
-                .height(28.dp)
-                .clip(ShapePill)
-                .background(ClearChipBg)
+                .height(24.dp)
+                .clip(ShapeItem)
+                .border(1.dp, WebColors.Border, ShapeItem)
                 .clickable(onClick = onClearAll)
-                .padding(horizontal = 12.dp),
+                .padding(horizontal = 11.dp),
             contentAlignment = Alignment.Center,
         ) {
-            Text("清除筛选", fontSize = 12.sp, color = Color(0xFFC8C8D2))
+            Text("清除筛选", fontSize = 12.sp, color = WebColors.Muted)
         }
     }
 }
@@ -610,16 +651,16 @@ private fun ActiveCondRow(
 private fun ActiveCondChip(text: String, onRemove: () -> Unit) {
     Row(
         modifier = Modifier
-            .height(28.dp)
-            .clip(ShapePill)
-            .background(CondChipBg)
+            .height(24.dp)
+            .clip(ShapeItem)
+            .background(Color(0x59FFFFFF))
             .clickable(onClick = onRemove)
-            .padding(start = 11.dp, end = 8.dp),
+            .padding(start = 9.dp, end = 7.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(text, fontSize = 12.sp, color = CondChipText, maxLines = 1)
-        Spacer(Modifier.width(5.dp))
-        ClearIcon(Color(0xFF5A5460), Modifier.size(10.dp))
+        Text(text, fontSize = 12.sp, color = WebColors.ElTextPrimary, maxLines = 1)
+        Spacer(Modifier.width(4.dp))
+        ClearIcon(WebColors.ElTextPrimary, Modifier.size(10.dp))
     }
 }
 
@@ -730,12 +771,20 @@ private fun LibrarySheet(
 }
 
 // ---------------------------------------------------------------- 卡片
+// .work-card: radius 10 / border 1px / bg panel
+// .cover: 1:1；.fav-star: 30x30 @ 6,6（svg 22）
+// .cover-tags: padding 14 6 6 / gap 4 / 渐变到 rgba(0,0,0,.72)
+// .meta: padding 10 12 12 / gap 6 / bg card-meta
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun WorkCard(
     work: Work,
     imageMode: Boolean,
+    cardBg: Color,
+    metaBg: Color,
+    genreBg: Color,
+    actorBg: Color,
     onOpen: () -> Unit,
     onCond: (FilterCond) -> Unit,
 ) {
@@ -745,63 +794,67 @@ private fun WorkCard(
         modifier = Modifier
             .fillMaxWidth()
             .clip(CardShape)
-            .background(CardMetaColor)
-            .border(1.dp, CardBorderColor, CardShape)
+            .background(cardBg)
+            .border(1.dp, WebColors.Border, CardShape)
             .clickable(onClick = onOpen),
     ) {
-        Box(modifier = Modifier.fillMaxWidth().aspectRatio(1f).background(CoverBaseColor)) {
+        // clipToBounds 等价于 web 的 overflow:hidden —— 标签再多也不会溢出到信息区
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .aspectRatio(1f)
+                .background(Color(0xFF0D0F12))
+                .clipToBounds(),
+        ) {
             RemoteImage(
                 url = if (work.coverUrl.startsWith("http")) work.coverUrl
                 else AppContainer.api.authedUrl(work.coverUrl),
                 modifier = Modifier.fillMaxSize(),
             )
 
-            // 封面底部渐隐：与 web 一致，仅用于托住类型标签，不涉及玻璃主题
             if (work.tags.isNotEmpty() || imageMode) {
                 Box(
                     modifier = Modifier
                         .align(Alignment.BottomCenter)
                         .fillMaxWidth()
-                        .height(72.dp)
+                        .height(64.dp)
                         .background(
                             Brush.verticalGradient(
-                                listOf(Color.Transparent, Color(0xB3000000)),
+                                listOf(Color.Transparent, Color(0xB8000000)),
                             ),
                         ),
                 )
             }
 
-            // 收藏星标：左上角，未收藏空心白星 / 已收藏紫色实心
+            if (work.tags.isNotEmpty()) {
+                FlowRow(
+                    modifier = Modifier
+                        .align(Alignment.BottomStart)
+                        .fillMaxWidth()
+                        .padding(start = 6.dp, end = 6.dp, top = 14.dp, bottom = 6.dp),
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    work.tags.forEach { tag ->
+                        CoverTagChip(tag.name, genreBg) { onCond(FilterCond("tag", tag.name)) }
+                    }
+                }
+            }
+
             Box(
                 modifier = Modifier
                     .align(Alignment.TopStart)
-                    .size(44.dp)
-                    .clip(ShapePill)
+                    .padding(6.dp)
+                    .size(30.dp)
+                    .clip(CircleShape)
                     .clickable { scope.launch { FavoritesState.toggleWork(work.rjCode) } },
                 contentAlignment = Alignment.Center,
             ) {
                 FavoriteStarIcon(
                     favored = fav,
-                    tint = if (fav) MaterialTheme.colorScheme.primary else Color(0xFFF2F0F6),
-                    modifier = Modifier.size(21.dp),
+                    tint = if (fav) MaterialTheme.colorScheme.primary else Color.White,
+                    modifier = Modifier.size(22.dp),
                 )
-            }
-
-            if (work.tags.isNotEmpty()) {
-                // 与 web 的 flex-wrap 一致：标签最多铺两行，超出裁掉，避免封面被标签吃掉
-                FlowRow(
-                    modifier = Modifier
-                        .align(Alignment.BottomStart)
-                        .fillMaxWidth()
-                        .padding(horizontal = 6.dp, vertical = 6.dp),
-                    horizontalArrangement = Arrangement.spacedBy(4.dp),
-                    verticalArrangement = Arrangement.spacedBy(4.dp),
-                    maxLines = 2,
-                ) {
-                    work.tags.take(6).forEach { tag ->
-                        CoverTagChip(tag.name) { onCond(FilterCond("tag", tag.name)) }
-                    }
-                }
             }
 
             if (imageMode) {
@@ -815,18 +868,18 @@ private fun WorkCard(
                             "rainbow" -> Color(0xFFB69AF6)
                             else -> Color(0xFF9AA3B0)
                         },
-                        style = MaterialTheme.typography.labelSmall,
+                        fontSize = 11.sp,
                         modifier = Modifier.align(Alignment.TopEnd).padding(10.dp),
                     )
                 }
                 Text(
                     work.rjCode,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = CardTextColor,
+                    fontSize = 11.sp,
+                    color = WebColors.Text,
                     modifier = Modifier
                         .align(Alignment.CenterEnd)
                         .padding(6.dp)
-                        .background(CoverTagColor, ShapeItem)
+                        .background(Color(0xFF282830), ShapeItem)
                         .padding(horizontal = 6.dp, vertical = 2.dp),
                 )
             }
@@ -836,15 +889,16 @@ private fun WorkCard(
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 12.dp, vertical = 10.dp),
-                verticalArrangement = Arrangement.spacedBy(5.dp),
+                    .background(metaBg)
+                    .padding(start = 12.dp, end = 12.dp, top = 10.dp, bottom = 12.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
             ) {
                 Text(
                     work.title.ifBlank { work.rjCode },
                     fontSize = 15.sp,
                     lineHeight = 20.sp,
                     fontWeight = FontWeight.SemiBold,
-                    color = CardTextColor,
+                    color = WebColors.Text,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                 )
@@ -862,12 +916,12 @@ private fun WorkCard(
                 }
                 if (work.actors.isNotEmpty()) {
                     FlowRow(
-                        modifier = Modifier.fillMaxWidth().padding(top = 3.dp),
-                        horizontalArrangement = Arrangement.spacedBy(5.dp),
-                        verticalArrangement = Arrangement.spacedBy(5.dp),
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp),
                     ) {
                         work.actors.take(4).forEach { actor ->
-                            ActorChip(actor) { onCond(FilterCond("actor", actor)) }
+                            ActorChip(actor, actorBg) { onCond(FilterCond("actor", actor)) }
                         }
                     }
                 }
@@ -876,65 +930,63 @@ private fun WorkCard(
     }
 }
 
+/** .row: flex / gap 8 / font-size 13；.label 用 muted，.value 用正文色。 */
 @Composable
 private fun CardInfoRow(label: String, value: String, onClick: (() -> Unit)? = null) {
     Row(
         modifier = if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(
-            label,
-            fontSize = 12.sp,
-            color = CardSubTextColor,
-            modifier = Modifier.width(30.dp),
-        )
+        Text(label, fontSize = 13.sp, color = WebColors.Muted, maxLines = 1)
         Text(
             value.ifBlank { "—" },
-            fontSize = 12.sp,
-            color = CardTextColor,
+            fontSize = 13.sp,
+            color = WebColors.Text,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
     }
 }
 
+/** .cover-tag: 11px / padding 3 9 / radius 999 / 主题标签色 × 标签透明度。 */
 @Composable
-private fun CoverTagChip(text: String, onClick: () -> Unit) {
-    Surface(
-        shape = ShapePill,
-        color = CoverTagColor,
-        contentColor = CardTextColor,
-        onClick = onClick,
+private fun CoverTagChip(text: String, background: Color, onClick: () -> Unit) {
+    Box(
+        modifier = Modifier
+            .clip(ShapePill)
+            .background(background)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 9.dp, vertical = 3.dp),
     ) {
         Text(
             text,
             fontSize = 11.sp,
-            lineHeight = 11.sp,
+            lineHeight = 13.sp,
+            color = Color.White,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
-            modifier = Modifier
-                .widthIn(max = 88.dp)
-                .padding(horizontal = 9.dp, vertical = 4.dp),
         )
     }
 }
 
+/** .chip: 12px / padding 3 10 / radius 999；声优标签用独立配色。 */
 @Composable
-private fun ActorChip(text: String, onClick: () -> Unit) {
-    Surface(
-        shape = ShapePill,
-        color = ActorPillColor,
-        contentColor = ActorPillTextColor,
-        onClick = onClick,
+private fun ActorChip(text: String, background: Color, onClick: () -> Unit) {
+    Box(
+        modifier = Modifier
+            .clip(ShapePill)
+            .background(background)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 10.dp, vertical = 3.dp),
     ) {
         Text(
             text,
             fontSize = 12.sp,
+            lineHeight = 14.sp,
+            color = Color.White,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
-            modifier = Modifier
-                .widthIn(max = 108.dp)
-                .padding(horizontal = 10.dp, vertical = 4.dp),
         )
     }
 }

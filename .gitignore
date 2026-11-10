@@ -15,6 +15,9 @@ captures/
 # 会话与工具数据（保留在本地，不入库）
 .workbuddy/
 
+# 手动传包用的导出 APK（由 app/build/outputs 复制而来，不入库）
+/app-debug.apk
+
 # 系统
 .DS_Store
 Thumbs.db

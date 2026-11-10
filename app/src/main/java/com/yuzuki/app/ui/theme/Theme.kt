@@ -9,38 +9,45 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 
-/** Material 3 深色配色：不透明容器 + 高对比文字，主题色来自服务端设置。 */
+/**
+ * 配色与网页端完全对齐（App.vue :root + useAppearance.ts）：
+ * 页面底 #121417、面板 = 面板基色混 22% 主题色 × 面板透明度、
+ * 控件底 = rgb(38,43,51) × 控件透明度、强调色 = 主题色（对比度不足时提亮）。
+ */
 @Composable
 fun YuzukiTheme(
     appearance: Appearance = Appearance.Default,
     content: @Composable () -> Unit,
 ) {
-    // 色值取自首页视觉稿实拍取色：纯黑底 + 紫黑面板 + 薰衣草紫强调色。
-    val primary = composeColor(appearance.themeColor)
+    val nav = appearance.navColor
+    val accent = composeColor(appearance.themeColor, 0xFFA78BFA)
+    val panel = WebColors.panel(nav, appearance.panelAlpha)
+    val control = WebColors.control(appearance.controlAlpha)
+    val accentFg = WebColors.foregroundOn(accent)
     val scheme = darkColorScheme(
-        primary = primary,
-        onPrimary = Color(0xFF180C28),
-        primaryContainer = Color(0xFF181028),
-        onPrimaryContainer = Color(0xFFF8F8F8),
-        secondary = Color(0xFFC8B8E8),
-        onSecondary = Color(0xFF180C28),
-        secondaryContainer = Color(0xFF181828),
-        onSecondaryContainer = Color(0xFFEDE6F8),
-        tertiary = composeColor(appearance.tagColor, 0xFF8E7CC3),
-        onTertiary = Color(0xFF151026),
-        background = Color(0xFF000000),
-        onBackground = Color(0xFFF8F8F8),
-        surface = Color(0xFF0B0A0E),
-        onSurface = Color(0xFFF8F8F8),
-        surfaceVariant = Color(0xFF181828),
-        onSurfaceVariant = Color(0xFFA8A0B8),
-        surfaceContainerLowest = Color(0xFF000000),
-        surfaceContainerLow = Color(0xFF101010),
-        surfaceContainer = Color(0xFF101018),
-        surfaceContainerHigh = Color(0xFF181020),
-        surfaceContainerHighest = Color(0xFF201828),
-        outline = Color(0xFF303030),
-        outlineVariant = Color(0xFF282828),
+        primary = accent,
+        onPrimary = accentFg,
+        primaryContainer = accent.copy(alpha = 0.2f),
+        onPrimaryContainer = WebColors.Text,
+        secondary = WebColors.tagBg(appearance.tagColor, 1f),
+        onSecondary = Color(0xFF101010),
+        secondaryContainer = control,
+        onSecondaryContainer = WebColors.Text,
+        tertiary = WebColors.tagBg(appearance.actorColor, 1f),
+        onTertiary = Color(0xFF101010),
+        background = WebColors.PageBg,
+        onBackground = WebColors.Text,
+        surface = panel,
+        onSurface = WebColors.Text,
+        surfaceVariant = control,
+        onSurfaceVariant = WebColors.Muted,
+        surfaceContainerLowest = Color(0xFF0D0E11),
+        surfaceContainerLow = control,
+        surfaceContainer = panel,
+        surfaceContainerHigh = WebColors.panel(nav, 0.85f),
+        surfaceContainerHighest = WebColors.panel(nav, 0.95f),
+        outline = WebColors.Border,
+        outlineVariant = WebColors.Border,
         error = Color(0xFFFFB4AB),
         onError = Color(0xFF2A1113),
     )
@@ -49,7 +56,6 @@ fun YuzukiTheme(
             colorScheme = scheme,
             shapes = YuzukiShapes,
         ) {
-            // 统一不透明窗口底色，避免系统默认背景与卡片色冲突
             Surface(
                 modifier = Modifier.fillMaxSize(),
                 color = MaterialTheme.colorScheme.background,
