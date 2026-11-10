@@ -10,6 +10,7 @@ import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
@@ -39,18 +40,28 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.BlurredEdgeTreatment
+import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.LayoutDirection
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntSize
+import androidx.compose.ui.unit.IntRect
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.PopupPositionProvider
+import androidx.compose.ui.window.PopupProperties
+import androidx.compose.ui.window.Popup
 import androidx.compose.ui.unit.sp
 import com.yuzuki.app.data.AppContainer
 import com.yuzuki.app.data.FilterCond
@@ -121,37 +132,59 @@ fun FullscreenPlayer(
             .background(WebColors.PageBg)
             .graphicsLayer { translationY = dragY },
     ) {
+        // 底色：外观设置的面板色兜底（封面未加载 / 无曲目时可见）
         Box(modifier = Modifier.fillMaxSize().background(scrim))
 
-        // 音量弹条的点击外部关闭层（在内容之下，不遮挡控件）
-        if (volumeVisible) {
+        // ---- 背景：当前封面裁剪放大 + 模糊 + 压暗 ----
+        // 纯装饰层，不承载任何文字与控件，因此不影响内容清晰度。
+        if (item != null) {
+            RemoteImage(
+                url = AppContainer.api.coverUrl(item.rj),
+                modifier = Modifier
+                    .fillMaxSize()
+                    .graphicsLayer {
+                        scaleX = 1.3f
+                        scaleY = 1.3f
+                    }
+                    .blur(30.dp, edgeTreatment = BlurredEdgeTreatment.Unbounded),
+                contentScale = ContentScale.Crop,
+                placeholder = Color.Transparent,
+            )
+            // 顶部略暗、中部透出封面、底部压到接近全黑，保证信息区与控件区文字可读
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .clickable(
-                        interactionSource = remember { MutableInteractionSource() },
-                        indication = null,
-                    ) { volumeVisible = false },
+                    .background(
+                        Brush.verticalGradient(
+                            0f to Color(0x99000000),
+                            0.45f to Color(0x73000000),
+                            1f to Color(0xE6000000),
+                        )
+                    ),
             )
         }
 
         Column(modifier = Modifier.fillMaxSize()) {
-            // ---- 封面：flex 1，居中，contain ----
-            Box(
+            // ---- 封面：1:1 正方形，宽度撑满，居中，无上下色块 ----
+            BoxWithConstraints(
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxWidth()
-                    .padding(horizontal = 20.dp)
+                    .padding(horizontal = 20.dp, vertical = 10.dp)
                     .then(dragToClose),
                 contentAlignment = Alignment.Center,
             ) {
                 if (item == null) {
                     Text("未开始播放", fontSize = 16.sp, color = WebColors.Muted)
                 } else {
+                    val side = minOf(maxWidth, maxHeight)
                     RemoteImage(
                         url = AppContainer.api.coverUrl(item.rj),
-                        modifier = Modifier.fillMaxWidth(0.96f).fillMaxHeight(),
-                        contentScale = ContentScale.Fit,
+                        modifier = Modifier
+                            .size(side)
+                            .clip(RoundedCornerShape(6.dp)),
+                        contentScale = ContentScale.Crop,
+                        placeholder = Color.Transparent,
                     )
                 }
             }
@@ -353,12 +386,29 @@ fun FullscreenPlayer(
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
                             CenterCell {
-                                IconTap(onClick = { volumeVisible = !volumeVisible }) {
-                                    VolumeIcon(
-                                        on = state.volume > 0f,
-                                        tint = if (volumeVisible) accent else Color.White,
-                                        modifier = Modifier.size(22.dp),
-                                    )
+                                Box {
+                                    IconTap(onClick = { volumeVisible = !volumeVisible }) {
+                                        VolumeIcon(
+                                            on = state.volume > 0f,
+                                            tint = if (volumeVisible) accent else Color.White,
+                                            modifier = Modifier.size(22.dp),
+                                        )
+                                    }
+                                    // 真·弹出框：使用 Popup 绘制在独立窗口里，
+                                    // 不参与布局，因此不会把上下控件顶位移。
+                                    if (volumeVisible) {
+                                        Popup(
+                                            popupPositionProvider = AboveAnchorProvider,
+                                            onDismissRequest = { volumeVisible = false },
+                                            properties = PopupProperties(focusable = true),
+                                        ) {
+                                            VolumePane(
+                                                value = state.volume,
+                                                onChange = { PlaybackController.setVolume(it) },
+                                                background = panelSolid,
+                                            )
+                                        }
+                                    }
                                 }
                             }
                             CenterCell {
@@ -396,17 +446,6 @@ fun FullscreenPlayer(
                                     EqualizerIcon(Color.White, Modifier.size(22.dp))
                                 }
                             }
-                        }
-
-                        if (volumeVisible) {
-                            VolumePopup(
-                                value = state.volume,
-                                onChange = { PlaybackController.setVolume(it) },
-                                background = panelSolid,
-                                modifier = Modifier
-                                    .align(Alignment.BottomStart)
-                                    .offset(y = (-52).dp),
-                            )
                         }
                     }
                 }
@@ -578,16 +617,15 @@ private fun ProgressSlider(
     }
 }
 
-/** 音量弹条：音量图标上方竖排的小面板，内含竖向滑块与百分比。 */
+/** 音量弹条内容：竖排滑块 + 百分比（由 Popup 承载，不参与页面布局）。 */
 @Composable
-private fun VolumePopup(
+private fun VolumePane(
     value: Float,
     onChange: (Float) -> Unit,
     background: Color,
-    modifier: Modifier = Modifier,
 ) {
     Column(
-        modifier = modifier
+        modifier = Modifier
             .width(46.dp)
             .clip(RoundedCornerShape(23.dp))
             .background(background)
@@ -697,6 +735,23 @@ private fun FavChip(
                 color = Color.White.copy(alpha = 0.85f),
             )
         }
+    }
+}
+
+/** 把弹层放在锚点正上方居中（越界时贴边）。 */
+private val AboveAnchorProvider = object : PopupPositionProvider {
+    override fun calculatePosition(
+        anchorBounds: IntRect,
+        windowSize: IntSize,
+        layoutDirection: LayoutDirection,
+        popupContentSize: IntSize,
+    ): IntOffset {
+        val x = anchorBounds.center.x - popupContentSize.width / 2
+        val y = anchorBounds.top - popupContentSize.height - 12
+        return IntOffset(
+            x.coerceIn(0, (windowSize.width - popupContentSize.width).coerceAtLeast(0)),
+            y.coerceAtLeast(0),
+        )
     }
 }
 

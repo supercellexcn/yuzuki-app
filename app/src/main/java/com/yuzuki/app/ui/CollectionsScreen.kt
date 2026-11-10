@@ -6,6 +6,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -21,6 +22,11 @@ import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items as gridItems
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.lazy.staggeredgrid.LazyVerticalStaggeredGrid
+import androidx.compose.foundation.lazy.staggeredgrid.StaggeredGridCells
+import androidx.compose.foundation.lazy.staggeredgrid.StaggeredGridItemSpan
+import androidx.compose.foundation.lazy.staggeredgrid.items as staggeredItems
+import androidx.compose.foundation.lazy.staggeredgrid.rememberLazyStaggeredGridState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -182,7 +188,7 @@ fun HistoryScreen(
 ) {
     val scope = rememberCoroutineScope()
     val listState = rememberLazyListState()
-    val cardState = rememberLazyListState()
+    val cardState = rememberLazyStaggeredGridState()
     val prefs = remember {
         AppContainer.app.getSharedPreferences("yuzuki_ui", Context.MODE_PRIVATE)
     }
@@ -198,7 +204,6 @@ fun HistoryScreen(
     var cardView by remember { mutableStateOf(prefs.getString(HISTORY_VIEW_KEY, "list") == "card") }
 
     val hasMore = total > records.size
-    val cardRows = remember(records) { records.chunked(2) }
 
     suspend fun load(reset: Boolean) {
         if (loading) return
@@ -241,7 +246,7 @@ fun HistoryScreen(
     val shouldLoadMoreGrid by remember {
         derivedStateOf {
             val info = cardState.layoutInfo
-            val last = info.visibleItemsInfo.lastOrNull()?.index ?: 0
+            val last = info.visibleItemsInfo.maxOfOrNull { it.index } ?: 0
             cardView && hasMore && !loading && last >= info.totalItemsCount - 4
         }
     }
@@ -261,49 +266,48 @@ fun HistoryScreen(
         WebTopBar(onOpenDrawer = onOpenDrawer)
 
         if (cardView) {
-            LazyColumn(
+            LazyVerticalStaggeredGrid(
+                columns = StaggeredGridCells.Fixed(2),
                 state = cardState,
                 contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 14.dp, bottom = 24.dp),
-                verticalArrangement = Arrangement.spacedBy(16.dp),
+                horizontalArrangement = Arrangement.spacedBy(16.dp),
+                verticalItemSpacing = 16.dp,
                 modifier = Modifier.weight(1f),
             ) {
-                item(key = "back") {
+                item(span = StaggeredGridItemSpan.FullLine, key = "back") {
                     Box(modifier = Modifier.padding(bottom = 4.dp)) {
                         WebBackButton(onClick = onBackToLibrary)
                     }
                 }
-                item(key = "head") {
+                item(span = StaggeredGridItemSpan.FullLine, key = "head") {
                     HistoryHeader(total = total, cardView = true, onToggle = { setCard(false) })
                 }
                 if (records.isEmpty()) {
-                    item(key = "empty") { HistoryEmpty(loading, error) }
-                } else {
-                    items(cardRows, key = { row -> row.firstOrNull()?.playId?.toString() ?: "row" }) { row ->
-                        // 同一行两张卡片等高（本行最高的那张决定）
-                        EqualHeightRow(columns = 2, gap = 16.dp) { index ->
-                            val record = row.getOrNull(index)
-                            if (record == null) {
-                                Spacer(modifier = Modifier.fillMaxWidth())
-                            } else {
-                                WorkCard(
-                                    work = record.work,
-                                    imageMode = LibraryState.imageMode,
-                                    cardBg = cardBg,
-                                    metaBg = metaBg,
-                                    genreBg = genreBg,
-                                    actorBg = actorBg,
-                                    history = HistoryMeta(
-                                        timeLabel = historyTime(record.playedAt, withClock = true),
-                                        shortTimeLabel = historyTime(record.playedAt),
-                                        durationLabel = historyDuration(record.durationSeconds),
-                                    ),
-                                    onOpen = { onOpenWork(record.work.rjCode) },
-                                    modifier = Modifier.fillMaxWidth(),
-                                    )
-                            }
-                        }
+                    item(span = StaggeredGridItemSpan.FullLine, key = "empty") {
+                        HistoryEmpty(loading, error)
                     }
-                    item(key = "end") { HistoryEndTip(loading, hasMore, loaded) }
+                } else {
+                    // 与库页一致：两列瀑布流，卡片高度各自自然
+                    staggeredItems(records, key = { "p${it.playId}" }) { record ->
+                        WorkCard(
+                            work = record.work,
+                            imageMode = LibraryState.imageMode,
+                            cardBg = cardBg,
+                            metaBg = metaBg,
+                            genreBg = genreBg,
+                            actorBg = actorBg,
+                            history = HistoryMeta(
+                                timeLabel = historyTime(record.playedAt, withClock = true),
+                                shortTimeLabel = historyTime(record.playedAt),
+                                durationLabel = historyDuration(record.durationSeconds),
+                            ),
+                            onOpen = { onOpenWork(record.work.rjCode) },
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    }
+                    item(span = StaggeredGridItemSpan.FullLine, key = "end") {
+                        HistoryEndTip(loading, hasMore, loaded)
+                    }
                 }
             }
         } else {

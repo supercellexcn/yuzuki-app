@@ -98,16 +98,19 @@ class YuzukiApi(
         query: List<Pair<String, String>> = emptyList(),
         body: JSONObject? = null,
         auth: Boolean = true,
-    ): Result<JSONObject> = raw(method, path, query, body, auth)
-        .mapCatching { JSONObject(it) }
+    ): Result<JSONObject> = withContext(Dispatchers.IO) {
+        // JSON 解析必须在 IO 线程：分层页时若在主线程解析，滚动会明显掉帧
+        raw(method, path, query, body, auth).mapCatching { JSONObject(it) }
+    }
 
     private suspend fun arr(
         method: String,
         path: String,
         query: List<Pair<String, String>> = emptyList(),
         auth: Boolean = true,
-    ): Result<JSONArray> = raw(method, path, query, auth = auth)
-        .mapCatching { JSONArray(it) }
+    ): Result<JSONArray> = withContext(Dispatchers.IO) {
+        raw(method, path, query, auth = auth).mapCatching { JSONArray(it) }
+    }
 
     private suspend fun ok(
         method: String,

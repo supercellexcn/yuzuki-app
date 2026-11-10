@@ -10,14 +10,18 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
@@ -26,6 +30,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.produceState
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -60,7 +65,14 @@ import java.util.concurrent.TimeUnit
 
 /** 轻量图片加载：OkHttp + 内存 LRU + 磁盘缓存，避免引入额外依赖。 */
 object ImageCache {
-    private val memory = object : LruCache<String, Bitmap>(12 * 1024 * 1024) {
+    /** 默认解码长边：卡片封面 ≈ 200dp，2x 屏约 550px，720 足够清晰且体积可控。 */
+    const val DEFAULT_TARGET_PX = 720
+
+    /** 内存缓存按可用堆的 1/8（8~64MB）：降采样后一张封面约 1MB，够存一屏多的卡片。 */
+    private val cacheBytes = (Runtime.getRuntime().maxMemory() / 8)
+        .toInt().coerceIn(8 shl 20, 64 shl 20)
+
+    private val memory = object : LruCache<String, Bitmap>(cacheBytes) {
         override fun sizeOf(key: String, value: Bitmap): Int = value.byteCount
     }
     private val client = OkHttpClient.Builder()
@@ -69,11 +81,28 @@ object ImageCache {
         .followRedirects(false)
         .build()
 
-    suspend fun load(context: Context, url: String): Bitmap? = withContext(Dispatchers.IO) {
+    /**
+     * @param targetPx 解码长边上限（<=0 表示按原图）。按需降采样是流畅度的关键：
+     *   卡片封面原图常见 1000px+，全尺寸解码一张约 4MB，滚动时几乎每张都要重新解码并触发 GC。
+     */
+    /** 同步命中内存缓存（滚动回到已看过的卡片时首帧直接出图，不闪白）。 */
+    fun peek(url: String, targetPx: Int = DEFAULT_TARGET_PX): Bitmap? {
+        if (url.isBlank()) return null
+        val key = if (targetPx <= 0) url else "$url@$targetPx"
+        return memory.get(key)
+    }
+
+    suspend fun load(
+        context: Context,
+        url: String,
+        targetPx: Int = DEFAULT_TARGET_PX,
+    ): Bitmap? = withContext(Dispatchers.IO) {
         if (url.isBlank()) return@withContext null
-        memory.get(url)?.let { return@withContext it }
+        val key = if (targetPx <= 0) url else "$url@$targetPx"
+        memory.get(key)?.let { return@withContext it }
         val base = AppContainer.api.cachedBaseUrl
         if (base.isNotBlank() && !HostPolicy.isAllowedUrl(url, base)) return@withContext null
+        // 磁盘缓存始终存原始字节，解码时才按需降采样
         val file = File(context.cacheDir, "img_" + sha(url))
         val bytes = if (file.exists() && file.length() > 0) {
             runCatching { file.readBytes() }.getOrNull()
@@ -85,9 +114,25 @@ object ImageCache {
                 }
             }.getOrNull()
         } ?: return@withContext null
-        val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size) ?: return@withContext null
-        memory.put(url, bitmap)
+        val bitmap = decodeSampled(bytes, targetPx) ?: return@withContext null
+        memory.put(key, bitmap)
         bitmap
+    }
+
+    /** 先读图片头算 inSampleSize，再按最大 2 的幂降采样解码。 */
+    private fun decodeSampled(bytes: ByteArray, targetPx: Int): Bitmap? {
+        if (targetPx <= 0) return BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
+        if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
+        var sample = 1
+        var longest = maxOf(bounds.outWidth, bounds.outHeight)
+        while (longest / 2 >= targetPx) {
+            sample *= 2
+            longest /= 2
+        }
+        val opts = BitmapFactory.Options().apply { inSampleSize = sample }
+        return BitmapFactory.decodeByteArray(bytes, 0, bytes.size, opts)
     }
 
     fun clear() {
@@ -104,12 +149,17 @@ fun RemoteImage(
     modifier: Modifier = Modifier,
     contentScale: ContentScale = ContentScale.Crop,
     description: String? = null,
+    /** 加载中 / 失败时的占位底色；默认 surfaceVariant，需要无色块时传 Color.Transparent。 */
+    placeholder: Color = MaterialTheme.colorScheme.surfaceVariant,
+    /** 解码长边上限，<=0 表示原图（大图查看器用）。 */
+    targetPx: Int = ImageCache.DEFAULT_TARGET_PX,
 ) {
     val context = LocalContext.current
-    val bitmap by produceState<Bitmap?>(initialValue = null, key1 = url) {
-        value = ImageCache.load(context, url)
+    val cached = remember(url, targetPx) { ImageCache.peek(url, targetPx) }
+    val bitmap by produceState<Bitmap?>(initialValue = cached, url, targetPx) {
+        if (value == null) value = ImageCache.load(context, url, targetPx)
     }
-    Box(modifier = modifier.background(MaterialTheme.colorScheme.surfaceVariant)) {
+    Box(modifier = modifier.background(placeholder)) {
         if (bitmap != null) {
             Image(
                 bitmap = bitmap!!.asImageBitmap(),
@@ -216,68 +266,6 @@ fun WebSectionTitle(text: String, modifier: Modifier = Modifier) {
         color = WebColors.Text,
         modifier = modifier.padding(top = 8.dp),
     )
-}
-
-/**
- * 等高卡片行 —— 等价于 CSS grid 的 `align-items: stretch`：
- * 先按单元格宽度量一遍拿到每张卡片的自然高度，取本行最高值，再按这个高度量第二遍，
- * 于是同一行的卡片底边严格对齐，内容少的卡片把多余空间留在底部。
- *
- * @param columns 本行单元格数（末行不足时要由 content 补空占位，保证列宽不变）
- * @param cellWidth 固定卡宽；横向滚动列表（宽度无上限）必须传
- */
-@Composable
-fun EqualHeightRow(
-    columns: Int,
-    gap: Dp,
-    modifier: Modifier = Modifier,
-    cellWidth: Dp? = null,
-    content: @Composable (index: Int) -> Unit,
-) {
-    val density = LocalDensity.current
-    Layout(
-        content = { repeat(columns) { content(it) } },
-        modifier = modifier,
-    ) { measurables, constraints ->
-        val cols = columns.coerceAtLeast(1)
-        val gapPx = gap.roundToPx()
-        val fixedPx = cellWidth?.let { with(density) { it.roundToPx() } }
-        val totalWidth = if (fixedPx != null) {
-            (fixedPx * cols + gapPx * (cols - 1)).coerceAtLeast(0)
-        } else {
-            constraints.maxWidth
-        }
-        val cellPx = fixedPx ?: ((totalWidth - gapPx * (cols - 1)) / cols).coerceAtLeast(0)
-
-        // 第一遍：只锁宽度，取各自自然高度
-        val naturalHeights = measurables.map { measurable ->
-            measurable.measure(
-                Constraints(
-                    minWidth = cellPx,
-                    maxWidth = cellPx,
-                    minHeight = 0,
-                    maxHeight = Constraints.Infinity,
-                ),
-            ).height
-        }
-        val rowHeight = naturalHeights.maxOrNull() ?: 0
-        // 第二遍：统一高度，卡片内部用 weight 把信息区撑满
-        val placeables = measurables.map { measurable ->
-            measurable.measure(
-                Constraints(
-                    minWidth = cellPx,
-                    maxWidth = cellPx,
-                    minHeight = rowHeight,
-                    maxHeight = rowHeight,
-                ),
-            )
-        }
-        layout(totalWidth, rowHeight) {
-            placeables.forEachIndexed { index, placeable ->
-                placeable.placeRelative(index * (cellPx + gapPx), 0)
-            }
-        }
-    }
 }
 
 @Composable

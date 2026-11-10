@@ -3,6 +3,7 @@
 local.properties
 
 # Gradle / IDE 产物
+.kotlin/
 .gradle/
 build/
 */build/

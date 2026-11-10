@@ -109,40 +109,41 @@ class LibraryRepository(
         order: String = "desc",
         page: Int = 1,
         pageSize: Int = 20,
-    ): Result<WorksResponse> {
+    ): Result<WorksResponse> = withContext(Dispatchers.IO) {
+        // 组装缓存 JSON + 落盘 + 映射都在 IO 线程，避免分页时卡主线程
         val key = worksKey(q, conds, sort, order, page, pageSize)
         val online = api.works(q, conds, sort, order, page, pageSize)
         online.onSuccess { cache.writeJson(key, it.toCacheJson().toString()) }
-        return online.recoverCatching {
+        online.recoverCatching {
             val cached = cache.readJson(key) ?: throw it
             Models.worksResponse(JSONObject(cached))
         }
     }
 
-    suspend fun work(rj: String): Result<WorkDetail> {
+    suspend fun work(rj: String): Result<WorkDetail> = withContext(Dispatchers.IO) {
         val key = "work_$rj"
         val online = api.work(rj)
         online.onSuccess { cache.writeJson(key, it.toCacheJson().toString()) }
-        return online.recoverCatching {
+        online.recoverCatching {
             val cached = cache.readJson(key) ?: throw it
             Models.workDetail(JSONObject(cached))
         }
     }
 
-    suspend fun favorites(): Result<FavoritesGrouped> {
+    suspend fun favorites(): Result<FavoritesGrouped> = withContext(Dispatchers.IO) {
         val online = api.favorites()
         online.onSuccess { cache.writeJson("favorites", it.toCacheJson().toString()) }
-        return online.recoverCatching {
+        online.recoverCatching {
             val cached = cache.readJson("favorites") ?: throw it
             Models.favorites(JSONObject(cached))
         }
     }
 
-    suspend fun plays(page: Int, pageSize: Int): Result<PlaysResponse> {
+    suspend fun plays(page: Int, pageSize: Int): Result<PlaysResponse> = withContext(Dispatchers.IO) {
         val key = "plays_${page}_$pageSize"
         val online = api.plays(page, pageSize)
         online.onSuccess { cache.writeJson(key, it.toCacheJson().toString()) }
-        return online.recoverCatching {
+        online.recoverCatching {
             val cached = cache.readJson(key) ?: throw it
             Models.playsResponse(JSONObject(cached))
         }

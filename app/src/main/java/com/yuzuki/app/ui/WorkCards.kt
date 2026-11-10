@@ -6,8 +6,6 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
@@ -20,6 +18,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -27,8 +26,12 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.Layout
+import androidx.compose.ui.layout.Placeable
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Constraints
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.yuzuki.app.data.AppContainer
@@ -45,8 +48,8 @@ import kotlinx.coroutines.launch
  * 尺寸/间距全部按 web 的 CSS px 原值落到 dp：卡片圆角 10、封面 1:1、
  * 信息区 padding 10 12 12 + gap 6、封面标签 11px、声优 chip 12px。
  *
- * 等高：卡片放进 `EqualHeightRow`，由「本行最高的那一张」统一整行高度；
- * 信息区用 `weight(1f)` 吃掉剩余空间，内容少的卡片多余空白落在底部（同 web 的 flex-grow）。
+ * 布局：库页 / 历史卡片是两列**瀑布流**（小红书式），每张卡按自身内容取自然高度，
+ * 两列互不影响，短卡下方直接接下一张，不再被邻卡撑高留白。
  */
 private val CardShape = RoundedCornerShape(10.dp)
 
@@ -60,7 +63,6 @@ data class HistoryMeta(
     val durationLabel: String,
 )
 
-@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun WorkCard(
     work: Work,
@@ -77,14 +79,18 @@ fun WorkCard(
     val scope = rememberCoroutineScope()
     val fav = FavoritesState.workRjs.contains(work.rjCode)
     val isHistory = history != null
+    // 封面地址只在 rj 变化时拼一次（authedUrl 里有字符串处理，别每帧算）
+    val coverUrl = remember(work.rjCode, work.coverUrl) {
+        if (work.coverUrl.startsWith("http")) work.coverUrl
+        else AppContainer.api.authedUrl(work.coverUrl)
+    }
 
     Column(
         modifier = modifier
             .fillMaxWidth()
             .clip(CardShape)
             .background(cardBg)
-            // 信息区底色铺满整张卡片：等高行把卡片拉高后，底部多出来的空白
-            // 仍然是信息区的底色，看不出断层（等价 web 的 .meta { flex-grow: 1 }）
+            // 信息区底色铺满整张卡片（封面自带底色，覆盖上半部分）
             .then(if (!imageMode) Modifier.background(metaBg) else Modifier)
             .border(1.dp, WebColors.Border, CardShape)
             .clickable(onClick = onOpen),
@@ -98,9 +104,10 @@ fun WorkCard(
                 .clipToBounds(),
         ) {
             RemoteImage(
-                url = if (work.coverUrl.startsWith("http")) work.coverUrl
-                else AppContainer.api.authedUrl(work.coverUrl),
+                url = coverUrl,
                 modifier = Modifier.fillMaxSize(),
+                // 与封面底色一致，加载中不会闪浅色块（视觉上也更不"卡"）
+                placeholder = Color(0xFF0D0F12),
             )
 
             if (work.tags.isNotEmpty() || imageMode) {
@@ -118,13 +125,12 @@ fun WorkCard(
             }
 
             if (work.tags.isNotEmpty()) {
-                FlowRow(
+                ChipFlow(
+                    gap = 4.dp,
                     modifier = Modifier
                         .align(Alignment.BottomStart)
                         .fillMaxWidth()
                         .padding(start = 6.dp, end = 6.dp, top = 14.dp, bottom = 6.dp),
-                    horizontalArrangement = Arrangement.spacedBy(4.dp),
-                    verticalArrangement = Arrangement.spacedBy(4.dp),
                 ) {
                     work.tags.forEach { tag ->
                         CoverTagChip(tag.name, genreBg) { onCond(FilterCond("tag", tag.name)) }
@@ -215,15 +221,13 @@ fun WorkCard(
                     }
                 }
                 if (work.actors.isNotEmpty()) {
-                    FlowRow(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(4.dp),
-                        verticalArrangement = Arrangement.spacedBy(4.dp),
-                    ) {
-                        work.actors.take(4).forEach { actor ->
-                            ActorChip(actor, actorBg) { onCond(FilterCond("actor", actor)) }
-                        }
-                    }
+                    // 自算换行（Column+Row）代替 FlowRow：换行结果与真实宽度一致，
+                    // 卡片高度随内容自然增长，瀑布流里就是该卡片的自然高度。
+                    ActorChips(
+                        actors = work.actors.take(4),
+                        background = actorBg,
+                        onClick = { onCond(FilterCond("actor", it)) },
+                    )
                 }
             }
         }
@@ -238,10 +242,12 @@ private fun CardInfoRow(label: String, value: String, onClick: (() -> Unit)? = n
         horizontalArrangement = Arrangement.spacedBy(8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(label, fontSize = 13.sp, color = WebColors.Muted, maxLines = 1)
+        // 显式 lineHeight：intrinsic 高度才与实际排版一致，等高行才不会算矮
+        Text(label, fontSize = 13.sp, lineHeight = 17.sp, color = WebColors.Muted, maxLines = 1)
         Text(
             value.ifBlank { "—" },
             fontSize = 13.sp,
+            lineHeight = 17.sp,
             color = WebColors.Text,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
@@ -267,6 +273,69 @@ private fun CoverTagChip(text: String, background: Color, onClick: () -> Unit) {
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
+    }
+}
+
+/**
+ * 声优 chips：一次性测量的换行布局（`Layout`），不用 `BoxWithConstraints` / `FlowRow`。
+ * 两者都是 SubcomposeLayout，滚动时每张卡片都要额外 subcompose 一遍，是列表卡顿的来源之一；
+ * 这里直接测量所有 chip 再按宽度贪心换行，一次测量搞定，4 个声优全部显示。
+ */
+@Composable
+private fun ActorChips(
+    actors: List<String>,
+    background: Color,
+    onClick: (String) -> Unit,
+) {
+    ChipFlow(gap = 4.dp, modifier = Modifier.fillMaxWidth()) {
+        actors.forEach { actor -> ActorChip(actor, background) { onClick(actor) } }
+    }
+}
+
+/** 贪心换行的 chips 容器：按子项实测宽度分行，行高取行内最高。 */
+@Composable
+private fun ChipFlow(
+    gap: Dp,
+    modifier: Modifier = Modifier,
+    content: @Composable () -> Unit,
+) {
+    Layout(content = content, modifier = modifier) { measurables, constraints ->
+        val gapPx = gap.roundToPx()
+        val maxWidth = if (constraints.hasBoundedWidth) constraints.maxWidth else Int.MAX_VALUE
+        val placeables = measurables.map { it.measure(Constraints(maxWidth = constraints.maxWidth)) }
+
+        val rows = mutableListOf<MutableList<Placeable>>()
+        var rowWidth = 0
+        placeables.forEach { p ->
+            val row = rows.lastOrNull()
+            val need = if (row.isNullOrEmpty()) p.width else rowWidth + gapPx + p.width
+            if (!row.isNullOrEmpty() && need > maxWidth) {
+                rows.add(mutableListOf(p))
+                rowWidth = p.width
+            } else {
+                if (row == null) rows.add(mutableListOf(p)) else row.add(p)
+                rowWidth = need
+            }
+        }
+
+        val width = if (constraints.hasBoundedWidth) constraints.maxWidth
+        else rows.maxOfOrNull { r -> r.sumOf { it.width } + gapPx * (r.size - 1).coerceAtLeast(0) } ?: 0
+        val height = rows.sumOf { r -> r.maxOfOrNull { it.height } ?: 0 } +
+            gapPx * (rows.size - 1).coerceAtLeast(0)
+
+        layout(width, height) {
+            var y = 0
+            rows.forEach { row ->
+                var x = 0
+                var rowHeight = 0
+                row.forEach { p ->
+                    p.placeRelative(x, y)
+                    x += p.width + gapPx
+                    rowHeight = maxOf(rowHeight, p.height)
+                }
+                y += rowHeight + gapPx
+            }
+        }
     }
 }
 

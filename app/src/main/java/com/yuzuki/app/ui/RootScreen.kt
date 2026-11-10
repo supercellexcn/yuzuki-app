@@ -110,8 +110,8 @@ fun RootScreen(
                 }
             }
 
-            // 详情页沉浸式阅读，隐藏底部 Tab；播放器打开时仍显示（播放器画在 Tab 之上）
-            if (nav.current !is Route.Work || playState.fullscreen) {
+            // 底部导航常驻（详情页、播放器页都不再隐藏）
+            run {
                 MainNavigationBar(
                     selected = when {
                         playState.fullscreen -> MainTab.Player

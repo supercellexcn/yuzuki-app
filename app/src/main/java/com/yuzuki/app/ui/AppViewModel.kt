@@ -13,7 +13,9 @@ import com.yuzuki.app.data.AppContainer
 import com.yuzuki.app.data.LoginResult
 import com.yuzuki.app.playback.PlaybackController
 import com.yuzuki.app.playback.PlaybackService
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 
 /** 启动链路：health → me → 主界面；首次登录强制改密由原生页面完成（方案 §5 / A5）。 */
 class AppViewModel(application: Application) : AndroidViewModel(application) {
@@ -116,11 +118,20 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private suspend fun enterMain(base: String, token: String) {
-        state = State.Main(base, token)
         AppContainer.bindSession(base, token)
-        // 外观与偏好、离线补报：失败不阻塞进入
-        viewModelScope.launch { AppContainer.settings.load() }
-        viewModelScope.launch { AppContainer.prefs.load() }
+        // 先把「服务端偏好 + 本地设置」拉回来再进主界面（最多等 1.5s）。
+        // 否则主界面首帧会用默认参数（无筛选、默认排序）请求一次全库，
+        // 等偏好回来再重载 —— 表现为「刚进界面作品数量/排序不对，动一下才正常」。
+        withTimeoutOrNull(1500) {
+            coroutineScope {
+                launch { AppContainer.settings.load() }
+                launch { AppContainer.prefs.load() }
+            }
+        }
+        LibraryState.restore(AppContainer.prefs.current)
+
+        state = State.Main(base, token)
+        // 离线补报：失败不阻塞进入
         viewModelScope.launch { AppContainer.reporter.flushPendingSuspend() }
     }
 
