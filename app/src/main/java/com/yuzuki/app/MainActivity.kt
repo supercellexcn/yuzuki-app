@@ -15,13 +15,14 @@ import com.yuzuki.app.ui.theme.YuzukiTheme
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        hideNavigationBars()
         setContent {
             val settings by AppContainer.settings.state.collectAsState()
             YuzukiTheme(appearance = Appearance.from(settings)) {
                 AppRoot()
             }
         }
+        // 内容视图就绪后再进入沉浸，避免被 setContentView 重置
+        hideNavigationBars()
     }
 
     /** 从后台 / 弹窗 / 权限对话框回到前台时重新进入沉浸，避免金刚键又冒出来。 */

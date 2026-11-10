@@ -520,7 +520,7 @@ private fun ProgressSlider(
     Box(
         modifier = modifier
             .fillMaxWidth()
-            .height(28.dp)
+            .height(32.dp)
             .pointerInput(Unit) {
                 detectTapGestures { offset ->
                     onChange((offset.x / size.width).coerceIn(0f, 1f))
@@ -542,8 +542,8 @@ private fun ProgressSlider(
     ) {
         Canvas(modifier = Modifier.fillMaxSize()) {
             val cy = size.height / 2f
-            val trackH = 3.5.dp.toPx()
-            val knobR = 8.dp.toPx()
+            val trackH = 4.dp.toPx()
+            val knobR = 9.dp.toPx()
             val usable = (size.width - knobR * 2).coerceAtLeast(1f)
             val x = knobR + usable * progress.coerceIn(0f, 1f)
 
