@@ -116,3 +116,90 @@ fun LoginScreen(
         }
     }
 }
+
+/** 首次登录 must_change_password：由原生页面完成（与网页端同一账号体系）。 */
+@Composable
+fun ChangePasswordScreen(
+    firstLogin: Boolean = true,
+    onChange: suspend (String, String) -> Result<Unit>,
+) {
+    val scope = rememberCoroutineScope()
+    var oldPassword by remember { mutableStateOf("") }
+    var newPassword by remember { mutableStateOf("") }
+    var confirm by remember { mutableStateOf("") }
+    var message by remember { mutableStateOf<String?>(null) }
+    var busy by remember { mutableStateOf(false) }
+
+    Box(
+        modifier = Modifier.fillMaxSize().systemBarsPadding().padding(20.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Surface(
+            shape = ShapeCard,
+            color = MaterialTheme.colorScheme.surface,
+            tonalElevation = 2.dp,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Column(
+                modifier = Modifier.padding(24.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp),
+            ) {
+                Text(
+                    text = if (firstLogin) "首次登录请修改密码" else "修改密码",
+                    style = MaterialTheme.typography.headlineSmall,
+                )
+                Text(
+                    text = "与网页端使用同一账号，修改后立即生效",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                PasswordField("当前密码", oldPassword, ImeAction.Next) { oldPassword = it; message = null }
+                PasswordField("新密码", newPassword, ImeAction.Next) { newPassword = it; message = null }
+                PasswordField("确认新密码", confirm, ImeAction.Done) { confirm = it; message = null }
+                message?.let {
+                    Text(text = it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+                }
+                Button(
+                    shape = ShapePill,
+                    enabled = !busy && oldPassword.isNotBlank() && newPassword.isNotBlank(),
+                    onClick = {
+                        if (newPassword != confirm) {
+                            message = "两次输入的新密码不一致"
+                        } else {
+                            scope.launch {
+                                busy = true
+                                message = null
+                                val result = onChange(oldPassword, newPassword)
+                                busy = false
+                                result.fold(
+                                    onSuccess = { message = null },
+                                    onFailure = { message = it.message ?: "修改失败，请重试" },
+                                )
+                            }
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                ) { Text("保存并进入") }
+            }
+        }
+    }
+}
+
+@Composable
+private fun PasswordField(
+    label: String,
+    value: String,
+    imeAction: ImeAction,
+    onChange: (String) -> Unit,
+) {
+    OutlinedTextField(
+        value = value,
+        onValueChange = onChange,
+        label = { Text(label) },
+        singleLine = true,
+        shape = ShapePill,
+        visualTransformation = PasswordVisualTransformation(),
+        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, imeAction = imeAction),
+        modifier = Modifier.fillMaxWidth(),
+    )
+}

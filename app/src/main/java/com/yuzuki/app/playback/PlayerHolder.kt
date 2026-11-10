@@ -1,5 +1,7 @@
 package com.yuzuki.app.playback
 
+import android.content.Intent
+import android.net.Uri
 import android.os.Handler
 import android.os.Looper
 import androidx.media3.common.MediaItem
@@ -8,50 +10,63 @@ import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
+import com.yuzuki.app.data.AppContainer
+import com.yuzuki.app.data.MediaFile
+import com.yuzuki.app.data.Work
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
-import org.json.JSONObject
+
+data class PlayItem(val rj: String, val file: MediaFile, val work: Work?)
+
+data class PlayState(
+    val current: PlayItem? = null,
+    val queue: List<MediaFile> = emptyList(),
+    val playing: Boolean = false,
+    val positionMs: Long = 0L,
+    val durationMs: Long = 0L,
+    val volume: Float = 1f,
+    val loop: Boolean = false,
+    val fullscreen: Boolean = false,
+    val error: String? = null,
+)
 
 /**
- * ExoPlayer 单例状态机（方案 §6.3 / §6.4）：原生是唯一真相源。
- * Service 持有 ExoPlayer 并 attach 到这里；WebView 经 JsBridge 下发指令，
- * 这里回推 6 类事件，播放中每 250ms 一次 timeupdate。
- * S4：维护锁屏 MediaMetadata（含原生下载的封面）并转发换曲命令到 WebView。
+ * 播放状态唯一真相源（方案 §7）：Service 持有 ExoPlayer 并 attach 到这里，
+ * UI 通过 StateFlow 单向观察；队列、元数据、时长上报全在原生，不再有 JS 事件桥。
  */
 @UnstableApi
 object PlayerHolder {
     private val main = Handler(Looper.getMainLooper())
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val _state = MutableStateFlow(PlayState())
+    val state: StateFlow<PlayState> = _state
 
     @Volatile private var player: ExoPlayer? = null
-    @Volatile private var state = NativeAudioState()
-    @Volatile private var pendingSource: String? = null
+    @Volatile private var pendingUrl: String? = null
     @Volatile private var pendingPlay = false
-
-    /** 由当前 WebView 设置，重建时覆盖；销毁时置空。 */
-    @Volatile var eventSink: ((String) -> Unit)? = null
-
-    /** 锁屏换曲命令 → WebView 的 __yuzukiPlayerCommand。 */
-    @Volatile var commandSink: ((String) -> Unit)? = null
-
-    /** 当前锁屏元数据；前端 updateMediaMetadata() 早于 a.src 赋值，故换源时一并带上。 */
-    @Volatile private var title: String = ""
-    @Volatile private var artist: String = ""
-    @Volatile private var album: String = ""
     @Volatile private var artworkBytes: ByteArray? = null
     @Volatile private var artworkLoader: ArtworkLoader? = null
-    @Volatile private var artworkBaseUrl: String = ""
+    @Volatile private var lastReportAt = 0L
+
+    private fun update(block: (PlayState) -> PlayState) {
+        _state.value = block(_state.value)
+    }
 
     private val ticker = object : Runnable {
         override fun run() {
             val p = player
-            if (p != null && p.isPlaying) {
-                val t = p.currentPosition / 1000.0
-                val d = p.duration.takeIf { it > 0 }?.div(1000.0) ?: state.duration
-                state = state.copy(currentTime = t, duration = d, playing = true, paused = false)
-                emit(NativeEvents.timeupdate(t, d))
+            if (p != null) {
+                val pos = p.currentPosition.coerceAtLeast(0)
+                val dur = p.duration.takeIf { it > 0 } ?: 0L
+                update { it.copy(positionMs = pos, durationMs = dur) }
+                if (p.isPlaying && System.currentTimeMillis() - lastReportAt > 30_000) {
+                    lastReportAt = System.currentTimeMillis()
+                    AppContainer.reporter.tick()
+                }
             }
             main.postDelayed(this, 250)
         }
@@ -61,37 +76,37 @@ object PlayerHolder {
         override fun onPlaybackStateChanged(playbackState: Int) {
             when (playbackState) {
                 Player.STATE_READY -> {
-                    val d = player?.duration?.takeIf { it > 0 }?.div(1000.0) ?: 0.0
-                    state = state.copy(duration = d)
-                    emit(NativeEvents.durationchange(d))
+                    val dur = player?.duration?.takeIf { it > 0 } ?: 0L
+                    update { it.copy(durationMs = dur) }
                 }
                 Player.STATE_ENDED -> {
-                    state = state.copy(playing = false, paused = true)
-                    emit(NativeEvents.simple("ended"))
+                    update { it.copy(playing = false) }
+                    AppContainer.reporter.pause()
+                    next()
                 }
             }
         }
 
+        override fun onIsPlayingChanged(isPlaying: Boolean) {
+            update { it.copy(playing = isPlaying) }
+            if (isPlaying) AppContainer.reporter.resume() else AppContainer.reporter.pause()
+        }
+
         override fun onPlayerError(error: PlaybackException) {
-            state = state.copy(playing = false, paused = true)
-            emit(NativeEvents.error(error.message ?: "播放失败"))
+            update { it.copy(playing = false, error = error.message ?: "播放失败") }
+            AppContainer.reporter.settle()
         }
     }
 
     fun attach(newPlayer: ExoPlayer) = runOnMain {
         detachPlayer()
         player = newPlayer
-        newPlayer.volume = state.volume
-        newPlayer.repeatMode = if (state.loop) Player.REPEAT_MODE_ONE else Player.REPEAT_MODE_OFF
+        newPlayer.volume = _state.value.volume
+        newPlayer.repeatMode = if (_state.value.loop) Player.REPEAT_MODE_ONE else Player.REPEAT_MODE_OFF
         newPlayer.addListener(listener)
-        // Service 启动有延迟：setSource / play 先于 attach 到达时在此补齐
-        pendingSource?.let { applySource(newPlayer, it) }
-        if (pendingPlay) {
-            newPlayer.play()
-            state = state.copy(playing = true, paused = false)
-            emit(NativeEvents.simple("play"))
-        }
-        pendingSource = null
+        pendingUrl?.let { applySource(newPlayer, it) }
+        if (pendingPlay) newPlayer.play()
+        pendingUrl = null
         pendingPlay = false
         main.removeCallbacks(ticker)
         main.postDelayed(ticker, 250)
@@ -102,137 +117,157 @@ object PlayerHolder {
         main.removeCallbacks(ticker)
     }
 
-    fun setSource(url: String) = runOnMain {
-        state = state.copy(sourceUrl = url, currentTime = 0.0, duration = 0.0)
-        val p = player
-        if (p == null) {
-            pendingSource = url
-            pendingPlay = false
-        } else {
-            applySource(p, url)
+    // ---- UI 指令 ----
+
+    fun play(rj: String, file: MediaFile, work: Work?, queue: List<MediaFile> = emptyList()) {
+        val state = _state.value
+        if (state.current?.rj == rj && state.current.file.id == file.id) {
+            toggle()
+            return
+        }
+        ensureService()
+        val item = PlayItem(rj, file, work)
+        val newQueue = QueueMath.playable(queue).ifEmpty {
+            state.queue.takeIf { state.current?.rj == rj }.orEmpty()
+        }
+        update {
+            it.copy(
+                current = item,
+                queue = newQueue,
+                playing = true,
+                positionMs = 0,
+                durationMs = 0,
+                error = null,
+            )
+        }
+        artworkBytes = null
+        loadArtwork(rj)
+        val url = mediaUrl(rj, file.id)
+        AppContainer.reporter.start(rj, file.id)
+        runOnMain {
+            val p = player
+            if (p == null) {
+                pendingUrl = url
+                pendingPlay = true
+            } else {
+                applySource(p, url)
+                p.play()
+            }
         }
     }
 
-    fun play() = runOnMain {
-        val p = player
-        if (p == null) {
-            pendingPlay = true
-            return@runOnMain
-        }
-        p.play()
-        state = state.copy(playing = true, paused = false)
-        emit(NativeEvents.simple("play"))
+    fun toggle() {
+        if (_state.value.current == null) return
+        if (_state.value.playing) pause() else resume()
     }
 
-    fun pause() = runOnMain {
-        player?.pause()
-        state = state.copy(playing = false, paused = true)
-        emit(NativeEvents.simple("pause"))
+    fun pause() = runOnMain { player?.pause() }
+    fun resume() = runOnMain { player?.play() }
+
+    fun next() {
+        val s = _state.value
+        val cur = s.current ?: return
+        val idx = QueueMath.nextIndex(s.queue.map { it.id }, cur.file.id)
+        if (idx < 0) return
+        play(cur.rj, s.queue[idx], cur.work, s.queue)
     }
 
-    fun stop() = runOnMain {
-        pendingSource = null
-        pendingPlay = false
-        player?.apply {
-            stop()
-            clearMediaItems()
-        }
-        state = state.copy(
-            playing = false,
-            paused = true,
-            currentTime = 0.0,
-            duration = 0.0,
-            sourceUrl = "",
-        )
-        emit(NativeEvents.simple("pause"))
+    fun prev() {
+        val s = _state.value
+        val cur = s.current ?: return
+        val idx = QueueMath.prevIndex(s.queue.map { it.id }, cur.file.id)
+        if (idx < 0) return
+        play(cur.rj, s.queue[idx], cur.work, s.queue)
     }
 
     fun seekTo(positionMs: Long) = runOnMain {
         val ms = positionMs.coerceAtLeast(0)
         player?.seekTo(ms)
-        state = state.copy(currentTime = ms / 1000.0)
-        emit(NativeEvents.timeupdate(state.currentTime, state.duration))
+        update { it.copy(positionMs = ms) }
     }
 
-    fun seekBy(deltaMs: Long) = runOnMain {
+    fun seekBy(seconds: Int) = runOnMain {
         val p = player
-        val base = p?.currentPosition ?: (state.currentTime * 1000).toLong()
-        seekTo(base + deltaMs)
+        val base = p?.currentPosition ?: _state.value.positionMs
+        seekTo(base + seconds * 1000L)
     }
 
     fun setVolume(v: Float) = runOnMain {
         val value = v.coerceIn(0f, 1f)
-        state = state.copy(volume = value)
+        update { it.copy(volume = value) }
         player?.volume = value
     }
 
-    fun setLoop(enabled: Boolean) = runOnMain {
-        state = state.copy(loop = enabled)
-        player?.repeatMode = if (enabled) Player.REPEAT_MODE_ONE else Player.REPEAT_MODE_OFF
+    fun toggleLoop() = runOnMain {
+        val value = !_state.value.loop
+        update { it.copy(loop = value) }
+        player?.repeatMode = if (value) Player.REPEAT_MODE_ONE else Player.REPEAT_MODE_OFF
     }
 
-    /** 前端 new MediaMetadata({...}) 经 JsBridge 到达；封面异步下载后二次写回会话。 */
-    fun setMetadata(json: String, baseUrl: String) {
-        val obj = runCatching { JSONObject(json) }.getOrElse { return }
-        title = obj.optString("title")
-        artist = obj.optString("artist")
-        album = obj.optString("album")
-        val artworkUrl = obj.optString("artworkUrl")
-        artworkBaseUrl = baseUrl
-        applyMetadataToCurrentItem()
-
-        if (artworkUrl.isBlank()) {
-            artworkBytes = null
-            return
+    fun stop() = runOnMain {
+        AppContainer.reporter.settle()
+        player?.apply { stop(); clearMediaItems() }
+        pendingUrl = null
+        pendingPlay = false
+        update {
+            it.copy(
+                current = null, queue = emptyList(), playing = false,
+                positionMs = 0, durationMs = 0, fullscreen = false,
+            )
         }
-        val loader = artworkLoader?.takeIf { artworkBaseUrl == baseUrl } ?: ArtworkLoader(baseUrl)
+    }
+
+    fun setFullscreen(visible: Boolean) = update { it.copy(fullscreen = visible) }
+
+    fun clearError() = update { it.copy(error = null) }
+
+    // ---- 内部 ----
+
+    private fun mediaUrl(rj: String, fileId: Long): String {
+        val offline = AppContainer.offline
+        return if (offline.hasAudio(rj, fileId)) {
+            Uri.fromFile(offline.audioFile(rj, fileId)).toString()
+        } else AppContainer.api.mediaUrl(rj, fileId)
+    }
+
+    private fun buildMetadata(): MediaMetadata {
+        val item = _state.value.current
+        return MediaMetadata.Builder()
+            .setTitle(item?.file?.filename?.takeIf { it.isNotBlank() } ?: item?.work?.title ?: "")
+            .setArtist(
+                item?.work?.actors?.takeIf { it.isNotEmpty() }?.joinToString("、")
+                    ?: item?.work?.circle ?: "",
+            )
+            .setAlbumTitle(item?.work?.title ?: item?.rj ?: "")
+            .apply {
+                artworkBytes?.let { setArtworkData(it, MediaMetadata.PICTURE_TYPE_FRONT_COVER) }
+            }
+            .build()
+    }
+
+    private fun loadArtwork(rj: String) {
+        val url = AppContainer.api.coverUrl(rj)
+        val base = AppContainer.api.cachedBaseUrl
+        val loader = artworkLoader?.takeIf { it.baseUrl == base } ?: ArtworkLoader(base)
         artworkLoader = loader
         scope.launch {
-            val bytes = loader.load(artworkUrl) ?: return@launch
+            val bytes = loader.load(url) ?: return@launch
             artworkBytes = bytes
-            runOnMain { applyMetadataToCurrentItem() }
+            runOnMain { applyArtwork() }
         }
     }
 
-    /** 锁屏 / 蓝牙的上一曲、下一曲：队列归前端 player.ts 管，原生只转命令。 */
-    fun requestCommand(command: String) = runOnMain {
-        commandSink?.invoke(command)
-    }
-
-    fun getSnapshot(): String = state.toEventJson()
-
-    fun emitError(message: String) {
-        state = state.copy(playing = false, paused = true)
-        emit(NativeEvents.error(message))
-    }
-
-    private fun buildMediaMetadata(): MediaMetadata = MediaMetadata.Builder()
-        .setTitle(title)
-        .setArtist(artist)
-        .setAlbumTitle(album)
-        .apply {
-            artworkBytes?.let {
-                setArtworkData(it, MediaMetadata.PICTURE_TYPE_FRONT_COVER)
-            }
-        }
-        .build()
-
-    private fun applyMetadataToCurrentItem() = runOnMain {
+    private fun applyArtwork() = runOnMain {
         val p = player ?: return@runOnMain
         val item = p.currentMediaItem ?: return@runOnMain
         p.replaceMediaItem(
             p.currentMediaItemIndex,
-            item.buildUpon().setMediaMetadata(buildMediaMetadata()).build(),
+            item.buildUpon().setMediaMetadata(buildMetadata()).build(),
         )
     }
 
     private fun applySource(p: ExoPlayer, url: String) {
-        p.setMediaItem(
-            MediaItem.Builder()
-                .setUri(url)
-                .setMediaMetadata(buildMediaMetadata())
-                .build(),
-        )
+        p.setMediaItem(MediaItem.Builder().setUri(url).setMediaMetadata(buildMetadata()).build())
         p.prepare()
     }
 
@@ -241,11 +276,9 @@ object PlayerHolder {
         player = null
     }
 
-    private fun emit(json: String) {
-        if (Looper.myLooper() == Looper.getMainLooper()) {
-            eventSink?.invoke(json)
-        } else {
-            main.post { eventSink?.invoke(json) }
+    private fun ensureService() {
+        runCatching {
+            AppContainer.app.startService(Intent(AppContainer.app, PlaybackService::class.java))
         }
     }
 

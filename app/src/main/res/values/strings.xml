@@ -34,8 +34,7 @@
     <string name="unreachable_retry">重试</string>
     <string name="unreachable_change">修改地址</string>
 
-    <!-- WebView 兼容性提示 -->
-    <string name="webview_outdated">请升级 Android System WebView 后重试</string>
+    <!-- 返回键 -->
     <string name="exit_confirm">再按一次退出</string>
 
     <!-- S4：电池优化引导 -->

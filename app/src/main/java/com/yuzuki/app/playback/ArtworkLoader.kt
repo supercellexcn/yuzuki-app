@@ -11,7 +11,7 @@ import java.util.concurrent.TimeUnit
  * 方案 §6.3：HTTP artwork URI 不能直接交给系统 MediaSession（SystemUI 无法保证明文/鉴权加载），
  * 原生下载为 bytes 后用 MediaMetadata.Builder.setArtworkData(bytes) 喂给会话。
  */
-class ArtworkLoader(private val baseUrl: String) {
+class ArtworkLoader(val baseUrl: String) {
     private val client = OkHttpClient.Builder()
         .connectTimeout(5, TimeUnit.SECONDS)
         .readTimeout(10, TimeUnit.SECONDS)

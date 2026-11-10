@@ -4,9 +4,7 @@ import android.Manifest
 import android.app.Activity
 import android.os.Build
 import android.os.SystemClock
-import android.webkit.WebView
 import android.widget.Toast
-import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
@@ -43,21 +41,16 @@ import com.yuzuki.app.ui.theme.ShapePill
 @Composable
 fun AppRoot(vm: AppViewModel = viewModel()) {
     val context = LocalContext.current
-    val activity = context as? Activity
-    val webViewRef = remember { mutableStateOf<WebView?>(null) }
-    var lastBackAt by remember { mutableLongStateOf(0L) }
 
-    // S4：Android 13+ 的前台服务通知需要 POST_NOTIFICATIONS 运行时权限
     val requestNotifications = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission(),
-    ) { /* 用户拒绝时播放仍继续，只是通知栏控件可能不显示 */ }
+    ) { /* 拒绝时播放仍继续，只是通知栏控件不显示 */ }
     LaunchedEffect(Unit) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             requestNotifications.launch(Manifest.permission.POST_NOTIFICATIONS)
         }
     }
 
-    // S4：一次性引导忽略电池优化（不申请唤醒锁，方案 §6.3）
     var showBatteryDialog by remember { mutableStateOf(BatteryGuidance.needsGuidance(context)) }
     if (showBatteryDialog) {
         AlertDialog(
@@ -82,24 +75,6 @@ fun AppRoot(vm: AppViewModel = viewModel()) {
         )
     }
 
-    // 返回键：WebView 内优先回退，最后一层双击退出（方案 §5.1）
-    BackHandler(enabled = true) {
-        val wv = webViewRef.value
-        val now = SystemClock.elapsedRealtime()
-        when {
-            wv?.canGoBack() == true -> wv.goBack()
-            now - lastBackAt < 2000 -> activity?.finish()
-            else -> {
-                lastBackAt = now
-                Toast.makeText(
-                    context,
-                    context.getString(R.string.exit_confirm),
-                    Toast.LENGTH_SHORT,
-                ).show()
-            }
-        }
-    }
-
     when (val s = vm.state) {
         is AppViewModel.State.Loading -> CenteredScreen { CircularProgressIndicator() }
 
@@ -114,6 +89,10 @@ fun AppRoot(vm: AppViewModel = viewModel()) {
             onSuccess = vm::onLoginSuccess,
         )
 
+        is AppViewModel.State.ChangePassword -> ChangePasswordScreen(
+            onChange = vm::changePassword,
+        )
+
         is AppViewModel.State.Unreachable -> UnreachableScreen(
             baseUrl = s.baseUrl,
             onRetry = vm::bootstrap,
@@ -125,13 +104,9 @@ fun AppRoot(vm: AppViewModel = viewModel()) {
             onRetry = vm::bootstrap,
         )
 
-        is AppViewModel.State.Web -> RootScreen(
-            baseUrl = s.baseUrl,
-            token = s.token,
-            serverConfig = vm.serverConfig,
-            webViewRef = webViewRef,
-            onUnreachable = { vm.onUnreachable(s.baseUrl) },
-            onBridgeUnavailable = vm::onBridgeUnavailable,
+        is AppViewModel.State.Main -> RootScreen(
+            onLogout = vm::logout,
+            onChangeServer = vm::onChangeServer,
         )
     }
 }

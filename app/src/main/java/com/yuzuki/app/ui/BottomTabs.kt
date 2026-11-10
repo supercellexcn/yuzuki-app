@@ -23,15 +23,15 @@ import androidx.compose.ui.unit.dp
 import com.yuzuki.app.R
 import com.yuzuki.app.ui.theme.ShapeContainer
 import com.yuzuki.app.ui.theme.ShapePill
-import com.yuzuki.app.web.WebTab
 
-/** 底部 Tab 栏占位高度；WebView 用同等 padding 避让，二者不重叠（方案 §5.1）。 */
+enum class BottomTab { Library, Player, History }
+
 val TabBarHeight = 56.dp
 
 @Composable
 fun BottomTabs(
-    selected: WebTab,
-    onTabClick: (WebTab) -> Unit,
+    selected: BottomTab,
+    onTabClick: (BottomTab) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Box(
@@ -51,9 +51,9 @@ fun BottomTabs(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceEvenly,
             ) {
-                TabItem(R.string.tab_library, WebTab.LIBRARY, selected, onTabClick)
-                TabItem(R.string.tab_player, WebTab.PLAYER, selected, onTabClick)
-                TabItem(R.string.tab_history, WebTab.HISTORY, selected, onTabClick)
+                TabItem(R.string.tab_library, BottomTab.Library, selected, onTabClick)
+                TabItem(R.string.tab_player, BottomTab.Player, selected, onTabClick)
+                TabItem(R.string.tab_history, BottomTab.History, selected, onTabClick)
             }
         }
     }
@@ -62,9 +62,9 @@ fun BottomTabs(
 @Composable
 private fun RowScope.TabItem(
     labelRes: Int,
-    tab: WebTab,
-    selected: WebTab,
-    onTabClick: (WebTab) -> Unit,
+    tab: BottomTab,
+    selected: BottomTab,
+    onTabClick: (BottomTab) -> Unit,
 ) {
     val active = selected == tab
     Box(
@@ -82,11 +82,8 @@ private fun RowScope.TabItem(
         Text(
             text = stringResource(labelRes),
             style = MaterialTheme.typography.labelLarge,
-            color = if (active) {
-                MaterialTheme.colorScheme.primary
-            } else {
-                MaterialTheme.colorScheme.onSurfaceVariant
-            },
+            color = if (active) MaterialTheme.colorScheme.primary
+            else MaterialTheme.colorScheme.onSurfaceVariant,
         )
     }
 }

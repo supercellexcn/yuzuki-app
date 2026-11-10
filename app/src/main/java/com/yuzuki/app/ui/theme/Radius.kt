@@ -6,7 +6,7 @@ import androidx.compose.ui.unit.dp
 
 /**
  * 方案 §5.4 圆角规范：所有框体一律圆角，禁止直角与 <8dp 锐角。
- * WebView 内的框体保持前端 CSS 原值，原生侧不覆盖任何样式。
+ * 全原生实现下由 GlassSurface 统一出口复用这些令牌，禁止散落硬编码。
  */
 object YuzukiRadius {
     val Card = 20.dp

@@ -9,35 +9,33 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.yuzuki.app.SessionEvents
 import com.yuzuki.app.data.ApiException
+import com.yuzuki.app.data.AppContainer
 import com.yuzuki.app.data.LoginResult
-import com.yuzuki.app.data.ServerConfig
-import com.yuzuki.app.data.TokenStore
-import com.yuzuki.app.data.YuzukiApi
 import com.yuzuki.app.playback.PlaybackService
 import com.yuzuki.app.playback.PlayerHolder
 import kotlinx.coroutines.launch
 
-/** 启动链路：health → me 校验 token → WebView；异常分别落到设置 / 登录 / 不可达（方案 §4）。 */
+/** 启动链路：health → me → 主界面；首次登录强制改密由原生页面完成（方案 §5 / A5）。 */
 class AppViewModel(application: Application) : AndroidViewModel(application) {
-    val serverConfig = ServerConfig(application)
-    private val tokenStore = TokenStore(application)
-    private val api = YuzukiApi(serverConfig)
-
     sealed interface State {
         data object Loading : State
         data object Setup : State
         data object Login : State
+        data object ChangePassword : State
         data class Unreachable(val baseUrl: String) : State
-        data class Web(val baseUrl: String, val token: String) : State
+        data class Main(val baseUrl: String, val token: String) : State
         data class Fatal(val message: String) : State
     }
 
     var state by mutableStateOf<State>(State.Loading)
         private set
 
+    private val config get() = AppContainer.serverConfig
+    private val tokens get() = AppContainer.tokenStore
+    private val api get() = AppContainer.api
+
     init {
         bootstrap()
-        // 前端退出登录 / 401 清 token 时同步收掉原生登录态（方案 §4、A5）
         viewModelScope.launch {
             SessionEvents.logout.collect { handleLogout() }
         }
@@ -46,7 +44,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     fun bootstrap() {
         viewModelScope.launch {
             state = State.Loading
-            val base = serverConfig.currentBaseUrl()
+            val base = config.currentBaseUrl()
             if (base == null) {
                 state = State.Setup
                 return@launch
@@ -55,16 +53,15 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    /** 只做连通性预检，不落盘。 */
     suspend fun testConnection(raw: String): Result<String> {
-        val base = serverConfig.normalize(raw).getOrElse { return Result.failure(it) }
+        val base = config.normalize(raw).getOrElse { return Result.failure(it) }
         return api.health(base).map { base }
     }
 
-    suspend fun saveServer(raw: String): Result<String> = serverConfig.save(raw)
+    suspend fun saveServer(raw: String): Result<String> = config.save(raw)
 
     suspend fun login(username: String, password: String): Result<LoginResult> {
-        val base = serverConfig.currentBaseUrl()
+        val base = config.currentBaseUrl()
             ?: return Result.failure(IllegalStateException("尚未配置服务地址"))
         return api.login(base, username, password)
     }
@@ -75,14 +72,29 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
     fun onLoginSuccess(result: LoginResult) {
         viewModelScope.launch {
-            val base = serverConfig.currentBaseUrl() ?: return@launch
-            if (tokenStore.save(result.token, result.username).isFailure) {
+            val base = config.currentBaseUrl() ?: return@launch
+            if (tokens.save(result.token, result.username).isFailure) {
                 state = State.Fatal("安全存储不可用，无法保存登录态")
                 return@launch
             }
-            // 首次登录 must_change_password 由前端路由守卫跳 /change-password（方案 §4）
-            state = State.Web(base, result.token)
+            AppContainer.bindSession(base, result.token)
+            api.token = result.token
+            if (result.mustChangePassword) {
+                state = State.ChangePassword
+            } else {
+                enterMain(base, result.token)
+            }
         }
+    }
+
+    suspend fun changePassword(oldPassword: String, newPassword: String): Result<Unit> {
+        val result = api.changePassword(oldPassword, newPassword)
+        if (result.isSuccess) {
+            val base = config.currentBaseUrl() ?: return result
+            val token = tokens.getToken().orEmpty()
+            enterMain(base, token)
+        }
+        return result
     }
 
     fun onUnreachable(base: String) {
@@ -91,21 +103,32 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
     fun onChangeServer() {
         viewModelScope.launch {
-            tokenStore.clear()
-            serverConfig.clear()
+            tokens.clear()
+            config.clear()
+            api.token = null
+            api.cachedBaseUrl = ""
             state = State.Setup
         }
     }
 
-    fun onBridgeUnavailable() {
-        state = State.Fatal("请升级 Android System WebView 后重试")
+    fun logout() {
+        viewModelScope.launch { handleLogout() }
+    }
+
+    private suspend fun enterMain(base: String, token: String) {
+        state = State.Main(base, token)
+        AppContainer.bindSession(base, token)
+        // 外观与偏好、离线补报：失败不阻塞进入
+        viewModelScope.launch { AppContainer.settings.load() }
+        viewModelScope.launch { AppContainer.prefs.load() }
+        viewModelScope.launch { AppContainer.reporter.flushPendingSuspend() }
     }
 
     private suspend fun handleLogout() {
-        tokenStore.clear()
+        tokens.clear()
+        api.token = null
         PlayerHolder.stop()
-        val app = getApplication<Application>()
-        runCatching { app.stopService(Intent(app, PlaybackService::class.java)) }
+        runCatching { getApplication<Application>().stopService(Intent(getApplication(), PlaybackService::class.java)) }
         state = State.Login
     }
 
@@ -114,20 +137,25 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             state = State.Unreachable(base)
             return
         }
-        val token = tokenStore.getToken()
+        val token = tokens.getToken()
         if (token == null) {
             state = State.Login
             return
         }
-        api.me(base, token).fold(
-            onSuccess = { state = State.Web(base, token) },
+        AppContainer.bindSession(base, token)
+        api.me().fold(
+            onSuccess = { user ->
+                if (user.mustChangePassword) state = State.ChangePassword
+                else enterMain(base, token)
+            },
             onFailure = { error ->
                 if (error is ApiException && error.code == 401) {
-                    tokenStore.clear()
+                    tokens.clear()
+                    api.token = null
                     state = State.Login
                 } else {
-                    // 网络抖动不清除 token，避免误登出
-                    state = State.Unreachable(base)
+                    // 网络抖动不清 token；离线时仍可用缓存进入
+                    enterMain(base, token)
                 }
             },
         )

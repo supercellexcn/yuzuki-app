@@ -56,10 +56,10 @@ dependencies {
     implementation("androidx.compose.material3:material3")
 
     // 文档级注入 addDocumentStartJavaScript 需要 androidx.webkit
-    implementation("androidx.webkit:webkit:1.12.1")
-    // TokenStore：DataStore 偏好存储
+    // N0：全原生方案已彻底移除 WebView 与 JS 注入，webkit 依赖不再需要
+    // TokenStore / 本地偏好：DataStore
     implementation("androidx.datastore:datastore-preferences:1.1.1")
-    // YuzukiApi：health / login / me
+    // 全量 REST 客户端（OkHttp + org.json，无需额外序列化/注解处理器依赖）
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
 
@@ -71,4 +71,6 @@ dependencies {
 
     // S1 白名单策略的 JVM 断言（方案 §10）
     testImplementation("junit:junit:4.13.2")
+    // JVM 单测里 android.jar 的 org.json 是 stub，补一个真实实现供模型解析断言使用
+    testImplementation("org.json:json:20240303")
 }

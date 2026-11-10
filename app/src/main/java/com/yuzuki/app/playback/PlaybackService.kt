@@ -7,6 +7,7 @@ import androidx.media3.common.C
 import androidx.media3.common.ForwardingPlayer
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
+import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
@@ -15,12 +16,9 @@ import androidx.media3.session.MediaSessionService
 import com.yuzuki.app.MainActivity
 
 /**
- * 原生播放服务（方案 §6.3）。播放在 Service 中，WebView 被冻结/销毁都不影响后台续播。
- * 媒体 URL 自带 ?token= 且支持 Range，无需自定义 Header；单一 MediaSession 换 MediaItem
- * 不重建会话，规避 web 端「换曲后通知栏控件消失」的 Chromium 缺陷。
- *
- * S4：用 ForwardingPlayer 把系统媒体按键的上一曲/下一曲转发到 WebView 的前端队列；
- * onConnect 显式开放这两个 player command，锁屏与蓝牙按键才会出现换曲按钮。
+ * 原生播放服务：单一 MediaSession 换 MediaItem 不重建会话，规避 web 端换曲通知消失问题。
+ * 上一曲/下一曲由 ForwardingPlayer 直接转发到原生 QueueManager（PlayerHolder），不再绕 JS。
+ * DataSource 用 DefaultDataSource.Factory 包裹 HTTP，使离线 file:// 与在线 Range 都能播。
  */
 @UnstableApi
 class PlaybackService : MediaSessionService() {
@@ -30,14 +28,14 @@ class PlaybackService : MediaSessionService() {
     override fun onCreate() {
         super.onCreate()
         val httpFactory = DefaultHttpDataSource.Factory()
-            .setUserAgent("YuzukiAndroid/0.1")
-            // 禁止跨协议重定向，避免带 token 的媒体请求被带到站外
+            .setUserAgent("YuzukiAndroid/0.2")
             .setAllowCrossProtocolRedirects(false)
             .setConnectTimeoutMs(10_000)
             .setReadTimeoutMs(30_000)
+        val dataSourceFactory = DefaultDataSource.Factory(this, httpFactory)
 
         val exo = ExoPlayer.Builder(this)
-            .setMediaSourceFactory(DefaultMediaSourceFactory(httpFactory))
+            .setMediaSourceFactory(DefaultMediaSourceFactory(dataSourceFactory))
             .setAudioAttributes(
                 AudioAttributes.Builder()
                     .setContentType(C.AUDIO_CONTENT_TYPE_MUSIC)
@@ -51,14 +49,11 @@ class PlaybackService : MediaSessionService() {
         PlayerHolder.attach(exo)
 
         val openApp = PendingIntent.getActivity(
-            this,
-            0,
-            Intent(this, MainActivity::class.java).apply {
-                flags = Intent.FLAG_ACTIVITY_SINGLE_TOP
-            },
+            this, 0,
+            Intent(this, MainActivity::class.java).apply { flags = Intent.FLAG_ACTIVITY_SINGLE_TOP },
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
         )
-        session = MediaSession.Builder(this, YuzukiPlayer(exo))
+        session = MediaSession.Builder(this, NativeQueuePlayer(exo))
             .setCallback(SessionCallback())
             .setSessionActivity(openApp)
             .build()
@@ -67,6 +62,7 @@ class PlaybackService : MediaSessionService() {
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? = session
 
     override fun onDestroy() {
+        AppContainerReporterFlush()
         session?.release()
         session = null
         PlayerHolder.detach()
@@ -75,12 +71,14 @@ class PlaybackService : MediaSessionService() {
         super.onDestroy()
     }
 
-    /** 队列由前端 player.ts 维护，原生只把换曲意图转过去。 */
-    private class YuzukiPlayer(delegate: Player) : ForwardingPlayer(delegate) {
-        override fun seekToNext() = PlayerHolder.requestCommand("next")
+    private fun AppContainerReporterFlush() {
+        runCatching { com.yuzuki.app.data.AppContainer.reporter.settle() }
+    }
 
-        override fun seekToPrevious() = PlayerHolder.requestCommand("prev")
-
+    /** 锁屏 / 蓝牙换曲直接驱动原生队列。 */
+    private class NativeQueuePlayer(delegate: Player) : ForwardingPlayer(delegate) {
+        override fun seekToNext() = PlayerHolder.next()
+        override fun seekToPrevious() = PlayerHolder.prev()
         override fun getAvailableCommands(): Player.Commands =
             super.getAvailableCommands().buildUpon()
                 .add(Player.COMMAND_SEEK_TO_NEXT)
