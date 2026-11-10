@@ -1,8 +1,28 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.plugin.compose")
 }
+
+// ---------------------------------------------------------------- 版本号
+// versionName = 0.1.<BUILD>。BUILD 存在根目录 version.properties，
+// 每次成功打出 release APK 后自增（见文件末尾 bumpBuildNumber），
+// 于是每次打包的版本号都不同，共享目录里能一眼分出新旧。
+val versionFile = rootProject.file("version.properties")
+
+fun readBuildNumber(): Int {
+    if (!versionFile.exists()) return 1
+    val props = Properties()
+    versionFile.inputStream().use { props.load(it) }
+    return props.getProperty("BUILD")?.toIntOrNull()?.coerceAtLeast(1) ?: 1
+}
+
+val buildNumber = readBuildNumber()
+
+/** 配置阶段的时间戳：打包结束时用它判断 APK 是不是本次新产物（失败构建不改号）。 */
+val configStartedAt = System.currentTimeMillis()
 
 android {
     namespace = "com.yuzuki.app"
@@ -14,8 +34,9 @@ android {
         applicationId = "com.yuzuki.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 1
-        versionName = "0.1.0"
+        // versionCode 必须随版本单调递增，直接用 BUILD 换算，留足余量
+        versionCode = 1000 + buildNumber
+        versionName = "0.1.$buildNumber"
     }
 
     buildTypes {
@@ -75,4 +96,35 @@ dependencies {
     testImplementation("junit:junit:4.13.2")
     // JVM 单测里 android.jar 的 org.json 是 stub，补一个真实实现供模型解析断言使用
     testImplementation("org.json:json:20240303")
+}
+
+// ---------------------------------------------------------------- 版本号自增
+// 只在真正产出 release APK 后加一：
+// - 挂在 packageRelease（assembleRelease / installRelease / bundleRelease 都会经过它）的 finalizer 上；
+// - 再用「APK 修改时间晚于本次配置时刻」判断，构建失败时 APK 没被重写 → 版本号不变，不会跳号。
+val bumpBuildNumber = tasks.register("bumpBuildNumber") {
+    description = "Increment BUILD in version.properties after a successful release build"
+    val file = versionFile
+    val startedAt = configStartedAt
+    val releaseApk = layout.buildDirectory.dir("outputs/apk/release").get().asFile
+        .resolve("app-release.apk")
+    doLast {
+        if (!releaseApk.exists() || releaseApk.lastModified() < startedAt) {
+            logger.lifecycle("No new release APK, keep versionName 0.1.$buildNumber")
+            return@doLast
+        }
+        val props = Properties()
+        if (file.exists()) file.inputStream().use { props.load(it) }
+        val current = props.getProperty("BUILD")?.toIntOrNull()?.coerceAtLeast(1) ?: 1
+        val next = current + 1
+        props.setProperty("BUILD", next.toString())
+        file.outputStream().use {
+            props.store(it, "自动维护：下一个构建使用的补丁号（versionName = 0.1.<BUILD>）")
+        }
+        logger.lifecycle("Built versionName 0.1.$current -> next build will be 0.1.$next")
+    }
+}
+
+tasks.matching { it.name == "packageRelease" }.configureEach {
+    finalizedBy(bumpBuildNumber)
 }

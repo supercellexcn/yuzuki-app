@@ -45,8 +45,17 @@ fail() {
 [ -f "$APK" ] || fail "未找到 APK: $APK"
 [ -d "$DEST" ] || fail "共享目录不可访问: $DEST（检查网络 / 共享是否在线）"
 
-# 版本号取自 build.gradle.kts，APK 名里带上便于区分新旧包
-VERSION="$(sed -n 's/.*versionName *= *"\([^"]*\)".*/\1/p' "$PROJ_DIR/app/build.gradle.kts" | head -1)"
+# 版本号直接从 APK 里读（versionName 现在是 Gradle 动态算出来的，脚本里写死会失准）
+AAPT=""
+for f in "$PROJ_DIR"/.toolchain/sdk/build-tools/*/aapt2 "$PROJ_DIR"/.toolchain/sdk/build-tools/*/aapt; do
+  [ -f "$f" ] && AAPT="$f"
+done
+VERSION=""
+if [ -n "$AAPT" ]; then
+  REL_APK="${APK#"$PROJ_DIR"/}"
+  VERSION="$(cd "$PROJ_DIR" && "$AAPT" dump badging "$REL_APK" 2>/dev/null \
+    | sed -n "s/.*versionName='\([^']*\)'.*/\1/p" | head -1)"
+fi
 [ -n "$VERSION" ] || VERSION="0.0.0"
 STAMP="$(date +%m%d-%H%M)"
 TARGET_NAME="yuzuki-${VERSION}-${STAMP}.apk"

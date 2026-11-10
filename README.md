@@ -64,6 +64,12 @@ export JAVA_HOME=/d/asmr-app/.toolchain/jdk17   # 换成你自己的 JDK 17 亦�
 # 产物：app/build/outputs/apk/release/app-release.apk（约 10MB）
 ```
 
+**版本号**：`versionName = 0.1.<BUILD>`，`versionCode = 1000 + BUILD`。
+`BUILD` 存在根目录 `version.properties`，**每成功打出一次 release APK 就 +1**（`bumpBuildNumber`
+任务挂在 `packageRelease` 之后），所以每次打包的版本号都不同，共享目录里能一眼分出新旧。
+构建失败不产出 APK 时不会跳号；debug 构建不影响计数。需要重置版本号就手工改这个文件
+（`BUILD=1` → 下次打包出 `0.1.1`）。
+
 > **Debug 还是 Release**：`debuggable` 的包会让 Compose 的布局/绘制慢一大截 ——
 > 同一台机器实测列表滑动 janky 帧 debug 约 12%、release 约 2%。日常安装使用请装 `release` 包
 > （已复用 debug 签名，可直接 `install -r` 覆盖安装，不必先卸载）。
