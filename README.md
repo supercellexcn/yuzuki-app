@@ -100,6 +100,23 @@ export JAVA_HOME=/d/asmr-app/.toolchain/jdk17   # 换成你自己的 JDK 17 亦�
 Windows 下也可直接双击 `run-debug.bat`（默认完整流程）。`--help` 查看全部选项。
 脚本只做构建 / 安装 / 启动，不改业务代码；无已授权设备时会立即报错，不会白跑一次构建。
 
+**Android 11+ 无线调试（配对码方式）**：开发者选项 →「无线调试」→「使用配对码配对设备」，
+这里给的是**配对端口**（每次随机）和 6 位码；配对后的**连接端口是另一个端口**，也通常不是 5555：
+
+```bash
+ADB=.toolchain/sdk/platform-tools/adb.exe
+"$ADB" pair <手机IP:配对端口> <6位配对码>   # 配对一次即可，凭据持久化
+"$ADB" mdns services                        # 找 _adb-tls-connect._tcp 的 IP:端口
+"$ADB" connect <手机IP:连接端口>            # 用连接端口，不是配对端口
+./run-debug.sh --release                    # 设备已在线，不要再传 --connect
+```
+
+`--connect IP:5555` 只适用于「先 USB 执行 `adb tcpip 5555`」的老方式，与配对码模式不通用。
+部分机型（荣耀 / 华为等）通过无线调试安装时会弹「是否允许安装此应用」，需**解锁并亮屏手动点允许**；
+否则报 `INSTALL_FAILED_ABORTED: User rejected permissions`。此时不必重新编译，用
+`adb install -r app/build/outputs/apk/release/app-release.apk` 重试即可；
+若构建脚本因安装失败中断，记得补跑一次 `./publish-apk.sh`（APK 已产出）。
+
 依赖走阿里云 Maven 镜像（`settings.gradle.kts`），Gradle 发行版走腾讯镜像
 （`gradle/wrapper/gradle-wrapper.properties`）。
 
@@ -155,6 +172,9 @@ Windows 下也可直接双击 `run-debug.bat`（默认完整流程）。`--help`
 - 冷启动防回归：`loadedFingerprint == null` 时必然发起一次 reset 请求，首屏「在 N 个作品中搜索」
   的数量不受影响（对应 `5cc8e04` 修过的「首帧用默认条件请求全库」问题）。
 - 本机工具链已内置 `.toolchain/`；`local.properties` 的 `sdk.dir` 需指向当前工程目录（该文件不入库）。
+- 2026-11-11 22:22：Release `0.1.4` 已通过无线调试装到 BVL-AN16，`versionName=0.1.4`、
+  `am start` 后进程正常；共享目录已有 `yuzuki-0.1.4-1111-2222.apk` 与 `yuzuki-latest.apk`
+  （11MB）。下一次构建版本号为 `0.1.5`。
 
 **仍待验证**：A1–A5 接口同源断言、锁屏 metadata 与 `artworkData`、连续 `next()` 3 次通知不消失、
 息屏 5 分钟进度增长、蓝牙耳机按键、通知点击直达播放页、flac/mkv 解码、base64 图片上传返回码、
