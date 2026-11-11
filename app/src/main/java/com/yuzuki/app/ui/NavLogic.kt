@@ -62,3 +62,41 @@ object PagingLogic {
     fun endReached(loaded: Int, total: Int, returned: Int, effectivePageSize: Int): Boolean =
         returned <= 0 || loaded >= total || returned < effectivePageSize
 }
+
+/**
+ * 库页「返回时保留滚动位置」的纯判定逻辑，不依赖 Android / Compose，便于 JVM 单测断言。
+ *
+ * 关键约束：冷启动（loadedFingerprint == null）必须重新拉第一页。
+ * 若为了「返回复用」把首次组合的 reset 跳掉，主界面首帧不会有数据，
+ * 「在 N 个作品中搜索」的数量就会不对（历史上 5cc8e04 修过同类问题）。
+ */
+object ScrollRestore {
+    /** 长度前缀拼接，查询词里出现分隔符也不会造成指纹碰撞。 */
+    fun fingerprint(parts: List<String>): String =
+        parts.joinToString("") { "${it.length}:$it|" }
+
+    /** 重新拉第一页：没有可复用数据，或条件指纹已变化。 */
+    fun shouldReset(loadedFingerprint: String?, currentFingerprint: String): Boolean =
+        loadedFingerprint != currentFingerprint
+
+    /** reset 时是否回顶部：已有旧数据 = 条件变化；null = 冷启动（本来就在顶部）。 */
+    fun shouldScrollTopOnReset(loadedFingerprint: String?): Boolean = loadedFingerprint != null
+
+    /** 置顶票只在「进入页面之后发生变化」时消费，首次组合不消费。 */
+    fun shouldConsumeTicket(current: Int, atEnter: Int): Boolean = current != atEnter
+
+    /** 恢复快照：数据属于当前条件、列表非空、快照属于同一条件且下标有效。 */
+    fun shouldRestore(
+        loadedFingerprint: String?,
+        savedFingerprint: String?,
+        currentFingerprint: String,
+        itemCount: Int,
+        savedIndex: Int,
+    ): Boolean = loadedFingerprint == currentFingerprint &&
+        savedFingerprint == currentFingerprint &&
+        itemCount > 0 && savedIndex > 0 && savedIndex < itemCount
+
+    /** 上界取 itemCount - 1：等于 itemCount 会落到 footer 上，位置会偏一格。 */
+    fun clampIndex(savedIndex: Int, itemCount: Int): Int =
+        savedIndex.coerceIn(0, (itemCount - 1).coerceAtLeast(0))
+}

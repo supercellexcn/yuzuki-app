@@ -19,6 +19,7 @@
 ```
 ui/          单 Activity + AppNav 返回栈 + RootScreen（底部 3 Tab / 顶栏 / 底部筛选面板 / 迷你条 / 全屏播放器）
              LibraryScreen · WorkDetailScreen · CollectionsScreen · SettingsScreen · PlayerUI
+             LibraryListViewModel（库页数据 / 分页 / 滚动快照；两个 Lazy 滚动 state 由 RootScreen 持有）
 ui/theme/    Material 3 配色 + Surface 组件封装（Glass* 为兼容层）· GlassSpec 纯函数 · 圆角 / 动画令牌
 data/        Models（DTO + org.json 解析）· YuzukiApi（全量 REST）· AppContainer（服务定位）
              SettingsRepository · PrefsRepository · LibraryRepository（在线优先 + 离线兜底）
@@ -143,6 +144,17 @@ Windows 下也可直接双击 `run-debug.bat`（默认完整流程）。`--help`
   `NotificationChannel` 零命中（通知与锁屏由 `MediaSessionService` 自动生成，未自绘）；`MediaController`
   为 UI 唯一指令入口；`setTitle` / `setArtist` / `setAlbumTitle` / `setDurationMs` / `setArtworkData` 全部命中。
 - `git -C D:\node\yuzuki status --porcelain` 为空 → web 端 / 后端零改动。
+
+**本次增量验证（2026-11-11，库页滚动位置保持）**：
+
+- `assembleDebug` / `testDebugUnitTest` 通过，**44 例全过、0 失败 0 错误**
+  （`NavLogicTest` 由 8 例增至 16 例，新增 `ScrollRestore` 断言：冷启动必须 reset、条件变化重载、
+  指纹碰撞、条件变化才置顶、置顶票守卫、恢复判定、下标夹紧）。
+- 静态断言：`LibraryScreen` 中 `rememberLazy*State` 与「进页面先回顶部」零命中；
+  `total = response.total` / `page` / `endReached` 赋值完整保留在 `LibraryListViewModel`。
+- 冷启动防回归：`loadedFingerprint == null` 时必然发起一次 reset 请求，首屏「在 N 个作品中搜索」
+  的数量不受影响（对应 `5cc8e04` 修过的「首帧用默认条件请求全库」问题）。
+- 本机工具链已内置 `.toolchain/`；`local.properties` 的 `sdk.dir` 需指向当前工程目录（该文件不入库）。
 
 **仍待验证**：A1–A5 接口同源断言、锁屏 metadata 与 `artworkData`、连续 `next()` 3 次通知不消失、
 息屏 5 分钟进度增长、蓝牙耳机按键、通知点击直达播放页、flac/mkv 解码、base64 图片上传返回码、

@@ -8,6 +8,8 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.lazy.staggeredgrid.rememberLazyStaggeredGridState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -18,6 +20,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.lifecycle.viewmodel.compose.viewModel
 import com.yuzuki.app.data.AppContainer
 import com.yuzuki.app.data.FilterCond
 import com.yuzuki.app.playback.PlaybackController
@@ -39,6 +42,12 @@ fun RootScreen(
     val userName by AppContainer.tokenStore.username.collectAsState(initial = null)
     var lastBackAt by remember { mutableLongStateOf(0L) }
     var drawerOpen by remember { mutableStateOf(false) }
+
+    // 库页数据 / 滚动状态放在 when 分支之外：主页被移出组合时不会被销毁，
+    // 从详情 / 收藏 / 历史 / 设置返回时直接复用，位置与已翻页的数据都还在。
+    val libraryVm: LibraryListViewModel = viewModel()
+    val libraryGridState = rememberLazyStaggeredGridState()
+    val libraryListState = rememberLazyListState()
 
     LaunchedEffect(Unit) {
         FavoritesState.refresh()
@@ -70,6 +79,9 @@ fun RootScreen(
             Box(modifier = Modifier.weight(1f)) {
                 when (val route = nav.current) {
                     is Route.Library -> LibraryScreen(
+                        vm = libraryVm,
+                        gridState = libraryGridState,
+                        listState = libraryListState,
                         onOpenWork = { nav.go(Route.Work(it)) },
                         onOpenDrawer = { drawerOpen = true },
                     )
@@ -148,8 +160,14 @@ fun RootScreen(
             onOpenFavorites = { nav.replace(Route.Favorites) },
             onOpenSettings = { nav.go(Route.Settings) },
             onOpenChangePassword = { nav.go(Route.ChangePassword) },
-            onChangeServer = onChangeServer,
-            onLogout = onLogout,
+            onChangeServer = {
+                libraryVm.clear()
+                onChangeServer()
+            },
+            onLogout = {
+                libraryVm.clear()
+                onLogout()
+            },
             onApplyCond = { cond ->
                 LibraryState.addCond(cond)
                 nav.replace(Route.Library)

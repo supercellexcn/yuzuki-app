@@ -21,14 +21,14 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items as lazyColumnItems
-import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.lazy.staggeredgrid.LazyStaggeredGridState
 import androidx.compose.foundation.lazy.staggeredgrid.LazyVerticalStaggeredGrid
 import androidx.compose.foundation.lazy.staggeredgrid.StaggeredGridCells
 import androidx.compose.foundation.lazy.staggeredgrid.StaggeredGridItemSpan
 import androidx.compose.foundation.lazy.staggeredgrid.items
-import androidx.compose.foundation.lazy.staggeredgrid.rememberLazyStaggeredGridState
 import androidx.compose.foundation.lazy.items as lazyItems
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -43,7 +43,7 @@ import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
@@ -59,19 +59,13 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.yuzuki.app.data.AppContainer
 import com.yuzuki.app.data.FilterCond
-import com.yuzuki.app.data.Work
-import com.yuzuki.app.data.WorksResponse
 import com.yuzuki.app.ui.theme.LocalAppearance
 import com.yuzuki.app.ui.theme.ShapeItem
 import com.yuzuki.app.ui.theme.ShapePill
 import com.yuzuki.app.ui.theme.WebColors
-import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.distinctUntilChanged
-import kotlinx.coroutines.launch
 
 /*
  * 本文件所有尺寸都是 web 端 CSS 的 px 原值 —— 网页在 412px 视口下的布局
@@ -96,99 +90,33 @@ private const val KEY_LIBRARY_VIEW = "library_view"
 
 @Composable
 fun LibraryScreen(
+    vm: LibraryListViewModel,
+    gridState: LazyStaggeredGridState,
+    listState: LazyListState,
     onOpenWork: (String) -> Unit,
     onOpenDrawer: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val scope = rememberCoroutineScope()
     val context = LocalContext.current
     val uiPrefs = remember { context.getSharedPreferences("yuzuki_ui", Context.MODE_PRIVATE) }
-    val gridState = rememberLazyStaggeredGridState()
-    val listState = rememberLazyListState()
-    var items by remember { mutableStateOf<List<Work>>(emptyList()) }
-    var total by remember { mutableStateOf(0) }
-    var page by remember { mutableStateOf(1) }
-    var loading by remember { mutableStateOf(false) }
-    var error by remember { mutableStateOf<String?>(null) }
-    var loadMoreError by remember { mutableStateOf<String?>(null) }
-    var endReached by remember { mutableStateOf(false) }
-    var loadJob by remember { mutableStateOf<Job?>(null) }
-    var generation by remember { mutableStateOf(0) }
     var searchText by remember { mutableStateOf(LibraryState.query) }
 
-    /**
-     * 分页加载在 scope 里执行，不放在随 loading 变化而销毁的 LaunchedEffect 内；
-     * generation 丢弃过期响应，finally 保证状态复位 —— 修复「永远停在首页 50 条」。
-     */
-    fun requestPage(reset: Boolean) {
-        val running = loadJob
-        if (running != null && running.isActive) {
-            if (!reset) return
-            running.cancel()
-        }
-        val gen = ++generation
-        val target = if (reset) 1 else page + 1
-        loadJob = scope.launch {
-            loading = true
-            if (reset) error = null
-            loadMoreError = null
-            try {
-                val result = if (LibraryState.randomMode) {
-                    val size = PagingLogic.pageSize(AppContainer.settings.current.pageSize)
-                    AppContainer.api.randomWorks(LibraryState.query, LibraryState.conds, size * 3)
-                        .map { WorksResponse(it, it.size, 1, it.size) }
-                } else {
-                    val size = PagingLogic.pageSize(AppContainer.settings.current.pageSize)
-                    AppContainer.library.works(
-                        q = LibraryState.query,
-                        conds = LibraryState.conds,
-                        sort = LibraryState.sort,
-                        order = LibraryState.order,
-                        page = target,
-                        pageSize = size,
-                    )
-                }
-                if (gen != generation) return@launch
-                result.fold(
-                    onSuccess = { response ->
-                        // 按 rj 去重：排序键相同（added_at 并列）时跨页可能重复，
-                        // 重复 key 会让瀑布流错位/跳动
-                        items = if (reset || LibraryState.randomMode) {
-                            response.items
-                        } else {
-                            val seen = items.mapTo(HashSet()) { it.rjCode }
-                            items + response.items.filter { seen.add(it.rjCode) }
-                        }
-                        total = response.total
-                        page = response.page
-                        endReached = LibraryState.randomMode || PagingLogic.endReached(
-                            items.size, response.total, response.items.size,
-                            response.pageSize.coerceAtLeast(1),
-                        )
-                        error = null
-                        if (reset) {
-                            // 数据到位后再置顶一次：冷启动时首帧还没有 item
-                            gridState.requestScrollToItem(0)
-                            listState.requestScrollToItem(0)
-                        }
-                    },
-                    onFailure = { cause ->
-                        val message = cause.message ?: "加载失败"
-                        if (reset) error = message else loadMoreError = message
-                    },
-                )
-            } catch (cancelled: CancellationException) {
-                throw cancelled
-            } catch (cause: Exception) {
-                if (gen == generation) {
-                    val message = cause.message ?: "加载失败"
-                    if (reset) error = message else loadMoreError = message
-                }
-            } finally {
-                if (gen == generation) loading = false
-            }
-        }
-    }
+    /** 条件指纹：只含会改变列表数据的条件；视图形态不改变数据，单独处理。 */
+    val fingerprint = ScrollRestore.fingerprint(
+        listOf(
+            LibraryState.query,
+            LibraryState.sort,
+            LibraryState.order,
+            LibraryState.randomMode.toString(),
+        ) + LibraryState.conds.map { "${it.type}:${it.value}" },
+    )
+    val currentFingerprint by rememberUpdatedState(fingerprint)
+
+    // 记录「进入页面时」的票值：只响应进入之后的变化，首次组合不再误置顶
+    val resetEpochAtEnter = remember { vm.resetEpoch }
+    val libraryTopAtEnter = remember { LibraryState.scrollTopTicket }
+    val dockTopAtEnter = remember { DockState.scrollTopTicket }
+    val viewAtEnter = remember { LibraryState.view }
 
     // 启动恢复 / 其它入口改了查询词时，输入框跟随（否则会出现「搜索词生效但框里空白」）
     LaunchedEffect(LibraryState.query) {
@@ -203,47 +131,71 @@ fun LibraryScreen(
         }
     }
 
-    LaunchedEffect(
-        LibraryState.query, LibraryState.conds, LibraryState.sort,
-        LibraryState.order, LibraryState.randomMode,
-    ) {
-        loadJob?.cancel()
-        loadJob = null
-        loading = false
-        endReached = false
-        loadMoreError = null
-        items = emptyList()
-        // 换筛选 / 换排序后必须回顶部，否则会停在旧列表的滚动位置
-        gridState.requestScrollToItem(0)
-        listState.requestScrollToItem(0)
-        requestPage(reset = true)
+    /**
+     * 冷启动 / 条件变化 → 重新拉第一页；从其它界面返回（数据已属于当前条件）→ 什么都不做。
+     * 冷启动时 loadedFingerprint == null，必然走一次 reset，首屏作品数量才不会不对。
+     */
+    LaunchedEffect(fingerprint) {
+        if (!ScrollRestore.shouldReset(vm.loadedFingerprint, fingerprint)) return@LaunchedEffect
+        // 已有旧数据 = 条件变化（含 A→B→A），必须回顶部；
+        // 冷启动 loadedFingerprint == null，本来就在顶部，且数据到位后还会再置顶一次。
+        if (ScrollRestore.shouldScrollTopOnReset(vm.loadedFingerprint)) {
+            gridState.requestScrollToItem(0)
+            listState.requestScrollToItem(0)
+        }
+        vm.resetConditions()
+        vm.requestPage(reset = true, fingerprint = fingerprint)
     }
 
     // 视图形态（列表 / 详情 / 图片）记忆：与悬浮 M 键共用同一份状态
     LaunchedEffect(Unit) {
         val saved = uiPrefs.getString(KEY_LIBRARY_VIEW, null)
         LibraryView.entries.firstOrNull { it.name == saved }?.let { LibraryState.view = it }
-        // 进页面先回顶部，别沿用上一次停留的位置
-        // 用 requestScrollToItem：空列表时 scrollToItem 会一直挂起等待 remeasure
-        gridState.requestScrollToItem(0)
-        listState.requestScrollToItem(0)
     }
     LaunchedEffect(LibraryState.view) {
         uiPrefs.edit().putString(KEY_LIBRARY_VIEW, LibraryState.view.name).apply()
+        // 列表 / 网格的索引语义不同，切换形态时回顶部
+        if (LibraryState.view != viewAtEnter) {
+            gridState.requestScrollToItem(0)
+            listState.requestScrollToItem(0)
+        }
     }
 
+    // reset 成功（数据到位）后置顶：冷启动首帧还没有 item，沿用 9f951f3 的行为
+    LaunchedEffect(vm.resetEpoch) {
+        if (ScrollRestore.shouldConsumeTicket(vm.resetEpoch, resetEpochAtEnter)) {
+            gridState.requestScrollToItem(0)
+            listState.requestScrollToItem(0)
+        }
+    }
+    // 重复点「库」Tab / LibraryState.home() 的显式回顶
     LaunchedEffect(LibraryState.scrollTopTicket) {
-        gridState.requestScrollToItem(0)
-        listState.requestScrollToItem(0)
+        if (ScrollRestore.shouldConsumeTicket(LibraryState.scrollTopTicket, libraryTopAtEnter)) {
+            gridState.requestScrollToItem(0)
+            listState.requestScrollToItem(0)
+        }
     }
     // 悬浮控件的「回到顶部」
     LaunchedEffect(DockState.scrollTopTicket) {
-        if (DockState.scrollTopTicket > 0) {
+        if (ScrollRestore.shouldConsumeTicket(DockState.scrollTopTicket, dockTopAtEnter)) {
             gridState.animateScrollToItem(0)
             listState.animateScrollToItem(0)
         }
     }
     LaunchedEffect(Unit) { FavoritesState.refresh() }
+
+    // 持续记录滚动位置：ViewModel 存活，主页离开组合后快照仍在
+    LaunchedEffect(Unit) {
+        snapshotFlow {
+            if (LibraryState.view == LibraryView.List) {
+                listState.firstVisibleItemIndex to listState.firstVisibleItemScrollOffset
+            } else {
+                gridState.firstVisibleItemIndex to gridState.firstVisibleItemScrollOffset
+            }
+        }.distinctUntilChanged().collect { (index, offset) ->
+            vm.saveScroll(currentFingerprint, index, offset)
+        }
+    }
 
     val columns = if (LocalConfiguration.current.screenWidthDp >= 600) 3 else 2
 
@@ -255,17 +207,34 @@ fun LibraryScreen(
             } else {
                 gridState.layoutInfo.visibleItemsInfo.maxOfOrNull { it.index } ?: -1
             }
-            (raw + 1).coerceIn(0, items.size)
+            (raw + 1).coerceIn(0, vm.items.size)
         }
     }
     // 用「可见下标」当 key：滚到底一次、且条件仍成立时也能继续取下一页
-    LaunchedEffect(lastVisible, items.size, total, endReached, loading) {
-        if (loading || endReached || LibraryState.randomMode) return@LaunchedEffect
+    LaunchedEffect(lastVisible, vm.items.size, vm.total, vm.endReached, vm.loading) {
+        if (vm.loading || vm.endReached || LibraryState.randomMode) return@LaunchedEffect
         if (PagingLogic.shouldLoadMore(
-                lastVisible, items.size, total, loading, endReached, LibraryState.randomMode,
+                lastVisible, vm.items.size, vm.total, vm.loading, vm.endReached, LibraryState.randomMode,
             )
         ) {
-            requestPage(reset = false)
+            vm.requestPage(reset = false, fingerprint = fingerprint)
+        }
+    }
+
+    // 返回主页时兜底恢复一次：滚动 state 一般会自行保留，这里防容器重建 / 索引被 clamp。
+    // 只在进入页面执行，不能挂在 items.size 上 —— 否则翻页（50→100）会把用户拉回旧位置。
+    LaunchedEffect(Unit) {
+        if (ScrollRestore.shouldRestore(
+                vm.loadedFingerprint, vm.savedFingerprint, fingerprint,
+                vm.items.size, vm.savedIndex,
+            )
+        ) {
+            val index = ScrollRestore.clampIndex(vm.savedIndex, vm.items.size)
+            if (LibraryState.view == LibraryView.List) {
+                listState.requestScrollToItem(index, vm.savedOffset)
+            } else {
+                gridState.requestScrollToItem(index, vm.savedOffset)
+            }
         }
     }
 
@@ -284,7 +253,7 @@ fun LibraryScreen(
         LibraryTopBar(
             searchText = searchText,
             onSearchChange = { searchText = it },
-            total = total,
+            total = vm.total,
             onOpenDrawer = onOpenDrawer,
             topbarColor = topbarColor,
             controlBg = controlBg,
@@ -308,10 +277,10 @@ fun LibraryScreen(
         }
 
         when {
-            error != null && items.isEmpty() -> StateBox(
-                message = error ?: "加载失败",
+            vm.error != null && vm.items.isEmpty() -> StateBox(
+                message = vm.error ?: "加载失败",
                 modifier = Modifier.padding(horizontal = PAGE_PAD_H.dp).fillMaxWidth(),
-                onRetry = { requestPage(reset = true) },
+                onRetry = { vm.requestPage(reset = true, fingerprint = fingerprint) },
             )
             // 列表模式：一行一个作品，整片圆角容器 + 行间 1px 分隔
             LibraryState.view == LibraryView.List -> Box(
@@ -328,24 +297,24 @@ fun LibraryScreen(
                     ),
                     modifier = Modifier.fillMaxSize(),
                 ) {
-                    lazyColumnItems(items, key = { it.rjCode }) { work ->
+                    lazyColumnItems(vm.items, key = { it.rjCode }) { work ->
                         WorkRow(
                             work = work,
                             rowBg = cardBg,
                             actorBg = actorBg,
                             onOpen = { onOpenWork(work.rjCode) },
                             onCond = { cond -> LibraryState.addCond(cond) },
-                            showDivider = work.rjCode != items.lastOrNull()?.rjCode,
+                            showDivider = work.rjCode != vm.items.lastOrNull()?.rjCode,
                         )
                     }
                     item(key = "footer") {
                         LibraryFooter(
-                            loading = loading,
-                            loadMoreError = loadMoreError,
-                            endReached = endReached,
-                            hasItems = items.isNotEmpty(),
+                            loading = vm.loading,
+                            loadMoreError = vm.loadMoreError,
+                            endReached = vm.endReached,
+                            hasItems = vm.items.isNotEmpty(),
                             hasFilter = hasFilter,
-                            onRetry = { requestPage(reset = false) },
+                            onRetry = { vm.requestPage(reset = false, fingerprint = fingerprint) },
                         )
                     }
                 }
@@ -364,7 +333,7 @@ fun LibraryScreen(
                 modifier = Modifier.weight(1f),
             ) {
                 // 小红书式瀑布流：两列各自按卡片自然高度向下排，彼此互不影响
-                items(items, key = { it.rjCode }) { work ->
+                items(vm.items, key = { it.rjCode }) { work ->
                     WorkCard(
                         work = work,
                         imageMode = LibraryState.imageMode,
@@ -379,12 +348,12 @@ fun LibraryScreen(
                 }
                 item(span = StaggeredGridItemSpan.FullLine, key = "footer") {
                     LibraryFooter(
-                        loading = loading,
-                        loadMoreError = loadMoreError,
-                        endReached = endReached,
-                        hasItems = items.isNotEmpty(),
+                        loading = vm.loading,
+                        loadMoreError = vm.loadMoreError,
+                        endReached = vm.endReached,
+                        hasItems = vm.items.isNotEmpty(),
                         hasFilter = hasFilter,
-                        onRetry = { requestPage(reset = false) },
+                        onRetry = { vm.requestPage(reset = false, fingerprint = fingerprint) },
                     )
                 }
             }
