@@ -82,6 +82,14 @@ object ScrollRestore {
     /** reset 时是否回顶部：已有旧数据 = 条件变化；null = 冷启动（本来就在顶部）。 */
     fun shouldScrollTopOnReset(loadedFingerprint: String?): Boolean = loadedFingerprint != null
 
+    /**
+     * 底部「库」Tab 被点时是否回顶：只有「本来就在库页、且不是从全屏播放器返回」才算
+     * 用户主动重复点当前 Tab。播放器是叠加层，库页从未离开组合，此时回顶会立刻被消费，
+     * 表现为「点播放器再返回就跳到最上面」。
+     */
+    fun shouldScrollTopOnLibraryTab(fromPlayer: Boolean, isLibraryRoute: Boolean): Boolean =
+        !fromPlayer && isLibraryRoute
+
     /** 置顶票只在「进入页面之后发生变化」时消费，首次组合不消费。 */
     fun shouldConsumeTicket(current: Int, atEnter: Int): Boolean = current != atEnter
 

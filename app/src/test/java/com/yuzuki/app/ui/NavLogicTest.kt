@@ -137,6 +137,16 @@ class NavLogicTest {
     }
 
     @Test
+    fun `库 Tab 只在非播放器返回且已在库页时回顶`() {
+        assertTrue(ScrollRestore.shouldScrollTopOnLibraryTab(false, true))
+        // 从全屏播放器点「库」Tab 返回：保留滚动位置
+        assertFalse(ScrollRestore.shouldScrollTopOnLibraryTab(true, true))
+        // 从播放器 / 其它页面回到库页：走 replace，由 ViewModel 与滚动 state 保留位置
+        assertFalse(ScrollRestore.shouldScrollTopOnLibraryTab(true, false))
+        assertFalse(ScrollRestore.shouldScrollTopOnLibraryTab(false, false))
+    }
+
+    @Test
     fun `置顶票只在进入页面之后变化才消费`() {
         assertFalse(ScrollRestore.shouldConsumeTicket(0, 0))
         assertFalse(ScrollRestore.shouldConsumeTicket(5, 5))

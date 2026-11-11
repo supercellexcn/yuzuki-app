@@ -133,9 +133,18 @@ fun RootScreen(
                     onSelect = { tab ->
                         when (tab) {
                             MainTab.Library -> {
-                                if (playState.fullscreen) PlaybackController.setFullscreen(false)
-                                if (nav.current == Route.Library) LibraryState.scrollToTop()
-                                else nav.replace(Route.Library)
+                                // 播放器是叠加层，库页一直在组合树里；从播放器返回时
+                                // 不能触发 scrollToTop（否则会被仍挂载的库页立即消费）。
+                                val fromPlayer = playState.fullscreen
+                                if (fromPlayer) PlaybackController.setFullscreen(false)
+                                if (ScrollRestore.shouldScrollTopOnLibraryTab(
+                                        fromPlayer, nav.current == Route.Library,
+                                    )
+                                ) {
+                                    LibraryState.scrollToTop()
+                                } else if (nav.current != Route.Library) {
+                                    nav.replace(Route.Library)
+                                }
                             }
                             MainTab.Player -> PlaybackController.setFullscreen(true)
                             MainTab.History -> {

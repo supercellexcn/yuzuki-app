@@ -173,8 +173,11 @@ ADB=.toolchain/sdk/platform-tools/adb.exe
   的数量不受影响（对应 `5cc8e04` 修过的「首帧用默认条件请求全库」问题）。
 - 本机工具链已内置 `.toolchain/`；`local.properties` 的 `sdk.dir` 需指向当前工程目录（该文件不入库）。
 - 2026-11-11 22:22：Release `0.1.4` 已通过无线调试装到 BVL-AN16，`versionName=0.1.4`、
-  `am start` 后进程正常；共享目录已有 `yuzuki-0.1.4-1111-2222.apk` 与 `yuzuki-latest.apk`
-  （11MB）。下一次构建版本号为 `0.1.5`。
+  `am start` 后进程正常；共享目录已有 `yuzuki-0.1.4-1111-2222.apk` 与 `yuzuki-latest.apk`（11MB）。
+- 2026-11-11 22:32：补齐「从全屏播放器点库 Tab 返回」路径 —— 播放器是叠加层，库页未离开组合，
+  Tab 分支里的 `scrollToTop()` 会被仍挂载的库页立即消费。新增 `shouldScrollTopOnLibraryTab` 断言，
+  `testDebugUnitTest` **45 例全过**；Release `0.1.5` 已装机（`versionName=0.1.5`、PID 22011）并发布
+  `yuzuki-0.1.5-1111-2232.apk`。当前 `BUILD=6`，下次构建为 `0.1.6`。
 
 **仍待验证**：A1–A5 接口同源断言、锁屏 metadata 与 `artworkData`、连续 `next()` 3 次通知不消失、
 息屏 5 分钟进度增长、蓝牙耳机按键、通知点击直达播放页、flac/mkv 解码、base64 图片上传返回码、
