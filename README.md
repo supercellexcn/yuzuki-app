@@ -248,6 +248,18 @@ ADB=.toolchain/sdk/platform-tools/adb.exe
 - `assembleRelease` 通过；`testDebugUnitTest` 78 例全过。Release `0.1.11` 已装机并发布共享：
   `yuzuki-0.1.11-1112-1847.apk` + `yuzuki-latest.apk`，三方 sha256 一致 `15e12e56…1ced93`。
 
+**本次增量验证（2026-11-12，声优标签收紧）**：
+
+- 现象：卡片信息区的声优 chip 五个字就换行，两个五字声优排不进一行。
+- 实测口径：卡片内容宽 485px（556px 卡 − 信息区左右各 12dp），旧 chip 五字宽 **241px**
+  （文字 182px + 左右 10dp×2），两枚 241×2 + 行距 4dp(12px) = **494px > 485px** → 被挤到第二行，只差 9px。
+- 改法：`ActorChip` 左右 10→**7dp**、上下 3→**2dp**、行高 14→**13sp**；声优 chip 行距 4→**3dp**
+  （封面类型标签行距仍是 2dp，两者共用 `ChipFlow` 各自传参）。字号保持 12sp。
+- 结果（`0.1.12` 真机 `uiautomator dump` 实测）：五字 chip 宽 241→**224px**，两枚 224×2+9 = **457px < 485px**，
+  稳定同行还留 28px 余量；chip 高度同步变矮。列表模式共用同一组件，宽度富余不受影响。
+- `assembleRelease` 通过；`testDebugUnitTest` 78 例全过。Release `0.1.12` 已装机并发布共享
+  `yuzuki-0.1.12-1112-1852.apk` + `yuzuki-latest.apk`。
+
 **真机验证（2026-11-12，BVL-AN16 无线调试，端口 37169 配对 → 35727 连接）**：
 
 - `0.1.7` / `0.1.8` 均安装成功、启动后进程存活、Logcat 无 `FATAL` / `AndroidRuntime` 命中。

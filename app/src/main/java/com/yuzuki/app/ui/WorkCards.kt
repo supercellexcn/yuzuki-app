@@ -301,7 +301,7 @@ private fun ActorChips(
     background: Color,
     onClick: (String) -> Unit,
 ) {
-    ChipFlow(gap = 4.dp, modifier = Modifier.fillMaxWidth()) {
+    ChipFlow(gap = 3.dp, modifier = Modifier.fillMaxWidth()) {
         actors.forEach { actor -> ActorChip(actor, background) { onClick(actor) } }
     }
 }
@@ -353,7 +353,11 @@ private fun ChipFlow(
     }
 }
 
-/** .chip: 12px / padding 3 10 / radius 999；声优标签用独立配色。 */
+/**
+ * .chip: 12px / padding 3 10 / radius 999；声优标签用独立配色。
+ * 收紧版：左右 10→7dp、上下 3→2dp、行高 13sp、行距 3dp —— 两枚五字声优
+ * 合计 74×2+3=151dp，能稳稳排在卡片内容宽 163dp 内，不再被挤到第二行。
+ */
 @Composable
 private fun ActorChip(text: String, background: Color, onClick: () -> Unit) {
     Box(
@@ -361,12 +365,12 @@ private fun ActorChip(text: String, background: Color, onClick: () -> Unit) {
             .clip(ShapePill)
             .background(background)
             .clickable(onClick = onClick)
-            .padding(horizontal = 10.dp, vertical = 3.dp),
+            .padding(horizontal = 7.dp, vertical = 2.dp),
     ) {
         Text(
             text,
             fontSize = 12.sp,
-            lineHeight = 14.sp,
+            lineHeight = 13.sp,
             color = Color.White,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
