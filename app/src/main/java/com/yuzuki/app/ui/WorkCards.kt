@@ -115,7 +115,7 @@ fun WorkCard(
                     modifier = Modifier
                         .align(Alignment.BottomCenter)
                         .fillMaxWidth()
-                        .height(64.dp)
+                        .height(52.dp)
                         .background(
                             Brush.verticalGradient(
                                 listOf(Color.Transparent, Color(0xB8000000)),
@@ -125,12 +125,13 @@ fun WorkCard(
             }
 
             if (work.tags.isNotEmpty()) {
+                // 标签多时会换 3~4 行，行距压到 2dp 让整体高度更紧凑（声优 chip 仍是 4dp）
                 ChipFlow(
-                    gap = 4.dp,
+                    gap = 2.dp,
                     modifier = Modifier
                         .align(Alignment.BottomStart)
                         .fillMaxWidth()
-                        .padding(start = 6.dp, end = 6.dp, top = 14.dp, bottom = 6.dp),
+                        .padding(start = 6.dp, end = 6.dp, top = 10.dp, bottom = 4.dp),
                 ) {
                     work.tags.forEach { tag ->
                         CoverTagChip(tag.name, genreBg) { onCond(FilterCond("tag", tag.name)) }
@@ -255,7 +256,11 @@ private fun CardInfoRow(label: String, value: String, onClick: (() -> Unit)? = n
     }
 }
 
-/** .cover-tag: 11px / padding 3 9 / radius 999 / 主题标签色 × 标签透明度。 */
+/**
+ * .cover-tag: 11px / padding 3 9 / radius 999 / 主题标签色 × 标签透明度。
+ * 压紧版：行高 12sp + 上下 2dp、左右 7dp（单行 16dp），标签多行时不至于压掉半个封面；
+ * 左右内边距收窄后每行还能多塞一个标签，常能少换一行。
+ */
 @Composable
 private fun CoverTagChip(text: String, background: Color, onClick: () -> Unit) {
     Box(
@@ -263,12 +268,12 @@ private fun CoverTagChip(text: String, background: Color, onClick: () -> Unit) {
             .clip(ShapePill)
             .background(background)
             .clickable(onClick = onClick)
-            .padding(horizontal = 9.dp, vertical = 3.dp),
+            .padding(horizontal = 7.dp, vertical = 2.dp),
     ) {
         Text(
             text,
             fontSize = 11.sp,
-            lineHeight = 13.sp,
+            lineHeight = 12.sp,
             color = Color.White,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,

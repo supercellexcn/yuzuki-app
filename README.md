@@ -216,6 +216,19 @@ ADB=.toolchain/sdk/platform-tools/adb.exe
   `YuzukiApi` / `recordPlay` / `saveSettings` / `savePrefs` 零命中；`tryRestore()` 内无 `withController` / `setMediaItems`。
 - 未截图验证。
 
+**本次增量验证（2026-11-12，封面类型标签紧凑化）**：
+
+- 封面标签多时（3~4 行）会压掉近半张封面，在**完全展示、不截断**的前提下收紧尺寸：
+  `CoverTagChip` 行高 13→**12sp**、上下 padding 3→**2dp**、左右 9→**7dp**；
+  封面标签行距 4→**2dp**（声优 chip 仍走 4dp，两处共用 `ChipFlow`、各自传参）；
+  标签容器 padding `top 14 / bottom 6` → `top 10 / bottom 4`，底部渐变高度 64→**52dp**。
+- 单行 chip 高 19→16dp，3 行 65→**52dp**（-20%），4 行 88→70dp；左右内边距收窄后每行可多容一个标签，
+  实际常能少换一行。字号仍为 11sp，未引入省略号截断。
+- `assembleRelease` 通过；`testDebugUnitTest` **78 例全过、0 失败 0 错误**。未截图验证。
+- Release `0.1.10` 已发布共享：`yuzuki-0.1.10-1112-1833.apk` + `yuzuki-latest.apk`，
+  sha256 `9f128bea…4ef0` 与本地 `app-release.apk` 一致；本轮手机无线调试未开启（`adb mdns` 无服务、
+  `adb devices` 为空），**尚未装机**，待设备上线后补装。
+
 **真机验证（2026-11-12，BVL-AN16 无线调试，端口 37169 配对 → 35727 连接）**：
 
 - `0.1.7` / `0.1.8` 均安装成功、启动后进程存活、Logcat 无 `FATAL` / `AndroidRuntime` 命中。
