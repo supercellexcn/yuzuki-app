@@ -150,7 +150,10 @@ fun FullscreenPlayer(
                         scaleX = 1.3f
                         scaleY = 1.3f
                     }
-                    .blur(30.dp, edgeTreatment = BlurredEdgeTreatment.Unbounded),
+                    // Rectangle（默认）而不是 Unbounded：Unbounded 会让模糊采样画出图层边界，
+                    // 在 Pager 里就糊到相邻的库页 / 历史页，看起来像一条外来遮罩。
+                    // 这里封面已按 1.3 倍放大，边缘裁剪不可见，所以裁掉是安全的。
+                    .blur(30.dp, edgeTreatment = BlurredEdgeTreatment.Rectangle),
                 contentScale = ContentScale.Crop,
                 placeholder = Color.Transparent,
             )

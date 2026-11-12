@@ -25,6 +25,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
@@ -155,20 +156,21 @@ fun RootScreen(
         }
     }
 
-    // 库页已在最左，Pager 消费不掉的横向溢出量交给侧栏，做到"手指拖多少侧栏出多少"
+    // 库页已在最左，Pager 消费不掉的横向溢出量交给侧栏，做到"手指拖多少侧栏出多少"。
+    // 必须放在 onPreScroll：Pager 在边界有 overscroll，放 onPostScroll 时拖动已被它吞掉，
+    // 表现为"库页往右拖侧栏出不来"。
     val drawerNested = object : NestedScrollConnection {
         override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
-            // 侧栏已拖出一部分时，先收回侧栏，避免误翻页
+            // ① 侧栏已拖出一部分时，左拖先收回侧栏，避免误翻页
             if (drawerFraction > 0f && available.x < 0f) {
                 drawerFraction = (drawerFraction + available.x / drawerWidthPx).coerceIn(0f, 1f)
                 drawerOpen = drawerFraction > 0f
                 return Offset(available.x, 0f)
             }
-            return Offset.Zero
-        }
-
-        override fun onPostScroll(consumed: Offset, available: Offset, source: NestedScrollSource): Offset {
-            if (available.x > 0f && pagerState.currentPage == LIBRARY_PAGE && !playState.fullscreen) {
+            // ② 库页停在最左时的右拖：Pager 无处可滚，直接拉侧栏
+            val atLeftEdge = pagerState.currentPage == LIBRARY_PAGE &&
+                pagerState.currentPageOffsetFraction <= 0f
+            if (available.x > 0f && atLeftEdge && !playState.fullscreen && drawerFraction < 1f) {
                 drawerFraction = (drawerFraction + available.x / drawerWidthPx).coerceIn(0f, 1f)
                 drawerOpen = drawerFraction > 0f
                 return Offset(available.x, 0f)
@@ -176,11 +178,12 @@ fun RootScreen(
             return Offset.Zero
         }
 
-        override suspend fun onPostFling(consumed: Velocity, available: Velocity): Velocity {
+        override suspend fun onPreFling(available: Velocity): Velocity {
             if (drawerFraction > 0f && drawerFraction < 1f) {
                 val target = if (drawerFraction > 0.4f) 1f else 0f
                 animate(drawerFraction, target, animationSpec = tween(200)) { v, _ -> drawerFraction = v }
                 drawerOpen = target == 1f
+                return available
             }
             return Velocity.Zero
         }
@@ -196,8 +199,10 @@ fun RootScreen(
                     userScrollEnabled = overlayRoute == null && !drawerOpen,
                     modifier = Modifier.fillMaxSize().nestedScroll(drawerNested),
                 ) { page ->
+                    // 每页必须裁到自己的边界：播放器背景是 blur(Unbounded)，不裁会糊出页外，
+                    // 在库页 / 历史页右侧形成一条"播放器的遮罩"。
                     when (page) {
-                        LIBRARY_PAGE -> Box(Modifier.fillMaxSize().statusBarsPadding()) {
+                        LIBRARY_PAGE -> Box(Modifier.fillMaxSize().clipToBounds().statusBarsPadding()) {
                             LibraryScreen(
                                 vm = libraryVm,
                                 gridState = libraryGridState,
@@ -206,12 +211,14 @@ fun RootScreen(
                                 onOpenDrawer = { animateDrawer(1f) },
                             )
                         }
-                        PLAYER_PAGE -> FullscreenPlayer(
-                            onClose = { scope.launch { pagerState.animateScrollToPage(LIBRARY_PAGE) } },
-                            onOpenWork = { rj -> nav.go(Route.Work(rj)) },
-                            onApplyCond = ::openLibraryWith,
-                        )
-                        else -> Box(Modifier.fillMaxSize().statusBarsPadding()) {
+                        PLAYER_PAGE -> Box(Modifier.fillMaxSize().clipToBounds()) {
+                            FullscreenPlayer(
+                                onClose = { scope.launch { pagerState.animateScrollToPage(LIBRARY_PAGE) } },
+                                onOpenWork = { rj -> nav.go(Route.Work(rj)) },
+                                onApplyCond = ::openLibraryWith,
+                            )
+                        }
+                        else -> Box(Modifier.fillMaxSize().clipToBounds().statusBarsPadding()) {
                             HistoryScreen(
                                 onOpenWork = { nav.go(Route.Work(it)) },
                                 onBackToLibrary = { nav.replace(Route.Library) },
