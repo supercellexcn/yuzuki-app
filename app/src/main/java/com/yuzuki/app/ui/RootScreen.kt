@@ -6,6 +6,7 @@ import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.core.animate
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.Box
@@ -37,6 +38,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.yuzuki.app.data.AppContainer
 import com.yuzuki.app.data.FilterCond
 import com.yuzuki.app.playback.PlaybackController
+import com.yuzuki.app.ui.theme.WebColors
 import kotlinx.coroutines.launch
 
 // 三个板块在横向上是一条连续的纸带：库 ←→ 播放器 ←→ 历史，侧栏贴在库页左侧。
@@ -103,8 +105,18 @@ fun RootScreen(
         }
     }
 
-    fun settleDrawer() {
-        animateDrawer(if (drawerFraction > 0.4f) 1f else 0f)
+    /**
+     * 松手吸附。展开与收起用不同门槛：
+     * - 展开（从库页右拖）：过 40% 才吸全开，避免轻微右拖就弹出来；
+     * - 收起（在面板上左拖）：只要拖过 22%（≈57dp）就关，不用一路滑到底。
+     */
+    fun settleDrawer(closing: Boolean = false) {
+        val target = if (closing) {
+            if (drawerFraction < 0.78f) 0f else 1f
+        } else {
+            if (drawerFraction > 0.4f) 1f else 0f
+        }
+        animateDrawer(target)
     }
 
     // Pager 落位 → 同步播放器全屏态与导航态
@@ -229,7 +241,14 @@ fun RootScreen(
                 }
 
                 if (overlayRoute != null) {
-                    Box(Modifier.fillMaxSize().statusBarsPadding()) {
+                    // 覆盖层必须自带不透明页面底色：详情 / 收藏 / 设置原本直接透出下面的
+                    // 库页卡片和播放器模糊封面，半透明面板压在上面很难辨认。
+                    Box(
+                        Modifier
+                            .fillMaxSize()
+                            .background(WebColors.PageBg)
+                            .statusBarsPadding(),
+                    ) {
                         when (overlayRoute) {
                             is Route.Work -> WorkDetailScreen(
                                 rj = overlayRoute.rj,
@@ -304,7 +323,7 @@ fun RootScreen(
                 drawerFraction = (drawerFraction + delta).coerceIn(0f, 1f)
                 drawerOpen = drawerFraction > 0f
             },
-            onDragEnd = { settleDrawer() },
+            onDragEnd = { total -> settleDrawer(closing = total < 0f) },
             userName = userName ?: "",
             onDismiss = { animateDrawer(0f) },
             onOpenFavorites = { nav.replace(Route.Favorites) },

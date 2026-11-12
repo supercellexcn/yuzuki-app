@@ -84,7 +84,8 @@ private val SIDE_FILTERS = listOf(
 fun SideDrawer(
     fraction: Float,
     onDragBy: (Float) -> Unit,
-    onDragEnd: () -> Unit,
+    /** 松手回调，参数为整段拖动的水平位移（px，左负右正），用于区分"收起"与"回弹展开" */
+    onDragEnd: (Float) -> Unit,
     userName: String,
     onDismiss: () -> Unit,
     onOpenFavorites: () -> Unit,
@@ -139,10 +140,15 @@ fun SideDrawer(
                 .background(panelSolid)
                 // 向左拖即收起，位移实时回传给 RootScreen
                 .pointerInput(widthPx) {
+                    var total = 0f
                     detectHorizontalDragGestures(
-                        onHorizontalDrag = { _, dragAmount -> onDragBy(dragAmount / widthPx) },
-                        onDragEnd = { onDragEnd() },
-                        onDragCancel = { onDragEnd() },
+                        onDragStart = { total = 0f },
+                        onHorizontalDrag = { _, dragAmount ->
+                            total += dragAmount
+                            onDragBy(dragAmount / widthPx)
+                        },
+                        onDragEnd = { onDragEnd(total) },
+                        onDragCancel = { onDragEnd(total) },
                     )
                 }
                 // web 只有 border-right，这里只画右边一条线
