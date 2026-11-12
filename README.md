@@ -192,6 +192,8 @@ ADB=.toolchain/sdk/platform-tools/adb.exe
 - 缓存口径：`measure` 计入的文件 = `clear` 删除的文件（含 offline 的 JSON 快照 / 封面 / 音频、
   `cacheDir` 的 `img_*` 与 `artwork/`），`pending_plays.json` 与 `filesDir` 其它数据保留，清完显示 0 B。
 - 未截图验证。
+- Release `0.1.6` 已通过无线调试装到 BVL-AN16（配对端口 38873 / 连接端口 37525）：
+  `versionName 0.1.5 → 0.1.6`、`versionCode 1005 → 1006`，启动后进程存活、Logcat 无崩溃命中。
 
 **仍待验证**：A1–A5 接口同源断言、锁屏 metadata 与 `artworkData`、连续 `next()` 3 次通知不消失、
 息屏 5 分钟进度增长、蓝牙耳机按键、通知点击直达播放页、flac/mkv 解码、base64 图片上传返回码、
