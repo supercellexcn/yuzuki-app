@@ -87,8 +87,12 @@ class PlaybackSnapshotTest {
     }
 
     @Test
-    fun 进度不超过时长() {
-        assertEquals(300_000L, sample().copy(positionMs = 999_999L).sanitized()!!.positionMs)
+    fun 进度到结尾按从头开始() {
+        // 播完 / 越界都归零，避免恢复出来停在结尾、点播放直接跳下一首
+        assertEquals(0L, sample().copy(positionMs = 999_999L).sanitized()!!.positionMs)
+        assertEquals(0L, sample().copy(positionMs = 300_000L).sanitized()!!.positionMs)
+        // 结尾之前仍按原位置恢复
+        assertEquals(299_000L, sample().copy(positionMs = 299_000L).sanitized()!!.positionMs)
     }
 
     @Test

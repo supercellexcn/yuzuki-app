@@ -152,7 +152,7 @@ ADB=.toolchain/sdk/platform-tools/adb.exe
 | N7 | 离线缓存（JSON 快照、音频下载、播放记录补报队列） | ✅ |
 | N8 | A1–A5 同源回归、真机锁屏 / 解码 / 上传断言 | ⏳ 需局域网服务与真机 |
 | N9 | 系统媒体控制对齐（MediaController 迁移、队列进 playlist、三态循环、封面磁盘缓存、断网退避重试） | ✅ 静态验证通过，真机回归待 N8 |
-| N10 | 本机播放位置恢复（30s / 暂停落盘、进播放页还原曲目 + 列表 + 进度、不自动开播） | ✅ 编译 + 73 例单测通过，真机回归待 N8 |
+| N10 | 本机播放位置恢复（30s / 暂停 / 切歌落盘、进播放页还原曲目 + 列表 + 进度、不自动开播） | ✅ 编译 + 73 例单测 + 真机落盘 / 冷启动恢复验证；划掉恢复与通知栏不覆盖待测 |
 
 **已完成的验证（2026-11-10）**：
 
@@ -215,6 +215,24 @@ ADB=.toolchain/sdk/platform-tools/adb.exe
 - 静态断言：`PlaybackSnapshot.kt` / `PlaybackStore.kt` / `PlaybackController.kt` 中
   `YuzukiApi` / `recordPlay` / `saveSettings` / `savePrefs` 零命中；`tryRestore()` 内无 `withController` / `setMediaItems`。
 - 未截图验证。
+
+**真机验证（2026-11-12，BVL-AN16 无线调试，端口 37169 配对 → 35727 连接）**：
+
+- `0.1.7` / `0.1.8` 均安装成功、启动后进程存活、Logcat 无 `FATAL` / `AndroidRuntime` 命中。
+- **30s 节拍落盘**：播放中读取 `run-as com.yuzuki.app cat files/playback/state.json`，
+  首份为 `position_ms=0`，约 35s 后被重写为 `file_id` 跟随切歌、`position_ms=37038`（与系统 `dumpsys media_session`
+  的 position 同向增长），确认按节拍写盘且切歌后 `file_id` 同步。
+- **冷启动恢复**：覆盖安装（进程被杀）后重新启动 → 打开播放页，界面层级出现同一作品标题、
+  `Chapter5.flac`、社团 / 声优与 `1:07 / 7:21`，与快照的 `position_ms=67240 / duration_ms=441756` 完全对应，
+  且未自动出声。
+- **本轮修掉两个落盘缺口**（真机暴露）：
+  1. 通知栏 / 锁屏 / 蓝牙 / 耳机键的暂停不经过 `pause()`，且暂停后 ticker 的非强制保存因 `playing=false` 直接返回，
+     进度会滞后一整个节拍 → 在 `onIsPlayingChanged(before.playing && !isPlaying)` 时强写一次；
+  2. 切歌只靠 30s 节拍，`onMediaItemTransition` 时强写一次，否则「刚切下一首就被划掉」会恢复到上一首。
+- 同时把 `sanitized()` 的夹紧语义改为「进度 ≥ 时长即按从头开始」，避免播完后恢复停在结尾、点播放直接跳下一首
+  （单测 `进度到结尾按从头开始` 覆盖）。
+- 仍未验证：多任务划掉后恢复（真机本轮只覆盖覆盖安装冷启动）、通知栏进入不覆盖（`RestoreLogicTest` 已断言规则，
+  真机未跑）。
 
 **仍待验证**：A1–A5 接口同源断言、锁屏 metadata 与 `artworkData`、连续 `next()` 3 次通知不消失、
 息屏 5 分钟进度增长、蓝牙耳机按键、通知点击直达播放页、flac/mkv 解码、base64 图片上传返回码、

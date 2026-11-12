@@ -381,6 +381,9 @@ object PlaybackController {
                 positionMs = if (pendingStart) before.positionMs
                 else c?.currentPosition?.coerceAtLeast(0) ?: before.positionMs,
             )
+            // 暂停也必须立刻落盘：通知栏 / 锁屏 / 蓝牙 / 耳机键的暂停不经过 pause()，
+            // 而暂停后 ticker 的非强制保存会因 playing=false 直接返回，不补这一步进度会滞后一整个节拍
+            if (before.playing && !isPlaying) maybeSave(force = true)
         }
 
         override fun onPlaybackStateChanged(playbackState: Int) {
@@ -389,6 +392,9 @@ object PlaybackController {
 
         override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
             syncCurrent()
+            // 切歌后立刻落盘：否则「刚切到下一首就被划掉」会恢复到上一首的位置，
+            // 而本功能的目的正是定位到上次那个文件
+            maybeSave(force = true)
         }
 
         override fun onRepeatModeChanged(repeatMode: Int) {

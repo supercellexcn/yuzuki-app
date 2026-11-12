@@ -58,8 +58,13 @@ data class PlaybackSnapshot(
         if (rj.isBlank() || fileId <= 0L) return null
         if (queue.isEmpty() || queue.none { it.id == fileId }) return null
         val duration = durationMs.coerceAtLeast(0L)
-        val position = positionMs.coerceAtLeast(0L)
-            .let { if (duration > 0L) it.coerceAtMost(duration) else it }
+        val raw = positionMs.coerceAtLeast(0L)
+        // 播到结尾的记录按「从头开始」处理：否则恢复出来就是结尾，点播放直接跳下一首
+        val position = when {
+            duration <= 0L -> raw
+            raw >= duration -> 0L
+            else -> raw
+        }
         return copy(positionMs = position, durationMs = duration)
     }
 
