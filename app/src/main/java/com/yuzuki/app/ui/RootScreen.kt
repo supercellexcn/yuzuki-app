@@ -40,6 +40,7 @@ import com.yuzuki.app.data.FilterCond
 import com.yuzuki.app.playback.PlaybackController
 import com.yuzuki.app.ui.theme.WebColors
 import kotlinx.coroutines.launch
+import kotlin.math.abs
 
 // 三个板块在横向上是一条连续的纸带：库 ←→ 播放器 ←→ 历史，侧栏贴在库页左侧。
 private const val LIBRARY_PAGE = 0
@@ -168,31 +169,45 @@ fun RootScreen(
         }
     }
 
-    // 库页已在最左，向右拖时 Pager 没有上一页可翻，只会做边界回弹；
-    // 这里在 Initial 阶段"旁路观察"（不消费事件，不与 Pager 抢手势），
-    // 把右拖位移映射成侧栏位移。之前挂在 nestedScroll 的 onPreScroll/onPostScroll
-    // 在 Pager 边界都拿不到溢出量，所以侧栏一直拖不出来。
+    // 库页已在最左，向右拖时 Pager 没有上一页可翻；这里在 Initial 阶段"旁路观察"
+    // （不消费事件，不与 Pager 抢手势），把右拖位移映射成侧栏位移。
+    //
+    // 防误触：列表纵向滑动时手指难免带一点横向抖动，所以必须"向右位移明显大于纵向位移"
+    // 才拉起侧栏；已经上手拖侧栏后若纵向分量转为占主导，立刻回弹并放弃这次手势。
     val drawerObserve = Modifier.pointerInput(pagerState, playState.fullscreen) {
-        val slop = 8.dp.toPx()
+        val startSlop = 16.dp.toPx()      // 起手门槛（≈48px），轻微抖动不会触发
+        val verticalSlop = 24.dp.toPx()
         awaitEachGesture {
             val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
             var lastX = down.position.x
-            var totalX = 0f
+            var lastY = down.position.y
+            var sumX = 0f      // 水平位移（右为正）
+            var absYAcc = 0f   // 纵向累计绝对值：上下抖动不会互相抵消
             var dragging = false
             while (true) {
                 val event = awaitPointerEvent(PointerEventPass.Initial)
                 val change = event.changes.firstOrNull { it.id == down.id } ?: break
                 val dx = change.position.x - lastX
+                val dy = change.position.y - lastY
                 lastX = change.position.x
+                lastY = change.position.y
                 if (!change.pressed) break
+                sumX += dx
+                absYAcc += abs(dy)
                 if (!dragging) {
-                    totalX += dx
-                    if (totalX > slop && drawerFraction <= 0f && !playState.fullscreen &&
-                        pagerState.currentPage == LIBRARY_PAGE
+                    if (sumX > startSlop && sumX > absYAcc * 1.5f && drawerFraction <= 0f &&
+                        !playState.fullscreen && pagerState.currentPage == LIBRARY_PAGE
                     ) {
                         dragging = true
                     }
                 } else {
+                    // 拖到一半用户其实是往下滑列表 → 回弹收手
+                    if (absYAcc > verticalSlop && absYAcc > sumX + verticalSlop) {
+                        dragging = false
+                        drawerFraction = 0f
+                        drawerOpen = false
+                        break
+                    }
                     drawerFraction = (drawerFraction + dx / drawerWidthPx).coerceIn(0f, 1f)
                     drawerOpen = drawerFraction > 0f
                 }
