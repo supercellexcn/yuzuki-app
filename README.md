@@ -260,6 +260,22 @@ ADB=.toolchain/sdk/platform-tools/adb.exe
 - `assembleRelease` 通过；`testDebugUnitTest` 78 例全过。Release `0.1.12` 已装机并发布共享
   `yuzuki-0.1.12-1112-1852.apk` + `yuzuki-latest.apk`。
 
+**本次增量验证（2026-11-12，播放页去下拉 + 状态栏沉浸）**：
+
+- 播放页不再复刻 web 的「下滑收起」：删除 `dragY` / `detectVerticalDragGestures` 的 `dragToClose`
+  与根 `graphicsLayer.translationY`，页面作为常驻功能板块不响应垂直拖动；退出统一走底部「库」Tab 与系统返回键
+  （`BackHandler` 里 `playState.fullscreen` 分支未变）。
+- 状态栏沉浸：`RootScreen` 的 `statusBarsPadding()` 改为**仅非全屏时**应用；
+  `FullscreenPlayer` 的内容 `Column` 自己加 `statusBarsPadding()`。
+  效果是封面模糊背景 + 渐变一路铺到屏幕顶端（状态栏图标白色，`themes.xml` 的 `windowLightStatusBar=false`），
+  而标题 / 文件名 / 控件仍在状态栏下方，不再出现一条与播放页背景割裂的色带。
+- 真机实测（`0.1.13`，BVL-AN16，`uiautomator dump` 节点坐标，未截图）：
+  播放页打开时库页搜索框 `y 189 → 48`（根布局不再避让状态栏，证明背景可铺到 y=0），播放器标题 / 文件名
+  `y=1705 / 1795` 位置正常；在封面区下拉 `900→1900` 后文件名仍在 `y=1795`（下拉关闭已失效）；
+  切回「库」Tab 后搜索框恢复 `y=189`（其它页面避让照旧）。
+- `assembleRelease` 通过；`testDebugUnitTest` 78 例全过。Release `0.1.13` 已装机并发布共享
+  `yuzuki-0.1.13-1112-1908.apk` + `yuzuki-latest.apk`，三方 sha256 一致 `ba3bf71b…19dc5a9`。
+
 **真机验证（2026-11-12，BVL-AN16 无线调试，端口 37169 配对 → 35727 连接）**：
 
 - `0.1.7` / `0.1.8` 均安装成功、启动后进程存活、Logcat 无 `FATAL` / `AndroidRuntime` 命中。

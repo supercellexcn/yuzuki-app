@@ -24,6 +24,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -104,7 +105,6 @@ fun FullscreenPlayer(
     val actorBg = WebColors.tagBg(appearance.actorColor, appearance.actorTagAlpha)
     val seekSeconds = AppContainer.settings.current.seekSeconds
 
-    var dragY by remember { mutableStateOf(0f) }
     var seekPreview by remember { mutableStateOf<Float?>(null) }
     var playlistVisible by remember { mutableStateOf(false) }
     var volumeVisible by remember { mutableStateOf(false) }
@@ -119,27 +119,12 @@ fun FullscreenPlayer(
     val work = item?.work
     val workFav = item != null && FavoritesState.workRjs.contains(item.rj)
 
-    val dragToClose = Modifier.pointerInput(Unit) {
-        detectVerticalDragGestures(
-            onDragEnd = {
-                if (dragY > 100.dp.toPx()) {
-                    dragY = 0f
-                    onClose()
-                } else {
-                    dragY = 0f
-                }
-            },
-            onDragCancel = { dragY = 0f },
-        ) { _, delta ->
-            dragY = (dragY + delta).coerceAtLeast(0f)
-        }
-    }
-
+    // 播放页在 App 里是一个常驻功能板块（底部 Tab 之一），不再保留 web 端的「下滑收起」：
+    // 关闭 / 返回统一走底部「库」Tab 与系统返回键，页面本身不响应垂直拖动。
     Box(
         modifier = modifier
             .fillMaxSize()
-            .background(WebColors.PageBg)
-            .graphicsLayer { translationY = dragY },
+            .background(WebColors.PageBg),
     ) {
         // 底色：外观设置的面板色兜底（封面未加载 / 无曲目时可见）
         Box(modifier = Modifier.fillMaxSize().background(scrim))
@@ -173,14 +158,15 @@ fun FullscreenPlayer(
             )
         }
 
-        Column(modifier = Modifier.fillMaxSize()) {
+        // 背景（封面模糊 + 渐变）铺满整块内容区，一直延伸到状态栏后面；
+        // 控件与文字在这一层用 statusBarsPadding 避让，做到"背景沉浸、内容不挡"。
+        Column(modifier = Modifier.fillMaxSize().statusBarsPadding()) {
             // ---- 封面：1:1 正方形，宽度撑满，居中，无上下色块 ----
             BoxWithConstraints(
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxWidth()
-                    .padding(horizontal = 20.dp, vertical = 10.dp)
-                    .then(dragToClose),
+                    .padding(horizontal = 20.dp, vertical = 10.dp),
                 contentAlignment = Alignment.Center,
             ) {
                 if (item == null) {
@@ -203,8 +189,7 @@ fun FullscreenPlayer(
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(start = 20.dp, end = 20.dp, top = 4.dp, bottom = 8.dp)
-                        .then(dragToClose),
+                        .padding(start = 20.dp, end = 20.dp, top = 4.dp, bottom = 8.dp),
                     verticalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
                     Text(

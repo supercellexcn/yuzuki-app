@@ -74,7 +74,13 @@ fun RootScreen(
         }
     }
 
-    Box(modifier = modifier.fillMaxSize().statusBarsPadding()) {
+    // 播放页不做状态栏避让：封面模糊背景需要铺进状态栏后面（沉浸），
+    // 控件自身的避让交给 PlayerUI 内部的 statusBarsPadding，其它页面维持原行为。
+    Box(
+        modifier = modifier
+            .fillMaxSize()
+            .then(if (playState.fullscreen) Modifier else Modifier.statusBarsPadding()),
+    ) {
         Column(modifier = Modifier.fillMaxSize()) {
             Box(modifier = Modifier.weight(1f)) {
                 when (val route = nav.current) {
