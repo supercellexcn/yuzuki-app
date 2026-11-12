@@ -4,30 +4,52 @@ import android.app.Activity
 import android.os.SystemClock
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.core.animate
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.staggeredgrid.rememberLazyStaggeredGridState
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.Velocity
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.yuzuki.app.data.AppContainer
 import com.yuzuki.app.data.FilterCond
 import com.yuzuki.app.playback.PlaybackController
+import kotlinx.coroutines.launch
+
+// 三个板块在横向上是一条连续的纸带：库 ←→ 播放器 ←→ 历史，侧栏贴在库页左侧。
+private const val LIBRARY_PAGE = 0
+private const val PLAYER_PAGE = 1
+private const val HISTORY_PAGE = 2
 
 /**
- * 手机端根布局：顶部状态栏避让 + 内容区 + 底部 3 Tab + 侧栏抽屉 + 全屏播放器。
- * 抽屉挂在根层级，才能盖住底部 Tab（与 web 的抽屉覆盖全屏一致）。
+ * 手机端根布局：横向 Pager（库 / 播放器 / 历史）+ 底部 3 Tab + 侧栏抽屉。
+ *
+ * 滑动语义与手指位移严格跟手：
+ *   库页向左拖 → 播放器 → 历史；历史页向右拖 → 播放器 → 库；
+ *   库页（已在最左）继续向右拖的溢出量用来把侧栏拉出来，侧栏本身也可向左拖收回。
+ * 详情 / 收藏 / 设置 / 改密不是板块，作为覆盖层盖在 Pager 之上，此时不响应翻页。
  */
 @Composable
 fun RootScreen(
@@ -41,13 +63,26 @@ fun RootScreen(
     val playState by PlaybackController.state.collectAsState()
     val userName by AppContainer.tokenStore.username.collectAsState(initial = null)
     var lastBackAt by remember { mutableLongStateOf(0L) }
+    var drawerFraction by remember { mutableFloatStateOf(0f) }
     var drawerOpen by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+    val drawerWidthPx = with(LocalDensity.current) { DrawerWidth.toPx() }
 
-    // 库页数据 / 滚动状态放在 when 分支之外：主页被移出组合时不会被销毁，
-    // 从详情 / 收藏 / 历史 / 设置返回时直接复用，位置与已翻页的数据都还在。
+    // 库页数据 / 滚动状态放在 Pager 之外：翻到播放器 / 历史再回来时位置与已翻页的数据都还在。
     val libraryVm: LibraryListViewModel = viewModel()
     val libraryGridState = rememberLazyStaggeredGridState()
     val libraryListState = rememberLazyListState()
+
+    // 非板块页（详情 / 收藏 / 设置 / 改密）以覆盖层呈现，盖住 Pager
+    val overlayRoute = nav.current.takeIf { it !is Route.Library && it !is Route.History }
+
+    val pagerState = rememberPagerState(
+        initialPage = when {
+            playState.fullscreen -> PLAYER_PAGE
+            nav.current is Route.History -> HISTORY_PAGE
+            else -> LIBRARY_PAGE
+        },
+    ) { 3 }
 
     LaunchedEffect(Unit) {
         FavoritesState.refresh()
@@ -57,14 +92,60 @@ fun RootScreen(
     fun openLibraryWith(cond: FilterCond) {
         LibraryState.addCond(cond)
         nav.replace(Route.Library)
+        scope.launch { pagerState.animateScrollToPage(LIBRARY_PAGE) }
     }
 
-    // 系统返回键与 UI 返回共用一套语义：抽屉 → 全屏播放器 → 返回栈 / 回主页 → 双击退出
+    fun animateDrawer(target: Float) {
+        scope.launch {
+            animate(drawerFraction, target, animationSpec = tween(200)) { v, _ -> drawerFraction = v }
+            drawerOpen = target > 0.5f
+        }
+    }
+
+    fun settleDrawer() {
+        animateDrawer(if (drawerFraction > 0.4f) 1f else 0f)
+    }
+
+    // Pager 落位 → 同步播放器全屏态与导航态
+    LaunchedEffect(pagerState.settledPage) {
+        when (pagerState.settledPage) {
+            PLAYER_PAGE -> PlaybackController.setFullscreen(true)
+            LIBRARY_PAGE -> {
+                PlaybackController.setFullscreen(false)
+                if (nav.current is Route.History) nav.replace(Route.Library)
+            }
+            HISTORY_PAGE -> {
+                PlaybackController.setFullscreen(false)
+                if (nav.current is Route.Library) nav.replace(Route.History)
+            }
+        }
+    }
+
+    // 外部把播放器置为全屏（点 Tab / 冷启动恢复）时，Pager 跟着过去
+    LaunchedEffect(playState.fullscreen) {
+        if (playState.fullscreen && pagerState.settledPage != PLAYER_PAGE) {
+            pagerState.animateScrollToPage(PLAYER_PAGE)
+        }
+    }
+
+    // 代码改导航（返回键 / 侧栏跳转）时把 Pager 摆回对应板块
+    LaunchedEffect(nav.current) {
+        val target = when (nav.current) {
+            is Route.Library -> LIBRARY_PAGE
+            is Route.History -> HISTORY_PAGE
+            else -> null
+        }
+        if (target != null && pagerState.settledPage != target && !pagerState.isScrollInProgress) {
+            pagerState.scrollToPage(target)
+        }
+    }
+
+    // 系统返回键与 UI 返回共用一套语义：侧栏 → 播放器 → 返回栈 / 回主页 → 双击退出
     BackHandler(enabled = true) {
         val now = SystemClock.elapsedRealtime()
         when {
-            drawerOpen -> drawerOpen = false
-            playState.fullscreen -> PlaybackController.setFullscreen(false)
+            drawerFraction > 0f -> animateDrawer(0f)
+            playState.fullscreen -> scope.launch { pagerState.animateScrollToPage(LIBRARY_PAGE) }
             nav.backOrHome() -> { }
             now - lastBackAt < 2000 -> activity?.finish()
             else -> {
@@ -74,104 +155,151 @@ fun RootScreen(
         }
     }
 
-    // 播放页不做状态栏避让：封面模糊背景需要铺进状态栏后面（沉浸），
-    // 控件自身的避让交给 PlayerUI 内部的 statusBarsPadding，其它页面维持原行为。
-    Box(
-        modifier = modifier
-            .fillMaxSize()
-            .then(if (playState.fullscreen) Modifier else Modifier.statusBarsPadding()),
-    ) {
+    // 库页已在最左，Pager 消费不掉的横向溢出量交给侧栏，做到"手指拖多少侧栏出多少"
+    val drawerNested = object : NestedScrollConnection {
+        override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
+            // 侧栏已拖出一部分时，先收回侧栏，避免误翻页
+            if (drawerFraction > 0f && available.x < 0f) {
+                drawerFraction = (drawerFraction + available.x / drawerWidthPx).coerceIn(0f, 1f)
+                drawerOpen = drawerFraction > 0f
+                return Offset(available.x, 0f)
+            }
+            return Offset.Zero
+        }
+
+        override fun onPostScroll(consumed: Offset, available: Offset, source: NestedScrollSource): Offset {
+            if (available.x > 0f && pagerState.currentPage == LIBRARY_PAGE && !playState.fullscreen) {
+                drawerFraction = (drawerFraction + available.x / drawerWidthPx).coerceIn(0f, 1f)
+                drawerOpen = drawerFraction > 0f
+                return Offset(available.x, 0f)
+            }
+            return Offset.Zero
+        }
+
+        override suspend fun onPostFling(consumed: Velocity, available: Velocity): Velocity {
+            if (drawerFraction > 0f && drawerFraction < 1f) {
+                val target = if (drawerFraction > 0.4f) 1f else 0f
+                animate(drawerFraction, target, animationSpec = tween(200)) { v, _ -> drawerFraction = v }
+                drawerOpen = target == 1f
+            }
+            return Velocity.Zero
+        }
+    }
+
+    Box(modifier = modifier.fillMaxSize()) {
         Column(modifier = Modifier.fillMaxSize()) {
             Box(modifier = Modifier.weight(1f)) {
-                when (val route = nav.current) {
-                    is Route.Library -> LibraryScreen(
-                        vm = libraryVm,
-                        gridState = libraryGridState,
-                        listState = libraryListState,
-                        onOpenWork = { nav.go(Route.Work(it)) },
-                        onOpenDrawer = { drawerOpen = true },
-                    )
-                    is Route.Work -> WorkDetailScreen(
-                        rj = route.rj,
-                        onBack = { nav.backOrHome() },
-                        onOpenWork = { nav.go(Route.Work(it)) },
-                        onOpenLibrary = { nav.replace(Route.Library) },
-                        onOpenDrawer = { drawerOpen = true },
-                    )
-                    is Route.Favorites -> FavoritesScreen(
-                        onOpenWork = { nav.go(Route.Work(it)) },
-                        onApplyCond = ::openLibraryWith,
-                    )
-                    is Route.History -> HistoryScreen(
-                        onOpenWork = { nav.go(Route.Work(it)) },
-                        onBackToLibrary = { nav.replace(Route.Library) },
-                        onOpenDrawer = { drawerOpen = true },
-                    )
-                    is Route.Settings -> SettingsScreen(onBack = { nav.backOrHome() })
-                    is Route.ChangePassword -> ChangePasswordScreen(
-                        firstLogin = false,
-                        onChange = { old, new -> AppContainer.api.changePassword(old, new) },
-                    )
-                }
-
-                // 全屏播放器画在内容区里（底部 Tab 之上），
-                // 这样三大导航始终可见，播放器控件整体上移。
-                if (playState.fullscreen) {
-                    FullscreenPlayer(
-                        onClose = { PlaybackController.setFullscreen(false) },
-                        onOpenWork = { rj ->
-                            PlaybackController.setFullscreen(false)
-                            nav.go(Route.Work(rj))
-                        },
-                        onApplyCond = ::openLibraryWith,
-                    )
-                }
-            }
-
-            // 底部导航常驻（详情页、播放器页都不再隐藏）
-            run {
-                MainNavigationBar(
-                    selected = when {
-                        playState.fullscreen -> MainTab.Player
-                        nav.current is Route.History -> MainTab.History
-                        else -> MainTab.Library
-                    },
-                    onSelect = { tab ->
-                        when (tab) {
-                            MainTab.Library -> {
-                                // 播放器是叠加层，库页一直在组合树里；从播放器返回时
-                                // 不能触发 scrollToTop（否则会被仍挂载的库页立即消费）。
-                                val fromPlayer = playState.fullscreen
-                                if (fromPlayer) PlaybackController.setFullscreen(false)
-                                if (ScrollRestore.shouldScrollTopOnLibraryTab(
-                                        fromPlayer, nav.current == Route.Library,
-                                    )
-                                ) {
-                                    LibraryState.scrollToTop()
-                                } else if (nav.current != Route.Library) {
-                                    nav.replace(Route.Library)
-                                }
-                            }
-                            MainTab.Player -> PlaybackController.setFullscreen(true)
-                            MainTab.History -> {
-                                if (playState.fullscreen) PlaybackController.setFullscreen(false)
-                                if (nav.current != Route.History) nav.replace(Route.History)
-                            }
+                HorizontalPager(
+                    state = pagerState,
+                    // 邻页预组合，手指一拖内容就已经在那儿了
+                    beyondViewportPageCount = 1,
+                    userScrollEnabled = overlayRoute == null && !drawerOpen,
+                    modifier = Modifier.fillMaxSize().nestedScroll(drawerNested),
+                ) { page ->
+                    when (page) {
+                        LIBRARY_PAGE -> Box(Modifier.fillMaxSize().statusBarsPadding()) {
+                            LibraryScreen(
+                                vm = libraryVm,
+                                gridState = libraryGridState,
+                                listState = libraryListState,
+                                onOpenWork = { nav.go(Route.Work(it)) },
+                                onOpenDrawer = { animateDrawer(1f) },
+                            )
                         }
-                    },
-                )
+                        PLAYER_PAGE -> FullscreenPlayer(
+                            onClose = { scope.launch { pagerState.animateScrollToPage(LIBRARY_PAGE) } },
+                            onOpenWork = { rj -> nav.go(Route.Work(rj)) },
+                            onApplyCond = ::openLibraryWith,
+                        )
+                        else -> Box(Modifier.fillMaxSize().statusBarsPadding()) {
+                            HistoryScreen(
+                                onOpenWork = { nav.go(Route.Work(it)) },
+                                onBackToLibrary = { nav.replace(Route.Library) },
+                                onOpenDrawer = { animateDrawer(1f) },
+                            )
+                        }
+                    }
+                }
+
+                if (overlayRoute != null) {
+                    Box(Modifier.fillMaxSize().statusBarsPadding()) {
+                        when (overlayRoute) {
+                            is Route.Work -> WorkDetailScreen(
+                                rj = overlayRoute.rj,
+                                onBack = { nav.backOrHome() },
+                                onOpenWork = { nav.go(Route.Work(it)) },
+                                onOpenLibrary = { nav.replace(Route.Library) },
+                                onOpenDrawer = { animateDrawer(1f) },
+                            )
+                            is Route.Favorites -> FavoritesScreen(
+                                onOpenWork = { nav.go(Route.Work(it)) },
+                                onApplyCond = ::openLibraryWith,
+                            )
+                            is Route.Settings -> SettingsScreen(onBack = { nav.backOrHome() })
+                            is Route.ChangePassword -> ChangePasswordScreen(
+                                firstLogin = false,
+                                onChange = { old, new -> AppContainer.api.changePassword(old, new) },
+                            )
+                            else -> Unit
+                        }
+                    }
+                }
             }
+
+            // 底部导航常驻，选中态跟随 Pager 当前页（滑动过程中就跟着高亮）
+            MainNavigationBar(
+                selected = when (pagerState.currentPage) {
+                    PLAYER_PAGE -> MainTab.Player
+                    HISTORY_PAGE -> MainTab.History
+                    else -> MainTab.Library
+                },
+                onSelect = { tab ->
+                    when (tab) {
+                        MainTab.Library -> {
+                            val fromPlayer = pagerState.currentPage == PLAYER_PAGE
+                            if (fromPlayer) PlaybackController.setFullscreen(false)
+                            if (ScrollRestore.shouldScrollTopOnLibraryTab(
+                                    fromPlayer, nav.current == Route.Library,
+                                )
+                            ) {
+                                LibraryState.scrollToTop()
+                            }
+                            if (nav.current != Route.Library) nav.replace(Route.Library)
+                            scope.launch { pagerState.animateScrollToPage(LIBRARY_PAGE) }
+                        }
+                        MainTab.Player -> {
+                            if (overlayRoute != null) nav.replace(Route.Library)
+                            PlaybackController.setFullscreen(true)
+                            scope.launch { pagerState.animateScrollToPage(PLAYER_PAGE) }
+                        }
+                        MainTab.History -> {
+                            if (overlayRoute != null) nav.replace(Route.Library)
+                            PlaybackController.setFullscreen(false)
+                            if (nav.current != Route.History) nav.replace(Route.History)
+                            scope.launch { pagerState.animateScrollToPage(HISTORY_PAGE) }
+                        }
+                    }
+                },
+            )
         }
 
         // 移动端悬浮快捷控件（web MobileDock）：内容之上、抽屉之下
         if (!playState.fullscreen) {
-            MobileDock(onGoHome = { nav.replace(Route.Library) })
+            MobileDock(onGoHome = {
+                nav.replace(Route.Library)
+                scope.launch { pagerState.animateScrollToPage(LIBRARY_PAGE) }
+            })
         }
 
         SideDrawer(
-            visible = drawerOpen,
+            fraction = drawerFraction,
+            onDragBy = { delta ->
+                drawerFraction = (drawerFraction + delta).coerceIn(0f, 1f)
+                drawerOpen = drawerFraction > 0f
+            },
+            onDragEnd = { settleDrawer() },
             userName = userName ?: "",
-            onDismiss = { drawerOpen = false },
+            onDismiss = { animateDrawer(0f) },
             onOpenFavorites = { nav.replace(Route.Favorites) },
             onOpenSettings = { nav.go(Route.Settings) },
             onOpenChangePassword = { nav.go(Route.ChangePassword) },
@@ -187,7 +315,10 @@ fun RootScreen(
                 LibraryState.addCond(cond)
                 nav.replace(Route.Library)
             },
-            onAfterNavigate = { drawerOpen = false },
+            onAfterNavigate = { animateDrawer(0f) },
         )
+
+        // App 内轻提示（收藏 / 随机 / 循环切换），挂在最顶层，抽屉之上也能看到
+        AppToastHost()
     }
 }

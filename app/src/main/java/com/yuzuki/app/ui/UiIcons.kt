@@ -10,6 +10,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
+import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import kotlin.math.PI
 import kotlin.math.cos
@@ -46,31 +47,74 @@ fun TabBarIcon(tab: MainTab, tint: Color, modifier: Modifier = Modifier) {
                 }
             }
             MainTab.Player -> {
-                drawCircle(tint, radius = 8.6f * u, center = center, style = Stroke(stroke))
-                drawCircle(tint, radius = 3.1f * u, center = center)
+                // 视觉稿：外圈 + 内圈，12 点方向一段短竖线把两个圆连起来
+                val outer = 8.4f
+                val inner = 3.4f
+                drawCircle(tint, radius = outer * u, center = center, style = Stroke(stroke))
+                drawCircle(tint, radius = inner * u, center = center, style = Stroke(stroke))
+                drawLine(
+                    color = tint,
+                    start = Offset(center.x, center.y - outer * u),
+                    end = Offset(center.x, center.y - inner * u),
+                    strokeWidth = stroke,
+                    cap = StrokeCap.Round,
+                )
             }
             MainTab.History -> {
-                drawCircle(tint, radius = 8.6f * u, center = center, style = Stroke(stroke))
-                // 指针：指向 12 点与 3 点方向
+                // 视觉稿：圆环在左上留缺口，缺口处一个逆时针箭头（90° 张角），圈内保留时针分针
+                val r = 8.4f
+                val gapStart = 265f   // 缺口右端（12 点略偏右），箭头落在这里
+                val gapEnd = 225f     // 缺口左端
+                drawArc(
+                    color = tint,
+                    startAngle = gapStart,
+                    sweepAngle = 360f - (gapStart - gapEnd),
+                    useCenter = false,
+                    topLeft = Offset((12f - r) * u, (12f - r) * u),
+                    size = Size(2 * r * u, 2 * r * u),
+                    style = Stroke(stroke, cap = StrokeCap.Round),
+                )
+                // 逆时针（角度递减）方向的切线
+                val rad = gapStart * PI.toFloat() / 180f
+                val tip = Offset(
+                    (12f + r * cos(rad)) * u,
+                    (12f + r * sin(rad)) * u,
+                )
+                val counterClock = rad - PI.toFloat() / 2f
+                arrowHead(tint, tip, counterClock, 2.5f * u, stroke)
+                // 时针：12 点；分针：4 点方向
                 drawLine(
-                    tint, center, Offset(center.x, center.y - 4.4f * u),
+                    tint, center, Offset(center.x, center.y - 4.2f * u),
                     strokeWidth = stroke, cap = StrokeCap.Round,
                 )
                 drawLine(
-                    tint, center, Offset(center.x + 3.6f * u, center.y),
-                    strokeWidth = stroke, cap = StrokeCap.Round,
-                )
-                // 左上角逆时针箭头
-                drawLine(
-                    tint, Offset(2.6f * u, 3.2f * u), Offset(2.6f * u, 7.4f * u),
-                    strokeWidth = stroke, cap = StrokeCap.Round,
-                )
-                drawLine(
-                    tint, Offset(2.6f * u, 3.2f * u), Offset(6.8f * u, 3.2f * u),
+                    tint, center,
+                    Offset(center.x + 2.9f * u, center.y + 1.7f * u),
                     strokeWidth = stroke, cap = StrokeCap.Round,
                 )
             }
         }
+    }
+}
+
+/** 在 [tip] 处画一个指向 [dir]（弧度）的箭头，两条边各张开 45°（合计 90°）。 */
+private fun DrawScope.arrowHead(
+    tint: Color,
+    tip: Offset,
+    dir: Float,
+    length: Float,
+    stroke: Float,
+) {
+    val back = dir + PI.toFloat()
+    listOf(-PI.toFloat() / 4f, PI.toFloat() / 4f).forEach { spread ->
+        val angle = back + spread
+        drawLine(
+            color = tint,
+            start = Offset(tip.x + length * cos(angle), tip.y + length * sin(angle)),
+            end = tip,
+            strokeWidth = stroke,
+            cap = StrokeCap.Round,
+        )
     }
 }
 
@@ -258,22 +302,20 @@ fun NextIcon(tint: Color, modifier: Modifier = Modifier) {
     }
 }
 
-/** 重复播放：两条反向水平箭头（播放器视觉稿的右上角图标）。 */
+/** 循环：只有上下两条带箭头的横线（→ / ←），不带任何折角。 */
 @Composable
 fun RepeatIcon(tint: Color, modifier: Modifier = Modifier) {
     Canvas(modifier) {
         val u = size.minDimension / VIEW
         val stroke = 1.8f * u
-        // 上：左端短竖线 → 向右横线 → 右端箭头
-        drawLine(tint, Offset(4f * u, 5.6f * u), Offset(4f * u, 8.4f * u), stroke, StrokeCap.Round)
-        drawLine(tint, Offset(4f * u, 8.4f * u), Offset(19.4f * u, 8.4f * u), stroke, StrokeCap.Round)
-        drawLine(tint, Offset(16.4f * u, 5.4f * u), Offset(19.6f * u, 8.4f * u), stroke, StrokeCap.Round)
-        drawLine(tint, Offset(16.4f * u, 11.4f * u), Offset(19.6f * u, 8.4f * u), stroke, StrokeCap.Round)
-        // 下：右端短竖线 → 向左横线 → 左端箭头
-        drawLine(tint, Offset(20f * u, 18.4f * u), Offset(20f * u, 15.6f * u), stroke, StrokeCap.Round)
-        drawLine(tint, Offset(20f * u, 15.6f * u), Offset(4.6f * u, 15.6f * u), stroke, StrokeCap.Round)
-        drawLine(tint, Offset(7.6f * u, 12.6f * u), Offset(4.4f * u, 15.6f * u), stroke, StrokeCap.Round)
-        drawLine(tint, Offset(7.6f * u, 18.6f * u), Offset(4.4f * u, 15.6f * u), stroke, StrokeCap.Round)
+        // 上：左 → 右
+        drawLine(tint, Offset(4.2f * u, 8.2f * u), Offset(19.2f * u, 8.2f * u), stroke, StrokeCap.Round)
+        drawLine(tint, Offset(16.2f * u, 5.2f * u), Offset(19.4f * u, 8.2f * u), stroke, StrokeCap.Round)
+        drawLine(tint, Offset(16.2f * u, 11.2f * u), Offset(19.4f * u, 8.2f * u), stroke, StrokeCap.Round)
+        // 下：右 → 左
+        drawLine(tint, Offset(19.8f * u, 15.8f * u), Offset(4.8f * u, 15.8f * u), stroke, StrokeCap.Round)
+        drawLine(tint, Offset(7.8f * u, 12.8f * u), Offset(4.6f * u, 15.8f * u), stroke, StrokeCap.Round)
+        drawLine(tint, Offset(7.8f * u, 18.8f * u), Offset(4.6f * u, 15.8f * u), stroke, StrokeCap.Round)
     }
 }
 

@@ -30,9 +30,10 @@ class QueueMathTest {
     }
 
     @Test
-    fun 循环模式三态按单曲列表关闭轮转() {
+    fun 循环模式两态在顺序与单曲之间往返() {
         assertEquals(RepeatMode.ONE, QueueMath.cycleRepeat(RepeatMode.OFF))
-        assertEquals(RepeatMode.ALL, QueueMath.cycleRepeat(RepeatMode.ONE))
+        assertEquals(RepeatMode.OFF, QueueMath.cycleRepeat(RepeatMode.ONE))
+        // ALL 是历史残留值（已取消列表循环），点一次直接回到顺序播放
         assertEquals(RepeatMode.OFF, QueueMath.cycleRepeat(RepeatMode.ALL))
     }
 

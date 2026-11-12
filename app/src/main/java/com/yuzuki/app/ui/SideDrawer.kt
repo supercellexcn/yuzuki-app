@@ -1,14 +1,9 @@
 package com.yuzuki.app.ui
 
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.tween
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.slideInHorizontally
-import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -21,6 +16,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -49,9 +45,12 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.yuzuki.app.data.AppContainer
@@ -60,6 +59,7 @@ import com.yuzuki.app.data.FilterCond
 import com.yuzuki.app.ui.theme.LocalAppearance
 import com.yuzuki.app.ui.theme.ShapePill
 import com.yuzuki.app.ui.theme.WebColors
+import kotlin.math.roundToInt
 
 /**
  * web 移动端的侧边抽屉（AppSidebar.vue @media max-width 760）：
@@ -68,7 +68,7 @@ import com.yuzuki.app.ui.theme.WebColors
  * 结构照抄：品牌 → 四个分类筛选项 → 分隔线 → 我的收藏 → 用户 / 设置。
  * 「最近播放」与「视图与排序」入口已移除（历史走底部 Tab，视图 / 随机由悬浮控件承载）。
  */
-private val DrawerWidth = 260.dp
+internal val DrawerWidth = 260.dp
 
 private data class SideEntry(val type: String, val label: String)
 
@@ -82,7 +82,9 @@ private val SIDE_FILTERS = listOf(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SideDrawer(
-    visible: Boolean,
+    fraction: Float,
+    onDragBy: (Float) -> Unit,
+    onDragEnd: () -> Unit,
     userName: String,
     onDismiss: () -> Unit,
     onOpenFavorites: () -> Unit,
@@ -104,8 +106,10 @@ fun SideDrawer(
     var menuVisible by remember { mutableStateOf(false) }
     var counts by remember { mutableStateOf<Map<String, List<CountItem>>>(emptyMap()) }
 
-    LaunchedEffect(visible) {
-        if (!visible) return@LaunchedEffect
+    val widthPx = with(LocalDensity.current) { DrawerWidth.toPx() }
+
+    LaunchedEffect(fraction > 0f) {
+        if (fraction <= 0f) return@LaunchedEffect
         if (counts.isNotEmpty()) return@LaunchedEffect
         counts = mapOf(
             "circle" to AppContainer.api.circles().getOrDefault(emptyList()),
@@ -116,36 +120,42 @@ fun SideDrawer(
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
-        AnimatedVisibility(
-            visible = visible,
-            enter = fadeIn(tween(180)),
-            exit = fadeOut(tween(180)),
-        ) {
-            // 遮罩：rgba(0,0,0,0.5)
-            Box(modifier = Modifier.fillMaxSize().background(Color(0x80000000)).clickable(onClick = onDismiss))
+        // 遮罩跟随拖拽渐变；只有完全打开时才接管点击（拖拽中点击要穿透给下层）
+        if (fraction > 0f) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black.copy(alpha = 0.5f * fraction))
+                    .then(if (fraction > 0.99f) Modifier.clickable(onClick = onDismiss) else Modifier),
+            )
         }
 
-        AnimatedVisibility(
-            visible = visible,
-            enter = slideInHorizontally(tween(220)) { -it },
-            exit = slideOutHorizontally(tween(220)) { -it },
+        // 面板：位置由 fraction 直接驱动，手指拖多少走多少（跟手，不是固定时长动画）
+        Column(
+            modifier = Modifier
+                .width(DrawerWidth)
+                .fillMaxHeight()
+                .offset { IntOffset((-widthPx * (1f - fraction)).roundToInt(), 0) }
+                .background(panelSolid)
+                // 向左拖即收起，位移实时回传给 RootScreen
+                .pointerInput(widthPx) {
+                    detectHorizontalDragGestures(
+                        onHorizontalDrag = { _, dragAmount -> onDragBy(dragAmount / widthPx) },
+                        onDragEnd = { onDragEnd() },
+                        onDragCancel = { onDragEnd() },
+                    )
+                }
+                // web 只有 border-right，这里只画右边一条线
+                .drawBehind {
+                    val w = 1.dp.toPx()
+                    drawLine(
+                        color = WebColors.Border,
+                        start = Offset(size.width - w / 2f, 0f),
+                        end = Offset(size.width - w / 2f, size.height),
+                        strokeWidth = w,
+                    )
+                },
         ) {
-            Column(
-                modifier = Modifier
-                    .width(DrawerWidth)
-                    .fillMaxHeight()
-                    .background(panelSolid)
-                    // web 只有 border-right，这里只画右边一条线
-                    .drawBehind {
-                        val w = 1.dp.toPx()
-                        drawLine(
-                            color = WebColors.Border,
-                            start = Offset(size.width - w / 2f, 0f),
-                            end = Offset(size.width - w / 2f, size.height),
-                            strokeWidth = w,
-                        )
-                    },
-            ) {
                 // 品牌区：padding 12 15 6
                 Row(
                     modifier = Modifier.padding(start = 15.dp, end = 15.dp, top = 12.dp, bottom = 6.dp),
@@ -267,7 +277,6 @@ fun SideDrawer(
                     )
                 }
             }
-        }
     }
 
     val type = openType

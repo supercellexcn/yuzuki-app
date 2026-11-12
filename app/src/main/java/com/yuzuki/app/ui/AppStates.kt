@@ -141,13 +141,15 @@ object FavoritesState {
         }
     }
 
-    suspend fun toggleWork(rj: String) {
+    /** 切换作品收藏，返回切换后的状态（true = 已收藏），供提示条判断文案。 */
+    suspend fun toggleWork(rj: String): Boolean {
         val has = workRjs.contains(rj)
         val result = if (has) AppContainer.api.removeFavorite("work", rj)
         else AppContainer.api.addFavorite("work", rj)
         if (result.isSuccess) {
             workRjs = if (has) workRjs - rj else workRjs + rj
         }
+        return !has
     }
 
     suspend fun toggle(type: String, value: String, extra: String = ""): Boolean {

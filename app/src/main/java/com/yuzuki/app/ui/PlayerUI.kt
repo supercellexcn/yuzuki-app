@@ -68,6 +68,7 @@ import androidx.compose.ui.window.Popup
 import androidx.compose.ui.unit.sp
 import com.yuzuki.app.data.AppContainer
 import com.yuzuki.app.data.FilterCond
+import com.yuzuki.app.data.Work
 import com.yuzuki.app.playback.PlaybackController
 import com.yuzuki.app.playback.RepeatMode
 import com.yuzuki.app.ui.theme.LocalAppearance
@@ -116,11 +117,20 @@ fun FullscreenPlayer(
         }
     }
 
-    val work = item?.work
+    // 快照恢复出来的 Work 只带标题 / 社团 / 声优，系列与类型标签是空的；
+    // 这里按 rj 补一次详情，热启动（列表里带着完整 Work）不会重复请求。
+    var detailWork by remember(item?.rj) { mutableStateOf<Work?>(null) }
+    LaunchedEffect(item?.rj) {
+        val rj = item?.rj ?: return@LaunchedEffect
+        val known = item?.work
+        if (known != null && known.tags.isNotEmpty() && known.series.isNotBlank()) return@LaunchedEffect
+        detailWork = AppContainer.api.work(rj).getOrNull()?.work
+    }
+    val work = detailWork ?: item?.work
     val workFav = item != null && FavoritesState.workRjs.contains(item.rj)
 
-    // 播放页在 App 里是一个常驻功能板块（底部 Tab 之一），不再保留 web 端的「下滑收起」：
-    // 关闭 / 返回统一走底部「库」Tab 与系统返回键，页面本身不响应垂直拖动。
+    // 播放页是横向 Pager 的一页：翻页手势由 Pager 统一接管（跟手），
+    // 页面自身不再识别横滑，避免和 Pager 抢手势。
     Box(
         modifier = modifier
             .fillMaxSize()
@@ -185,7 +195,7 @@ fun FullscreenPlayer(
             }
 
             if (item != null) {
-                // ---- .fs-info：标题 / 文件名 / 社团 / 声优 / 类型 ----
+                // ---- .fs-info：标题 → 社团 → 系列 → 声优 → 类型（顺序固定）----
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -200,14 +210,6 @@ fun FullscreenPlayer(
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
-                    Text(
-                        item.file.filename.ifBlank { "—" },
-                        fontSize = 13.sp,
-                        color = WebColors.Muted,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-
                     if (work != null && work.circle.isNotBlank()) {
                         val circleFav = FavoritesState.circles.contains(work.circle)
                         Row(
@@ -246,6 +248,28 @@ fun FullscreenPlayer(
                                     color = accentFg,
                                 )
                             }
+                        }
+                    }
+
+                    // 系列：与社团同样一行，点击加入筛选（系列没有独立收藏，故不带 + 按钮）
+                    if (work != null && work.series.isNotBlank()) {
+                        Row(
+                            modifier = Modifier
+                                .clip(ChipShape)
+                                .clickable { applyFilter(onApplyCond, onClose, FilterCond("series", work.series)) }
+                                .padding(vertical = 2.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            Text("系列", fontSize = 14.sp, color = WebColors.Muted)
+                            Text(
+                                work.series,
+                                fontSize = 14.sp,
+                                color = WebColors.Text,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f, fill = false),
+                            )
                         }
                     }
 
@@ -304,7 +328,12 @@ fun FullscreenPlayer(
                             horizontalArrangement = Arrangement.spacedBy(22.dp),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
-                            IconTap(onClick = { scope.launch { FavoritesState.toggleWork(item.rj) } }) {
+                            IconTap(onClick = {
+                                scope.launch {
+                                    val nowFav = FavoritesState.toggleWork(item.rj)
+                                    AppToast.show(if (nowFav) "已收藏" else "已取消收藏")
+                                }
+                            }) {
                                 FavoriteStarIcon(
                                     favored = workFav,
                                     tint = if (workFav) accent else Color.White,
@@ -323,26 +352,39 @@ fun FullscreenPlayer(
                             horizontalArrangement = Arrangement.spacedBy(22.dp),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
-                            // 顺序（默认）→ 点击变随机
-                            IconTap(onClick = { PlaybackController.toggleShuffle() }) {
+                            // 随机：开 / 关，开启时变色并在底部提示
+                            IconTap(onClick = {
+                                PlaybackController.toggleShuffle()
+                                AppToast.show(
+                                    if (PlaybackController.state.value.shuffle) "随机播放已开启"
+                                    else "随机播放已关闭",
+                                )
+                            }) {
                                 ShuffleIcon(
                                     tint = if (state.shuffle) accent else Color.White,
                                     modifier = Modifier.size(24.dp),
                                 )
                             }
-                            // 循环：关闭 → 单曲循环 → 列表循环（单曲时在右下角标 1）
-                            IconTap(onClick = { PlaybackController.cycleRepeat() }) {
+                            // 循环只有两态：顺序播放 ↔ 单曲循环。
+                            // 切换不改颜色，只靠右下角有没有「1」区分单曲循环。
+                            IconTap(onClick = {
+                                PlaybackController.cycleRepeat()
+                                AppToast.show(
+                                    when (PlaybackController.state.value.repeat) {
+                                        RepeatMode.ONE -> "单曲循环"
+                                        RepeatMode.ALL -> "列表循环"
+                                        RepeatMode.OFF -> "顺序播放"
+                                    },
+                                )
+                            }) {
                                 Box {
-                                    RepeatIcon(
-                                        tint = if (state.repeat == RepeatMode.OFF) Color.White else accent,
-                                        modifier = Modifier.size(24.dp),
-                                    )
+                                    RepeatIcon(Color.White, Modifier.size(24.dp))
                                     if (state.repeat == RepeatMode.ONE) {
                                         Text(
                                             "1",
                                             fontSize = 9.sp,
                                             fontWeight = FontWeight.Bold,
-                                            color = accent,
+                                            color = Color.White,
                                             modifier = Modifier
                                                 .align(Alignment.BottomEnd)
                                                 .offset(x = 3.dp, y = 2.dp),
