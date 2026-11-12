@@ -101,7 +101,7 @@ fun RootScreen(
                         onBackToLibrary = { nav.replace(Route.Library) },
                         onOpenDrawer = { drawerOpen = true },
                     )
-                    is Route.Settings -> SettingsScreen()
+                    is Route.Settings -> SettingsScreen(onBack = { nav.backOrHome() })
                     is Route.ChangePassword -> ChangePasswordScreen(
                         firstLogin = false,
                         onChange = { old, new -> AppContainer.api.changePassword(old, new) },

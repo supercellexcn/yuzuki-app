@@ -9,7 +9,7 @@
 - `D:\node\yuzuki` 全程只读：不新增接口、不改 schema、不改配置、不改前端代码
 - 账号与网页端同源（同一 `users` 表、同一 JWT），收藏 / 历史 / 偏好互通
 - 播放走原生 Media3，支持锁屏 / 后台续播 / 通知栏换曲不消失
-- 首版交付 web 移动版全部功能（含完整设置页、图片查看器、离线缓存）
+- 首版交付 web 移动版全部功能（图片查看器、离线缓存等）；App 设置页只管本机缓存，服务端设置项由网页端承担
 - 界面采用 Material 3 风格：不透明容器、高对比文字，不使用模糊 / 半透明叠层 / 壁纸背景
 - 全工程不使用 WebView；所有框体一律圆角（`ui/theme/Radius.kt`）
 - 验证只用编译 / 单测 / 接口断言 / Logcat，不截图
@@ -18,12 +18,13 @@
 
 ```
 ui/          单 Activity + AppNav 返回栈 + RootScreen（底部 3 Tab / 顶栏 / 底部筛选面板 / 迷你条 / 全屏播放器）
-             LibraryScreen · WorkDetailScreen · CollectionsScreen · SettingsScreen · PlayerUI
+             LibraryScreen · WorkDetailScreen · CollectionsScreen · SettingsScreen（本机缓存管理）· PlayerUI
              LibraryListViewModel（库页数据 / 分页 / 滚动快照；两个 Lazy 滚动 state 由 RootScreen 持有）
 ui/theme/    Material 3 配色 + Surface 组件封装（Glass* 为兼容层）· GlassSpec 纯函数 · 圆角 / 动画令牌
 data/        Models（DTO + org.json 解析）· YuzukiApi（全量 REST）· AppContainer（服务定位）
              SettingsRepository · PrefsRepository · LibraryRepository（在线优先 + 离线兜底）
              OfflineCache（JSON 快照 / 封面 / 音频 / 播放记录补报队列）
+             CacheUsage（缓存分类统计 / 清理 / 格式化，纯 JVM 可测）
 playback/    PlaybackService（MediaSessionService，唯一持有 ExoPlayer 与 MediaSession）
              PlaybackController（MediaController 客户端 + StateFlow 投影）
              PlaybackAgent（元数据 / 封面 / 播放记录 / 断网重试）
@@ -131,7 +132,8 @@ ADB=.toolchain/sdk/platform-tools/adb.exe
    `192.168.*` / `10.*` / `172.16–31.*` / `127.0.0.1`；公网地址与域名一律拒绝。
 2. 用与网页端相同的账号登录；token 存于 Android Keystore 加密的 DataStore。
 3. 首次登录强制改密由**原生** `ChangePasswordScreen` 完成（不再依赖 web 端路由）。
-4. 底部 Tab 切换媒体库 / 收藏 / 播放历史；主页顶栏「筛选」打开排序与聚合筛选底部面板，「更多」进入设置 / 修改密码 / 服务地址 / 退出登录。
+4. 底部 Tab 切换媒体库 / 播放器 / 历史；侧栏抽屉进入设置 / 收藏管理 / 修改密码 / 服务地址 / 退出登录。
+   设置页只管理本机缓存：显示已使用缓存大小与分类明细，可二次确认后一键清除；不读写服务端设置。
 5. 作品详情用顶栏返回箭头或系统返回键退出；图片查看器打开时返回键先关闭查看器。
 
 ## 分阶段状态
@@ -144,7 +146,7 @@ ADB=.toolchain/sdk/platform-tools/adb.exe
 | N3 | 作品详情、文件树、图片查看器、设封面 / 壁纸、相关推荐 | ✅ |
 | N4 | 原生播放队列、迷你条 + 全屏播放器、PlayReporter 时长上报 | ✅ |
 | N5 | 锁屏 / 通知 / 线控、收藏 4 Tab、历史列表 / 卡片 | ✅ |
-| N6 | 完整设置页（全量读写、扫描 / 推荐、上传、危险操作） | ✅ |
+| N6 | 设置页（本机缓存用量与清除；web 式服务端设置项已移除） | ✅ |
 | N7 | 离线缓存（JSON 快照、音频下载、播放记录补报队列） | ✅ |
 | N8 | A1–A5 同源回归、真机锁屏 / 解码 / 上传断言 | ⏳ 需局域网服务与真机 |
 | N9 | 系统媒体控制对齐（MediaController 迁移、队列进 playlist、三态循环、封面磁盘缓存、断网退避重试） | ✅ 静态验证通过，真机回归待 N8 |
@@ -179,6 +181,18 @@ ADB=.toolchain/sdk/platform-tools/adb.exe
   `testDebugUnitTest` **45 例全过**；Release `0.1.5` 已装机（`versionName=0.1.5`、PID 22011）并发布
   `yuzuki-0.1.5-1111-2232.apk`。当前 `BUILD=6`，下次构建为 `0.1.6`。
 
+**本次增量验证（2026-11-12，设置页重写为缓存管理）**：
+
+- `assembleDebug` / `testDebugUnitTest` 通过，**53 例全过、0 失败 0 错误**
+  （新增 `CacheUsageTest` 8 例：空目录 / 目录缺失、分类统计与求和、单位格式化分档、嵌套文件、
+  清理归零与释放字节数、`pending_plays.json` 与 token 保留、目录骨架保留、重复清理幂等）。
+- 静态断言：`SettingsScreen` 中 `saveSettings` / `scanStatus` / `uploadImage` / `scanReset` /
+  `redownloadCovers` / `Slider` / `Switch` / `AppSettings` / `pendingImage` 全部零命中；
+  统计与清理只走 `CacheUsage.measure/clear`，顶栏返回统一经 `AppNav.backOrHome()`。
+- 缓存口径：`measure` 计入的文件 = `clear` 删除的文件（含 offline 的 JSON 快照 / 封面 / 音频、
+  `cacheDir` 的 `img_*` 与 `artwork/`），`pending_plays.json` 与 `filesDir` 其它数据保留，清完显示 0 B。
+- 未截图验证。
+
 **仍待验证**：A1–A5 接口同源断言、锁屏 metadata 与 `artworkData`、连续 `next()` 3 次通知不消失、
 息屏 5 分钟进度增长、蓝牙耳机按键、通知点击直达播放页、flac/mkv 解码、base64 图片上传返回码、
 断网离线回放与补报去重。
@@ -191,14 +205,14 @@ ADB=.toolchain/sdk/platform-tools/adb.exe
   不使用编译期 `network_security_config.xml`（无法按运行时 IP 通配）。
 - token 不进入日志、崩溃上报与外链 URL；日志脱敏 `token=***`。
 - 退出登录清 Keystore token、停播放服务；离线音频缓存默认保留。
-- 设置页 `PUT /api/settings` 是全局写入，会影响 PC 浏览器；清空媒体库等危险操作已加二次确认。
+- 设置页只统计 / 删除本机缓存目录，不再调用 `PUT /api/settings`，也不触发清空媒体库等服务端危险操作；清除缓存需二次确认。
 
 ## 已知限制
 
 - 仅家中 WiFi 可用；离开 WiFi 只能看离线缓存内容；明文 HTTP 的 token 在局域网可被嗅探。
 - 冷门格式（wma 等）需后续接入 `media3-decoder-ffmpeg`；flac/mkv/mp4/wav/m4a 由 Media3 默认解码器覆盖。
 - 界面采用 Material 3 风格：不再渲染液态玻璃 / 壁纸 / 模糊 / 半透明叠层；
-  服务端的外观设置（模糊、透明度、壁纸启停）仍可读写，但只影响网页端，设置页已注明。
+  服务端的外观设置（模糊、透明度、壁纸启停）由网页端管理，App 不提供入口，也不参与本机渲染。
 - 管理后台 `/admin` 未实现（web 移动端亦由路由守卫跳回媒体库）。
 - web 端后续新增功能不会自动同步到 App，两端独立发版。
 
@@ -206,3 +220,5 @@ ADB=.toolchain/sdk/platform-tools/adb.exe
 
 - 提交信息中文，格式 `feat: ...` / `fix: ...`；每阶段完成后立即提交，只提交本工程。
 - 验证使用 typecheck / 断言 / 接口返回码，不截图、不逐屏人工确认。
+- 每次改动完成后默认打 release 包并发布到 `//192.168.5.4/FileTemp`，不再逐次确认；
+  同步结果给出产物路径与哈希校验结论；共享不可达时只警告、不阻断构建。
