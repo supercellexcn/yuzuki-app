@@ -6,6 +6,8 @@ import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.core.animate
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
@@ -26,13 +28,11 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
-import androidx.compose.ui.input.nestedscroll.NestedScrollSource
-import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.unit.Velocity
+import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.yuzuki.app.data.AppContainer
 import com.yuzuki.app.data.FilterCond
@@ -156,48 +156,48 @@ fun RootScreen(
         }
     }
 
-    // 库页已在最左，Pager 消费不掉的横向溢出量交给侧栏，做到"手指拖多少侧栏出多少"。
-    // 必须放在 onPreScroll：Pager 在边界有 overscroll，放 onPostScroll 时拖动已被它吞掉，
-    // 表现为"库页往右拖侧栏出不来"。
-    val drawerNested = object : NestedScrollConnection {
-        override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
-            // ① 侧栏已拖出一部分时，左拖先收回侧栏，避免误翻页
-            if (drawerFraction > 0f && available.x < 0f) {
-                drawerFraction = (drawerFraction + available.x / drawerWidthPx).coerceIn(0f, 1f)
-                drawerOpen = drawerFraction > 0f
-                return Offset(available.x, 0f)
+    // 库页已在最左，向右拖时 Pager 没有上一页可翻，只会做边界回弹；
+    // 这里在 Initial 阶段"旁路观察"（不消费事件，不与 Pager 抢手势），
+    // 把右拖位移映射成侧栏位移。之前挂在 nestedScroll 的 onPreScroll/onPostScroll
+    // 在 Pager 边界都拿不到溢出量，所以侧栏一直拖不出来。
+    val drawerObserve = Modifier.pointerInput(pagerState, playState.fullscreen) {
+        val slop = 8.dp.toPx()
+        awaitEachGesture {
+            val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+            var lastX = down.position.x
+            var totalX = 0f
+            var dragging = false
+            while (true) {
+                val event = awaitPointerEvent(PointerEventPass.Initial)
+                val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                val dx = change.position.x - lastX
+                lastX = change.position.x
+                if (!change.pressed) break
+                if (!dragging) {
+                    totalX += dx
+                    if (totalX > slop && drawerFraction <= 0f && !playState.fullscreen &&
+                        pagerState.currentPage == LIBRARY_PAGE
+                    ) {
+                        dragging = true
+                    }
+                } else {
+                    drawerFraction = (drawerFraction + dx / drawerWidthPx).coerceIn(0f, 1f)
+                    drawerOpen = drawerFraction > 0f
+                }
             }
-            // ② 库页停在最左时的右拖：Pager 无处可滚，直接拉侧栏
-            val atLeftEdge = pagerState.currentPage == LIBRARY_PAGE &&
-                pagerState.currentPageOffsetFraction <= 0f
-            if (available.x > 0f && atLeftEdge && !playState.fullscreen && drawerFraction < 1f) {
-                drawerFraction = (drawerFraction + available.x / drawerWidthPx).coerceIn(0f, 1f)
-                drawerOpen = drawerFraction > 0f
-                return Offset(available.x, 0f)
-            }
-            return Offset.Zero
-        }
-
-        override suspend fun onPreFling(available: Velocity): Velocity {
-            if (drawerFraction > 0f && drawerFraction < 1f) {
-                val target = if (drawerFraction > 0.4f) 1f else 0f
-                animate(drawerFraction, target, animationSpec = tween(200)) { v, _ -> drawerFraction = v }
-                drawerOpen = target == 1f
-                return available
-            }
-            return Velocity.Zero
+            if (dragging) settleDrawer()
         }
     }
 
     Box(modifier = modifier.fillMaxSize()) {
         Column(modifier = Modifier.fillMaxSize()) {
-            Box(modifier = Modifier.weight(1f)) {
+            Box(modifier = Modifier.weight(1f).then(drawerObserve)) {
                 HorizontalPager(
                     state = pagerState,
                     // 邻页预组合，手指一拖内容就已经在那儿了
                     beyondViewportPageCount = 1,
                     userScrollEnabled = overlayRoute == null && !drawerOpen,
-                    modifier = Modifier.fillMaxSize().nestedScroll(drawerNested),
+                    modifier = Modifier.fillMaxSize(),
                 ) { page ->
                     // 每页必须裁到自己的边界：播放器背景是 blur(Unbounded)，不裁会糊出页外，
                     // 在库页 / 历史页右侧形成一条"播放器的遮罩"。
