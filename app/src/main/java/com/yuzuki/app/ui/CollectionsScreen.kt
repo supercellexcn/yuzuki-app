@@ -43,6 +43,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -269,47 +270,60 @@ fun HistoryScreen(
         WebTopBar(onOpenDrawer = onOpenDrawer)
 
         if (cardView) {
-            LazyVerticalStaggeredGrid(
-                columns = StaggeredGridCells.Fixed(2),
-                state = cardState,
-                contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 14.dp, bottom = 24.dp),
-                horizontalArrangement = Arrangement.spacedBy(16.dp),
-                verticalItemSpacing = 16.dp,
-                modifier = Modifier.weight(1f),
-            ) {
-                item(span = StaggeredGridItemSpan.FullLine, key = "back") {
-                    Box(modifier = Modifier.padding(bottom = 4.dp)) {
-                        WebBackButton(onClick = onBackToLibrary)
-                    }
-                }
-                item(span = StaggeredGridItemSpan.FullLine, key = "head") {
-                    HistoryHeader(total = total, cardView = true, onToggle = { setCard(false) })
-                }
-                if (records.isEmpty()) {
-                    item(span = StaggeredGridItemSpan.FullLine, key = "empty") {
-                        HistoryEmpty(loading, error)
-                    }
+            BoxWithConstraints(modifier = Modifier.weight(1f)) {
+                // 同库页：图片模式封面统一高度，避免两列 1px 列宽差在瀑布流里一路累积
+                val coverHeight = if (LibraryState.imageMode) {
+                    val density = LocalDensity.current
+                    val gapPx = with(density) { 16.dp.roundToPx() }
+                    val padPx = with(density) { 20.dp.roundToPx() }
+                    val cellPx = (constraints.maxWidth - padPx * 2 - gapPx) / 2
+                    with(density) { cellPx.toDp() }
                 } else {
-                    // 与库页一致：两列瀑布流，卡片高度各自自然
-                    staggeredItems(records, key = { "p${it.playId}" }) { record ->
-                        WorkCard(
-                            work = record.work,
-                            imageMode = LibraryState.imageMode,
-                            cardBg = cardBg,
-                            metaBg = metaBg,
-                            genreBg = genreBg,
-                            actorBg = actorBg,
-                            history = HistoryMeta(
-                                timeLabel = historyTime(record.playedAt, withClock = true),
-                                shortTimeLabel = historyTime(record.playedAt),
-                                durationLabel = historyDuration(record.durationSeconds),
-                            ),
-                            onOpen = { onOpenWork(record.work.rjCode) },
-                            modifier = Modifier.fillMaxWidth(),
-                        )
+                    null
+                }
+                LazyVerticalStaggeredGrid(
+                    columns = StaggeredGridCells.Fixed(2),
+                    state = cardState,
+                    contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 14.dp, bottom = 24.dp),
+                    horizontalArrangement = Arrangement.spacedBy(16.dp),
+                    verticalItemSpacing = 16.dp,
+                    modifier = Modifier.fillMaxSize(),
+                ) {
+                    item(span = StaggeredGridItemSpan.FullLine, key = "back") {
+                        Box(modifier = Modifier.padding(bottom = 4.dp)) {
+                            WebBackButton(onClick = onBackToLibrary)
+                        }
                     }
-                    item(span = StaggeredGridItemSpan.FullLine, key = "end") {
-                        HistoryEndTip(loading, hasMore, loaded)
+                    item(span = StaggeredGridItemSpan.FullLine, key = "head") {
+                        HistoryHeader(total = total, cardView = true, onToggle = { setCard(false) })
+                    }
+                    if (records.isEmpty()) {
+                        item(span = StaggeredGridItemSpan.FullLine, key = "empty") {
+                            HistoryEmpty(loading, error)
+                        }
+                    } else {
+                        // 与库页一致：两列瀑布流，卡片高度各自自然
+                        staggeredItems(records, key = { "p${it.playId}" }) { record ->
+                            WorkCard(
+                                work = record.work,
+                                imageMode = LibraryState.imageMode,
+                                cardBg = cardBg,
+                                metaBg = metaBg,
+                                genreBg = genreBg,
+                                actorBg = actorBg,
+                                history = HistoryMeta(
+                                    timeLabel = historyTime(record.playedAt, withClock = true),
+                                    shortTimeLabel = historyTime(record.playedAt),
+                                    durationLabel = historyDuration(record.durationSeconds),
+                                ),
+                                onOpen = { onOpenWork(record.work.rjCode) },
+                                modifier = Modifier.fillMaxWidth(),
+                                coverHeight = coverHeight,
+                            )
+                        }
+                        item(span = StaggeredGridItemSpan.FullLine, key = "end") {
+                            HistoryEndTip(loading, hasMore, loaded)
+                        }
                     }
                 }
             }

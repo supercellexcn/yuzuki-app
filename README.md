@@ -230,6 +230,24 @@ ADB=.toolchain/sdk/platform-tools/adb.exe
 - 已装到 BVL-AN16（无线调试配对端口 37101 → 连接端口 35727）：`versionName 0.1.9 → 0.1.10`、
   `versionCode 1010`，`am start` 后 PID 21892 存活、crash buffer 无 `FATAL`。真机标签观感由用户自测。
 
+**本次增量验证（2026-11-12，图片模式网格错位修复）**：
+
+- 现象：图片模式明明全是 1:1 封面，滚动后左右两列越往下越错开（"对不齐"）。
+- 根因（`uiautomator dump` 实测，未截图）：屏宽 1280px / density 476dpi(2.975) 下 `PAGE_PAD_H=20dp`
+  是 59.5px，网格左右两侧取整成 60/59，可用宽 1161px，扣掉 16dp(48px) 间距后 1113px **不能被 2 整除**；
+  `StaggeredGridCells.Fixed` 把余数 1px 补给了第一列 → 实测**左列卡片 557×557、右列 556×556**。
+  `LazyVerticalStaggeredGrid` 是两列各自累加 y（不是按行对齐），每张卡高度差 1px 就会一路累积，
+  二三十张后肉眼可见。Detail 模式本来卡片不等高（真瀑布流），所以从没暴露。
+- 修法：图片模式封面高度不再跟列宽走，由 `BoxWithConstraints` 按「可用宽 − 间距×(列数−1) ÷ 列数」
+  算出整数列宽并统一：
+  `WorkCard` 新增可选参数 `coverHeight: Dp?`，非空时封面用 `.height(coverHeight)` 取代 `.aspectRatio(1f)`；
+  `LibraryScreen` / `CollectionsScreen`（历史卡片视图）两处瀑布流各包一层 `BoxWithConstraints` 计算并传入，
+  仅在 `LibraryState.imageMode` 时生效。宽度仍差 1px（0.2%），肉眼仍是正方形。
+- 实测验证（`0.1.11`，BVL-AN16）：图片模式四行卡片 **y=353 / 957 / 1561 / 2165 完全一致**，
+  左 557×556、右 556×556，行距恒为 48px；切回 Detail 模式卡片高度仍为 1054 / 1053 / 1063（瀑布流自然高度，未受影响）。
+- `assembleRelease` 通过；`testDebugUnitTest` 78 例全过。Release `0.1.11` 已装机并发布共享：
+  `yuzuki-0.1.11-1112-1847.apk` + `yuzuki-latest.apk`，三方 sha256 一致 `15e12e56…1ced93`。
+
 **真机验证（2026-11-12，BVL-AN16 无线调试，端口 37169 配对 → 35727 连接）**：
 
 - `0.1.7` / `0.1.8` 均安装成功、启动后进程存活、Logcat 无 `FATAL` / `AndroidRuntime` 命中。

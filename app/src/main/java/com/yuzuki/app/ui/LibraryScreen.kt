@@ -53,6 +53,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -319,42 +320,57 @@ fun LibraryScreen(
                     }
                 }
             }
-            else -> LazyVerticalStaggeredGrid(
-                columns = StaggeredGridCells.Fixed(columns),
-                state = gridState,
-                contentPadding = PaddingValues(
-                    start = PAGE_PAD_H.dp,
-                    end = PAGE_PAD_H.dp,
-                    top = if (hasFilter) 12.dp else PAGE_PAD_TOP.dp,
-                    bottom = PAGE_PAD_BOTTOM.dp,
-                ),
-                horizontalArrangement = Arrangement.spacedBy(GRID_GAP.dp),
-                verticalItemSpacing = GRID_GAP.dp,
-                modifier = Modifier.weight(1f),
-            ) {
-                // 小红书式瀑布流：两列各自按卡片自然高度向下排，彼此互不影响
-                items(vm.items, key = { it.rjCode }) { work ->
-                    WorkCard(
-                        work = work,
-                        imageMode = LibraryState.imageMode,
-                        cardBg = cardBg,
-                        metaBg = metaBg,
-                        genreBg = genreBg,
-                        actorBg = actorBg,
-                        onOpen = { onOpenWork(work.rjCode) },
-                        modifier = Modifier.fillMaxWidth(),
-                        onCond = { cond -> LibraryState.addCond(cond) },
-                    )
+            else -> BoxWithConstraints(modifier = Modifier.weight(1f)) {
+                // 图片模式：卡片全是正方形，高度跟列宽走。但 Fixed 列宽会把除不尽的余数补给前几列
+                // （实测 1280px 屏左列 557 / 右列 556），而瀑布流两列各自累加 y，1px 落差会一路放大。
+                // 这里按整数列宽算一个统一封面高度，两列严格等高。
+                val coverHeight = if (LibraryState.imageMode) {
+                    val density = LocalDensity.current
+                    val gapPx = with(density) { GRID_GAP.dp.roundToPx() }
+                    val padPx = with(density) { PAGE_PAD_H.dp.roundToPx() }
+                    val cellPx = (constraints.maxWidth - padPx * 2 - gapPx * (columns - 1)) / columns
+                    with(density) { cellPx.toDp() }
+                } else {
+                    null
                 }
-                item(span = StaggeredGridItemSpan.FullLine, key = "footer") {
-                    LibraryFooter(
-                        loading = vm.loading,
-                        loadMoreError = vm.loadMoreError,
-                        endReached = vm.endReached,
-                        hasItems = vm.items.isNotEmpty(),
-                        hasFilter = hasFilter,
-                        onRetry = { vm.requestPage(reset = false, fingerprint = fingerprint) },
-                    )
+                LazyVerticalStaggeredGrid(
+                    columns = StaggeredGridCells.Fixed(columns),
+                    state = gridState,
+                    contentPadding = PaddingValues(
+                        start = PAGE_PAD_H.dp,
+                        end = PAGE_PAD_H.dp,
+                        top = if (hasFilter) 12.dp else PAGE_PAD_TOP.dp,
+                        bottom = PAGE_PAD_BOTTOM.dp,
+                    ),
+                    horizontalArrangement = Arrangement.spacedBy(GRID_GAP.dp),
+                    verticalItemSpacing = GRID_GAP.dp,
+                    modifier = Modifier.fillMaxSize(),
+                ) {
+                    // 小红书式瀑布流：两列各自按卡片自然高度向下排，彼此互不影响
+                    items(vm.items, key = { it.rjCode }) { work ->
+                        WorkCard(
+                            work = work,
+                            imageMode = LibraryState.imageMode,
+                            cardBg = cardBg,
+                            metaBg = metaBg,
+                            genreBg = genreBg,
+                            actorBg = actorBg,
+                            onOpen = { onOpenWork(work.rjCode) },
+                            modifier = Modifier.fillMaxWidth(),
+                            onCond = { cond -> LibraryState.addCond(cond) },
+                            coverHeight = coverHeight,
+                        )
+                    }
+                    item(span = StaggeredGridItemSpan.FullLine, key = "footer") {
+                        LibraryFooter(
+                            loading = vm.loading,
+                            loadMoreError = vm.loadMoreError,
+                            endReached = vm.endReached,
+                            hasItems = vm.items.isNotEmpty(),
+                            hasFilter = hasFilter,
+                            onRetry = { vm.requestPage(reset = false, fingerprint = fingerprint) },
+                        )
+                    }
                 }
             }
         }

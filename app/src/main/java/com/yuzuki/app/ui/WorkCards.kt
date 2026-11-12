@@ -75,6 +75,12 @@ fun WorkCard(
     modifier: Modifier = Modifier,
     history: HistoryMeta? = null,
     onCond: (FilterCond) -> Unit = {},
+    /**
+     * 封面固定高度（图片模式用）。`StaggeredGridCells.Fixed` 会把除不尽的余数补给前几列
+     * （实测 1280px 屏左列 557 / 右列 556），正方形卡片高度跟宽走就会每张差 1px，
+     * 而瀑布流两列各自累加 y，落差会一直往下累积。由调用方传入统一列宽即可对齐。
+     */
+    coverHeight: Dp? = null,
 ) {
     val scope = rememberCoroutineScope()
     val fav = FavoritesState.workRjs.contains(work.rjCode)
@@ -99,7 +105,10 @@ fun WorkCard(
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .aspectRatio(1f)
+                .then(
+                    if (coverHeight != null) Modifier.height(coverHeight)
+                    else Modifier.aspectRatio(1f),
+                )
                 .background(Color(0xFF0D0F12))
                 .clipToBounds(),
         ) {
