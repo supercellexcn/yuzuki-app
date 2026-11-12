@@ -25,10 +25,11 @@ data/        Models（DTO + org.json 解析）· YuzukiApi（全量 REST）· Ap
              SettingsRepository · PrefsRepository · LibraryRepository（在线优先 + 离线兜底）
              OfflineCache（JSON 快照 / 封面 / 音频 / 播放记录补报队列）
              CacheUsage（缓存分类统计 / 清理 / 格式化，纯 JVM 可测）
+             PlaybackSnapshot / PlaybackSnapshotFile / PlaybackStore（本机播放位置，纯 Kotlin 可测）
 playback/    PlaybackService（MediaSessionService，唯一持有 ExoPlayer 与 MediaSession）
-             PlaybackController（MediaController 客户端 + StateFlow 投影）
+             PlaybackController（MediaController 客户端 + StateFlow 投影 / 30s 快照 / 进播放页恢复）
              PlaybackAgent（元数据 / 封面 / 播放记录 / 断网重试）
-             PlayReporter（播放记录 / 时长 / 离线补报）· QueueMath · ArtworkLoader
+             PlayReporter（播放记录 / 时长 / 离线补报）· QueueMath · RestoreLogic · ArtworkLoader
 ```
 
 播放队列整体作为 ExoPlayer playlist 下发，上一曲 / 下一曲 / 自动切歌 / 单曲循环 / 列表循环
@@ -134,6 +135,7 @@ ADB=.toolchain/sdk/platform-tools/adb.exe
 3. 首次登录强制改密由**原生** `ChangePasswordScreen` 完成（不再依赖 web 端路由）。
 4. 底部 Tab 切换媒体库 / 播放器 / 历史；侧栏抽屉进入设置 / 收藏管理 / 修改密码 / 服务地址 / 退出登录。
    设置页只管理本机缓存：显示已使用缓存大小与分类明细，可二次确认后一键清除；不读写服务端设置。
+   播放页会还原上次播放的文件、整条播放列表与秒数（本机记录，不自动开播，点播放才续上）。
 5. 作品详情用顶栏返回箭头或系统返回键退出；图片查看器打开时返回键先关闭查看器。
 
 ## 分阶段状态
@@ -150,6 +152,7 @@ ADB=.toolchain/sdk/platform-tools/adb.exe
 | N7 | 离线缓存（JSON 快照、音频下载、播放记录补报队列） | ✅ |
 | N8 | A1–A5 同源回归、真机锁屏 / 解码 / 上传断言 | ⏳ 需局域网服务与真机 |
 | N9 | 系统媒体控制对齐（MediaController 迁移、队列进 playlist、三态循环、封面磁盘缓存、断网退避重试） | ✅ 静态验证通过，真机回归待 N8 |
+| N10 | 本机播放位置恢复（30s / 暂停落盘、进播放页还原曲目 + 列表 + 进度、不自动开播） | ✅ 编译 + 73 例单测通过，真机回归待 N8 |
 
 **已完成的验证（2026-11-10）**：
 
@@ -195,6 +198,24 @@ ADB=.toolchain/sdk/platform-tools/adb.exe
 - Release `0.1.6` 已通过无线调试装到 BVL-AN16（配对端口 38873 / 连接端口 37525）：
   `versionName 0.1.5 → 0.1.6`、`versionCode 1005 → 1006`，启动后进程存活、Logcat 无崩溃命中。
 
+**本次增量验证（2026-11-12，本机播放位置恢复）**：
+
+- 功能：播放中每 **30s** 记一次、点暂停再记一次，写入 `filesDir/playback/state.json`
+  （`rj / fileId / positionMs / durationMs / 可播放队列 / 标题 / 社团 / 声优 / 封面`），
+  **不写服务端任何接口、不新增 `/api/*`**。下次打开播放页还原上次曲目、整条播放列表与进度并滚到该文件，
+  **只还原 UI、不自动开播**；用户点播放 / 上一曲 / 下一曲时才用 `setMediaItems(items, index, startPositionMs)` 下发，
+  因此恢复动作本身不会触发 `POST /api/plays` 误报。
+- 后台续播 / 通知栏进来时服务里已有 playlist，`RestoreLogic.shouldRestore` 直接跳过，旧快照不覆盖正在播放的曲目；
+  controller 未连接时等 `connect()` 回调再判定，避免点通知时误判成冷启动。
+- 快照放 `filesDir/playback/`，**不在** `offline/` 与 `cacheDir` 内，设置页「清除缓存」不会删掉它，
+  `CacheUsage` 口径与其 8 例单测无需改动；退出登录（`stop()` / `disconnect()`）清快照。
+- `assembleDebug` / `testDebugUnitTest` 通过，**73 例全过、0 失败 0 错误**
+  （新增 `PlaybackSnapshotTest` 12 例：往返编解码、最小 Work、脏数据、进度夹紧、不可播放项过滤、文件读写 / 覆盖 / 清除 / 损坏；
+  `RestoreLogicTest` 8 例：冷启动恢复、未连接、已有队列、播放中、已有当前曲目、通知栏组合、下标夹紧、空队列）。
+- 静态断言：`PlaybackSnapshot.kt` / `PlaybackStore.kt` / `PlaybackController.kt` 中
+  `YuzukiApi` / `recordPlay` / `saveSettings` / `savePrefs` 零命中；`tryRestore()` 内无 `withController` / `setMediaItems`。
+- 未截图验证。
+
 **仍待验证**：A1–A5 接口同源断言、锁屏 metadata 与 `artworkData`、连续 `next()` 3 次通知不消失、
 息屏 5 分钟进度增长、蓝牙耳机按键、通知点击直达播放页、flac/mkv 解码、base64 图片上传返回码、
 断网离线回放与补报去重。
@@ -208,6 +229,7 @@ ADB=.toolchain/sdk/platform-tools/adb.exe
 - token 不进入日志、崩溃上报与外链 URL；日志脱敏 `token=***`。
 - 退出登录清 Keystore token、停播放服务；离线音频缓存默认保留。
 - 设置页只统计 / 删除本机缓存目录，不再调用 `PUT /api/settings`，也不触发清空媒体库等服务端危险操作；清除缓存需二次确认。
+- 本机播放位置只写 `filesDir/playback/state.json`：不调用任何服务端接口、不参与缓存统计与清除；退出登录时清掉。
 
 ## 已知限制
 

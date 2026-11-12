@@ -27,11 +27,13 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -106,6 +108,13 @@ fun FullscreenPlayer(
     var seekPreview by remember { mutableStateOf<Float?>(null) }
     var playlistVisible by remember { mutableStateOf(false) }
     var volumeVisible by remember { mutableStateOf(false) }
+    // 打开播放列表 / 切歌时滚到当前文件，冷启动恢复后也能直接看到上次那一首
+    val playlistState = rememberLazyListState()
+    LaunchedEffect(playlistVisible, state.queueIndex, state.queue.size) {
+        if (playlistVisible && state.queue.isNotEmpty()) {
+            playlistState.scrollToItem(state.queueIndex.coerceIn(0, state.queue.lastIndex))
+        }
+    }
 
     val work = item?.work
     val workFav = item != null && FavoritesState.workRjs.contains(item.rj)
@@ -502,7 +511,10 @@ fun FullscreenPlayer(
                     }
                 }
                 Box(Modifier.fillMaxWidth().height(1.dp).background(WebColors.Border))
-                LazyColumn(modifier = Modifier.fillMaxWidth().weight(1f).padding(horizontal = 8.dp, vertical = 6.dp)) {
+                LazyColumn(
+                    state = playlistState,
+                    modifier = Modifier.fillMaxWidth().weight(1f).padding(horizontal = 8.dp, vertical = 6.dp),
+                ) {
                     items(state.queue, key = { it.id }) { file ->
                         val playing = file.id == item.file.id
                         Row(
