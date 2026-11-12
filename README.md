@@ -226,8 +226,9 @@ ADB=.toolchain/sdk/platform-tools/adb.exe
   实际常能少换一行。字号仍为 11sp，未引入省略号截断。
 - `assembleRelease` 通过；`testDebugUnitTest` **78 例全过、0 失败 0 错误**。未截图验证。
 - Release `0.1.10` 已发布共享：`yuzuki-0.1.10-1112-1833.apk` + `yuzuki-latest.apk`，
-  sha256 `9f128bea…4ef0` 与本地 `app-release.apk` 一致；本轮手机无线调试未开启（`adb mdns` 无服务、
-  `adb devices` 为空），**尚未装机**，待设备上线后补装。
+  sha256 `9f128bea…4ef0` 与本地 `app-release.apk` 一致。
+- 已装到 BVL-AN16（无线调试配对端口 37101 → 连接端口 35727）：`versionName 0.1.9 → 0.1.10`、
+  `versionCode 1010`，`am start` 后 PID 21892 存活、crash buffer 无 `FATAL`。真机标签观感由用户自测。
 
 **真机验证（2026-11-12，BVL-AN16 无线调试，端口 37169 配对 → 35727 连接）**：
 
