@@ -239,7 +239,7 @@ fun FullscreenPlayer(
                                     .background(accent)
                                     .clickable {
                                         scope.launch {
-                                            FavoritesState.toggle("circle", work.circle)
+                                            FavoritesState.toggleWithToast("circle", work.circle)
                                         }
                                     },
                                 contentAlignment = Alignment.Center,
@@ -286,7 +286,7 @@ fun FullscreenPlayer(
                                     text = actor,
                                     background = actorBg,
                                     favored = FavoritesState.actors.contains(actor),
-                                    onToggleFav = { scope.launch { FavoritesState.toggle("actor", actor) } },
+                                    onToggleFav = { scope.launch { FavoritesState.toggleWithToast("actor", actor) } },
                                     onClick = { applyFilter(onApplyCond, onClose, FilterCond("actor", actor)) },
                                 )
                             }
@@ -305,7 +305,7 @@ fun FullscreenPlayer(
                                     favored = FavoritesState.tags.contains(tag.name),
                                     onToggleFav = {
                                         scope.launch {
-                                            FavoritesState.toggle("tag", tag.name, tag.category)
+                                            FavoritesState.toggleWithToast("tag", tag.name, tag.category)
                                         }
                                     },
                                     onClick = { applyFilter(onApplyCond, onClose, FilterCond("tag", tag.name)) },
@@ -332,10 +332,7 @@ fun FullscreenPlayer(
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
                             IconTap(onClick = {
-                                scope.launch {
-                                    val nowFav = FavoritesState.toggleWork(item.rj)
-                                    AppToast.show(if (nowFav) "已收藏" else "已取消收藏")
-                                }
+                                scope.launch { FavoritesState.toggleWorkWithToast(item.rj) }
                             }) {
                                 FavoriteStarIcon(
                                     favored = workFav,

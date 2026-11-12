@@ -142,17 +142,29 @@ object FavoritesState {
     }
 
     /** 切换作品收藏，返回切换后的状态（true = 已收藏），供提示条判断文案。 */
-    suspend fun toggleWork(rj: String): Boolean {
+    /** 返回操作后的收藏态；失败返回 null（状态未变，供 UI 提示失败）。 */
+    suspend fun toggleWork(rj: String): Boolean? {
         val has = workRjs.contains(rj)
         val result = if (has) AppContainer.api.removeFavorite("work", rj)
         else AppContainer.api.addFavorite("work", rj)
-        if (result.isSuccess) {
-            workRjs = if (has) workRjs - rj else workRjs + rj
-        }
+        if (!result.isSuccess) return null
+        workRjs = if (has) workRjs - rj else workRjs + rj
         return !has
     }
 
-    suspend fun toggle(type: String, value: String, extra: String = ""): Boolean {
+    /** 收藏切换 + App 内提示：所有收藏入口（卡片 / 详情 / 播放页）统一走这里，不会漏提示。 */
+    suspend fun toggleWorkWithToast(rj: String) {
+        AppToast.show(
+            when (toggleWork(rj)) {
+                null -> "操作失败，请检查网络"
+                true -> "已收藏"
+                false -> "已取消收藏"
+            },
+        )
+    }
+
+    /** 社团 / 声优 / 标签收藏切换；失败返回 null（状态未变）。 */
+    suspend fun toggle(type: String, value: String, extra: String = ""): Boolean? {
         val set = when (type) {
             "tag" -> tags
             "circle" -> circles
@@ -161,14 +173,29 @@ object FavoritesState {
         val has = set.contains(value)
         val result = if (has) AppContainer.api.removeFavorite(type, value)
         else AppContainer.api.addFavorite(type, value, extra)
-        if (result.isSuccess) {
-            val next = if (has) set - value else set + value
-            when (type) {
-                "tag" -> tags = next
-                "circle" -> circles = next
-                else -> actors = next
-            }
+        if (!result.isSuccess) return null
+        val next = if (has) set - value else set + value
+        when (type) {
+            "tag" -> tags = next
+            "circle" -> circles = next
+            else -> actors = next
         }
         return !has
+    }
+
+    /** 社团 / 声优 / 标签的收藏切换 + App 内提示。 */
+    suspend fun toggleWithToast(type: String, value: String, extra: String = "") {
+        val label = when (type) {
+            "circle" -> "社团"
+            "tag" -> "标签"
+            else -> "声优"
+        }
+        AppToast.show(
+            when (toggle(type, value, extra)) {
+                null -> "操作失败，请检查网络"
+                true -> "已收藏$label：$value"
+                false -> "已取消收藏$label：$value"
+            },
+        )
     }
 }

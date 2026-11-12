@@ -230,13 +230,13 @@ fun WorkDetailScreen(
                     panelBg = panelBg,
                     actorBg = actorBg,
                     genreBg = genreBg,
-                    onToggleWorkFav = { scope.launch { FavoritesState.toggleWork(rj) } },
+                    onToggleWorkFav = { scope.launch { FavoritesState.toggleWorkWithToast(rj) } },
                     onCond = { cond ->
                         LibraryState.addCond(cond)
                         onOpenLibrary()
                     },
                     onToggleFav = { type, value, extra ->
-                        scope.launch { FavoritesState.toggle(type, value, extra) }
+                        scope.launch { FavoritesState.toggleWithToast(type, value, extra) }
                     },
                 )
             }

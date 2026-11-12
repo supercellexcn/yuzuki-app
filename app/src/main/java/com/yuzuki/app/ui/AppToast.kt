@@ -5,6 +5,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
@@ -18,10 +19,13 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.zIndex
 import com.yuzuki.app.ui.theme.ShapePill
 import kotlinx.coroutines.delay
 
@@ -73,7 +77,13 @@ fun AppToastHost(
         if (AppToast.ticket == ticket) AppToast.hide()
     }
 
-    Box(modifier = modifier.fillMaxSize(), contentAlignment = Alignment.BottomCenter) {
+    Box(
+        modifier = modifier
+            .fillMaxSize()
+            // 显式抬到最上层：侧栏 / 播放器 / 覆盖层都在同一个 Box 里，靠组合顺序不可靠
+            .zIndex(100f),
+        contentAlignment = Alignment.BottomCenter,
+    ) {
         AnimatedVisibility(
             visible = visible,
             enter = fadeIn(tween(120)),
@@ -82,11 +92,18 @@ fun AppToastHost(
         ) {
             Box(
                 modifier = Modifier
+                    .shadow(10.dp, ShapePill, clip = false)
                     .clip(ShapePill)
-                    .background(Color(0xF01B1B23))
+                    .background(Color(0xF21B1B23))
+                    .border(1.dp, Color(0x33FFFFFF), ShapePill)
                     .padding(horizontal = 18.dp, vertical = 9.dp),
             ) {
-                Text(AppToast.text, fontSize = 13.sp, color = Color(0xFFF2F2F5))
+                Text(
+                    AppToast.text,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Medium,
+                    color = Color(0xFFF2F2F5),
+                )
             }
         }
     }

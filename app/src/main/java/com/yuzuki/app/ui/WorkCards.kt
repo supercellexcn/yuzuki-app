@@ -154,7 +154,7 @@ fun WorkCard(
                     .padding(6.dp)
                     .size(30.dp)
                     .clip(CircleShape)
-                    .clickable { scope.launch { FavoritesState.toggleWork(work.rjCode) } },
+                    .clickable { scope.launch { FavoritesState.toggleWorkWithToast(work.rjCode) } },
                 contentAlignment = Alignment.Center,
             ) {
                 FavoriteStarIcon(
@@ -424,7 +424,7 @@ fun WorkRow(
                         .size(20.dp)
                         .clip(CircleShape)
                         .background(Color(0xB3000000))
-                        .clickable { scope.launch { FavoritesState.toggleWork(work.rjCode) } },
+                        .clickable { scope.launch { FavoritesState.toggleWorkWithToast(work.rjCode) } },
                     contentAlignment = Alignment.Center,
                 ) {
                     FavoriteStarIcon(

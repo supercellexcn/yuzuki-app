@@ -151,7 +151,7 @@ fun FavoritesScreen(
                                     Text(value, style = MaterialTheme.typography.bodyMedium,
                                         modifier = Modifier.weight(1f))
                                     GlassPill(onClick = {
-                                        scope.launch { FavoritesState.toggle(type, value, extra); reload() }
+                                        scope.launch { FavoritesState.toggleWithToast(type, value, extra); reload() }
                                     }) {
                                         Text("移除", style = MaterialTheme.typography.labelSmall,
                                             modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp))
