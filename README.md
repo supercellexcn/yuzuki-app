@@ -233,6 +233,11 @@ ADB=.toolchain/sdk/platform-tools/adb.exe
   （单测 `进度到结尾按从头开始` 覆盖）。
 - 仍未验证：多任务划掉后恢复（真机本轮只覆盖覆盖安装冷启动）、通知栏进入不覆盖（`RestoreLogicTest` 已断言规则，
   真机未跑）。
+- **交互修复（真机反馈）**：冷启动 → 点播放时，进度条左侧已播放数字会先闪成 `0` 再跳回历史位置。
+  根因是 `startRestored()` 在 `setMediaItems` 前就解除了 `pendingStart`，prepare 完成前 250ms ticker 与
+  `onIsPlayingChanged` 都在抄 `currentPosition`（此时为 0）。改为新增 `awaitingStartPosition`：READY 且起始位置
+  生效前，进度一律沿用快照值；判定抽到 `RestoreLogic.shouldUsePlayerPosition`（含 3s 超时兜底，避免永久冻结），
+  并补 5 例断言（未就绪 / 就绪未生效 / 就绪已生效 / 快照为 0 / 超时兜底）。
 
 **仍待验证**：A1–A5 接口同源断言、锁屏 metadata 与 `artworkData`、连续 `next()` 3 次通知不消失、
 息屏 5 分钟进度增长、蓝牙耳机按键、通知点击直达播放页、flac/mkv 解码、base64 图片上传返回码、

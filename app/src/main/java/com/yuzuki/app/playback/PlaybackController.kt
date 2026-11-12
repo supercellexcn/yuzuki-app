@@ -5,6 +5,7 @@ import android.content.Context
 import android.net.Uri
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import androidx.core.content.ContextCompat
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
@@ -51,6 +52,14 @@ object PlaybackController {
     private var restoreRequested = false
     /** 已还原 UI 但还没把队列下发给 Media3；此时任何播放器回调都不得覆盖进度。 */
     private var pendingStart = false
+    /**
+     * 恢复态已把队列下发、但播放器还没 READY。
+     * 这段时间 c.currentPosition 仍是 0，若照抄进 state，进度条会先闪成 0 再跳回快照位置。
+     */
+    private var awaitingStartPosition = false
+    /** 恢复时要跳到的目标毫秒，用于判断播放器是否已经把起始位置吃进去。 */
+    private var startTargetMs = 0L
+    private var startRequestedAt = 0L
     private var lastSaveAt = 0L
 
     private const val SAVE_INTERVAL_MS = 30_000L
@@ -76,6 +85,9 @@ object PlaybackController {
         restoreConsumed = true
         pendingSnapshot = null
         pendingStart = false
+        // 这是用户自己新选的曲目，进度就是 0，不需要再保护快照位置
+        awaitingStartPosition = false
+        startTargetMs = 0L
         val state = _state.value
         if (state.current?.rj == rj && state.current.file.id == file.id) {
             toggle()
@@ -278,6 +290,29 @@ object PlaybackController {
     }
 
     /** 播放中每 30s 记一次；force=true 用于点暂停，立即记一次。 */
+    /**
+     * 读取「可以写进 UI 的播放位置」。
+     *
+     * 恢复态刚把队列下发时，Media3 还没 prepare 完，`currentPosition` 仍是 0；
+     * 直接照抄会让进度条左边的已播放数字先闪成 0 再跳回历史位置。
+     * 所以 READY 之前一律返回 null（调用方保留快照里的进度），
+     * READY 且位置已落到起始点后才交还控制权；3 秒兜底避免异常时永久冻结。
+     */
+    private fun trackablePosition(c: MediaController?): Long? {
+        if (c == null) return null
+        val position = c.currentPosition.coerceAtLeast(0)
+        if (!awaitingStartPosition) return position
+        val use = RestoreLogic.shouldUsePlayerPosition(
+            playerReady = c.playbackState == Player.STATE_READY,
+            playerPositionMs = position,
+            startTargetMs = startTargetMs,
+            elapsedMs = SystemClock.elapsedRealtime() - startRequestedAt,
+        )
+        if (!use) return null
+        awaitingStartPosition = false
+        return position
+    }
+
     private fun maybeSave(force: Boolean = false) {
         val state = _state.value
         val current = state.current ?: return
@@ -310,6 +345,10 @@ object PlaybackController {
         if (safe < 0) return
         val file = state.queue[safe]
         pendingStart = false
+        // 起点靠 setMediaItems 的 startPositionMs 生效；READY 之前进度仍以快照为准
+        awaitingStartPosition = true
+        startTargetMs = positionMs
+        startRequestedAt = SystemClock.elapsedRealtime()
         _state.value = state.copy(
             current = PlayItem(current.rj, file, currentWork),
             queueIndex = safe,
@@ -330,6 +369,8 @@ object PlaybackController {
         restoreConsumed = true
         restoreRequested = false
         pendingStart = false
+        awaitingStartPosition = false
+        startTargetMs = 0L
         lastSaveAt = 0L
     }
 
@@ -377,9 +418,9 @@ object PlaybackController {
             val before = _state.value
             _state.value = before.copy(
                 playing = isPlaying,
-                // 恢复态下服务里没有 MediaItem，别把快照进度冲成 0
+                // 恢复态 / 尚未 READY 时服务里的位置还不可信，别把快照进度冲成 0
                 positionMs = if (pendingStart) before.positionMs
-                else c?.currentPosition?.coerceAtLeast(0) ?: before.positionMs,
+                else trackablePosition(c) ?: before.positionMs,
             )
             // 暂停也必须立刻落盘：通知栏 / 锁屏 / 蓝牙 / 耳机键的暂停不经过 pause()，
             // 而暂停后 ticker 的非强制保存会因 playing=false 直接返回，不补这一步进度会滞后一整个节拍
@@ -426,8 +467,10 @@ object PlaybackController {
                 // 不能把 0 写回 state，否则进度条 ratio 会算成 0，点后面就 seek 到 0
                 val duration = c.duration.takeIf { it > 0 && it != C.TIME_UNSET }
                     ?: _state.value.durationMs
+                // trackablePosition 为 null 表示播放器还没 READY，进度继续用快照值，避免闪 0
+                val position = trackablePosition(c)
                 _state.value = _state.value.copy(
-                    positionMs = c.currentPosition.coerceAtLeast(0),
+                    positionMs = position ?: _state.value.positionMs,
                     durationMs = duration,
                 )
                 maybeSave()
@@ -444,7 +487,7 @@ object PlaybackController {
             ?: _state.value.durationMs
         _state.value = _state.value.copy(
             playing = c.isPlaying,
-            positionMs = c.currentPosition.coerceAtLeast(0),
+            positionMs = trackablePosition(c) ?: _state.value.positionMs,
             durationMs = duration,
             volume = c.volume,
             repeat = c.repeatMode.toRepeatMode(),
@@ -470,8 +513,10 @@ object PlaybackController {
         _state.value = state.copy(
             current = current,
             queueIndex = index,
-            positionMs = c.currentPosition.coerceAtLeast(0),
-            durationMs = c.duration.takeIf { it > 0 && it != C.TIME_UNSET } ?: 0L,
+            // 恢复起始位置还没生效前（READY 之前）仍用快照进度，别闪成 0
+            positionMs = trackablePosition(c) ?: state.positionMs,
+            // 时长同理：prepare 期间会短暂为 0，写回 0 会让进度条瞬间跳回开头
+            durationMs = c.duration.takeIf { it > 0 && it != C.TIME_UNSET } ?: state.durationMs,
         )
     }
 

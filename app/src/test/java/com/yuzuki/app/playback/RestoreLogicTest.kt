@@ -48,4 +48,57 @@ class RestoreLogicTest {
         assertEquals(-1, RestoreLogic.clampIndex(0, 0))
         assertEquals(-1, RestoreLogic.clampIndex(3, -1))
     }
+
+    // ---- 恢复后进度归属：READY 之前不许用播放器的 0 覆盖快照进度 ----
+
+    @Test
+    fun 恢复未就绪时进度仍以快照为准() {
+        assertFalse(
+            RestoreLogic.shouldUsePlayerPosition(
+                playerReady = false, playerPositionMs = 0L,
+                startTargetMs = 67_240L, elapsedMs = 200L,
+            ),
+        )
+    }
+
+    @Test
+    fun 就绪且已跳到目标位置后交还播放器() {
+        assertTrue(
+            RestoreLogic.shouldUsePlayerPosition(
+                playerReady = true, playerPositionMs = 67_240L,
+                startTargetMs = 67_240L, elapsedMs = 600L,
+            ),
+        )
+    }
+
+    @Test
+    fun 就绪但位置还没生效时继续等() {
+        // READY 但 currentPosition 仍是 0（起始位置还没应用），此时接管就会闪 0
+        assertFalse(
+            RestoreLogic.shouldUsePlayerPosition(
+                playerReady = true, playerPositionMs = 0L,
+                startTargetMs = 67_240L, elapsedMs = 800L,
+            ),
+        )
+    }
+
+    @Test
+    fun 快照进度为零时就绪即可接管() {
+        assertTrue(
+            RestoreLogic.shouldUsePlayerPosition(
+                playerReady = true, playerPositionMs = 0L,
+                startTargetMs = 0L, elapsedMs = 500L,
+            ),
+        )
+    }
+
+    @Test
+    fun 超时兜底避免进度永久冻结() {
+        assertTrue(
+            RestoreLogic.shouldUsePlayerPosition(
+                playerReady = false, playerPositionMs = 0L,
+                startTargetMs = 67_240L, elapsedMs = 3_500L,
+            ),
+        )
+    }
 }
