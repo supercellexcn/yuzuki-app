@@ -188,4 +188,43 @@ class NavLogicTest {
         assertFalse(PlayerNav.shouldSyncPager(fullscreen = true))
         assertTrue(PlayerNav.shouldSyncPager(fullscreen = false))
     }
+
+    @Test
+    fun `图片查看器横滑未过阈值回弹`() {
+        // 屏宽 1000，阈值 250：滑 200 且手速很慢 → 不翻页
+        assertEquals(ViewerSwipe.NONE, ViewerSwipe.decide(-200f, -100f, 1000f))
+        assertEquals(ViewerSwipe.NONE, ViewerSwipe.decide(200f, 100f, 1000f))
+        assertEquals(ViewerSwipe.NONE, ViewerSwipe.decide(0f, 0f, 1000f))
+    }
+
+    @Test
+    fun `图片查看器横向位移过阈值即翻页`() {
+        // 左滑超过 250 → 下一张；右滑超过 250 → 上一张（首尾循环在 neighbor 里处理）
+        assertEquals(ViewerSwipe.NEXT, ViewerSwipe.decide(-300f, 0f, 1000f))
+        assertEquals(ViewerSwipe.PREV, ViewerSwipe.decide(300f, 0f, 1000f))
+        // 正好等于阈值也算翻页，避免「刚好卡在边界」手感发钝
+        assertEquals(ViewerSwipe.NEXT, ViewerSwipe.decide(-250f, 0f, 1000f))
+    }
+
+    @Test
+    fun `图片查看器快速甩动即使位移小也翻页`() {
+        assertEquals(ViewerSwipe.NEXT, ViewerSwipe.decide(-80f, -1500f, 1000f))
+        assertEquals(ViewerSwipe.PREV, ViewerSwipe.decide(80f, 1500f, 1000f))
+        // 反向甩（速度与位移不同向）不能翻页，否则回弹时会被误判
+        assertEquals(ViewerSwipe.NONE, ViewerSwipe.decide(60f, -1500f, 1000f))
+        assertEquals(ViewerSwipe.NONE, ViewerSwipe.decide(-60f, 1500f, 1000f))
+    }
+
+    @Test
+    fun `图片查看器相邻下标首尾循环`() {
+        assertEquals(1, ViewerSwipe.neighbor(0, ViewerSwipe.NEXT, 5))
+        assertEquals(0, ViewerSwipe.neighbor(4, ViewerSwipe.NEXT, 5))
+        assertEquals(4, ViewerSwipe.neighbor(0, ViewerSwipe.PREV, 5))
+        assertEquals(3, ViewerSwipe.neighbor(4, ViewerSwipe.PREV, 5))
+        // 单张图没有邻居，也不该翻页；未知方向返回 null
+        assertEquals(null, ViewerSwipe.neighbor(0, ViewerSwipe.NEXT, 1))
+        assertEquals(null, ViewerSwipe.neighbor(0, ViewerSwipe.NONE, 5))
+        // 宽高为 0（首帧未测量）不做判定，避免除零式误翻
+        assertEquals(ViewerSwipe.NONE, ViewerSwipe.decide(-999f, -9999f, 0f))
+    }
 }

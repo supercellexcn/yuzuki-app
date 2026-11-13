@@ -56,6 +56,54 @@ object PlayerNav {
     fun shouldSyncPager(fullscreen: Boolean): Boolean = !fullscreen
 }
 
+/**
+ * 图片查看器横滑的「松手判定」：是完成翻页，还是弹簧回弹。
+ *
+ * 手感对齐系统横滑：位移过半自然翻页，打得快（速度够）即使位移小也翻页，
+ * 两者都不满足就回弹。纯数值逻辑，JVM 可直接断言。
+ */
+object ViewerSwipe {
+    /** 位移超过屏宽 25% 即视为用户已经划过一半，松手就完成翻页。 */
+    const val SLIDE_FRACTION = 0.25f
+
+    /** 快速甩动阈值（px/s）：位移不大但甩得够快也翻页。 */
+    const val FLING_VELOCITY = 900f
+
+    const val NONE = 0
+
+    /** 手指向左滑（offset 为负）→ 看下一张。 */
+    const val NEXT = 1
+    const val PREV = -1
+
+    /**
+     * @param offsetPx 松手瞬间的跟手位移（左负右正）
+     * @param velocity 松手瞬间的速度（px/s，左负右正）
+     * @param pagePx   一页宽度（屏宽），用于把相对阈值换成像素
+     */
+    fun decide(offsetPx: Float, velocity: Float, pagePx: Float): Int {
+        if (pagePx <= 0f) return NONE
+        val threshold = pagePx * SLIDE_FRACTION
+        when {
+            offsetPx <= -threshold -> return NEXT
+            offsetPx >= threshold -> return PREV
+        }
+        // 速度方向必须与已产生的位移同向，避免「反向甩」把回弹误判成翻页
+        return when {
+            velocity <= -FLING_VELOCITY && offsetPx <= 0f -> NEXT
+            velocity >= FLING_VELOCITY && offsetPx >= 0f -> PREV
+            else -> NONE
+        }
+    }
+
+    /** 首尾循环取相邻下标；单张图返回 null（不渲染邻居、也不翻页）。 */
+    fun neighbor(index: Int, dir: Int, count: Int): Int? = when {
+        count <= 1 -> null
+        dir > 0 -> (index + 1) % count
+        dir < 0 -> (index - 1 + count) % count
+        else -> null
+    }
+}
+
 object PagingLogic {
     /** 后端 /api/works 把 pageSize clamp 到 1..200，前端必须同步，否则 offset 会跳页漏数据。 */
     const val MAX_PAGE_SIZE = 200

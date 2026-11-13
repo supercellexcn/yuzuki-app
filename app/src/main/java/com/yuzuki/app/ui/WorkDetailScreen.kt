@@ -7,16 +7,24 @@ import android.util.Base64
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
-import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.draggable
+import androidx.compose.foundation.gestures.rememberDraggableState
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
@@ -44,7 +52,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -58,9 +65,11 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -81,7 +90,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import kotlin.math.abs
 import okhttp3.Request
 
 /*
@@ -102,6 +110,9 @@ private val CoverShape = RoundedCornerShape(10.dp)
 private val TagShape = RoundedCornerShape(8.dp)
 
 private fun MediaFile.dirOf(): String = relPath.substringBeforeLast('/', "")
+
+/** 全屏看图解码长边：卡片用 720，查看器提到 1440，比原图清晰又不会 OOM。 */
+private const val VIEWER_TARGET_PX = 1440
 
 private fun MediaFile.depth(): Int = (relPath.split('/').size - 1).coerceAtLeast(0)
 
@@ -802,8 +813,13 @@ private fun ImageViewer(
     var menuOpen by remember { mutableStateOf(false) }
     var hint by remember { mutableStateOf<String?>(null) }
     var downloading by remember { mutableStateOf(false) }
-    // 横滑累计位移：松手时超过屏宽 18% 才翻页，纵向抖动不会误触
-    var dragX by remember(safeIndex) { mutableFloatStateOf(0f) }
+
+    /** 把某张图按全屏档（1440）预先解码进内存缓存，翻页时首帧即出图，不黑闪。 */
+    fun warmUp(i: Int) {
+        scope.launch {
+            ImageCache.load(context, AppContainer.api.mediaUrl(rj, images[i].id), VIEWER_TARGET_PX)
+        }
+    }
 
     // Dialog 是独立窗口，根布局的 AppToast 会被它盖住，所以提示条自己画、1.8s 自动消失
     LaunchedEffect(hint) {
@@ -854,38 +870,86 @@ private fun ImageViewer(
         onDismissRequest = onClose,
         properties = DialogProperties(usePlatformDefaultWidth = false),
     ) {
-        Box(modifier = Modifier.fillMaxSize().background(Color(0xFF000000))) {
-            RemoteImage(
-                url = AppContainer.api.mediaUrl(rj, file.id),
+        BoxWithConstraints(modifier = Modifier.fillMaxSize().background(Color(0xFF000000))) {
+            val pagePx = with(LocalDensity.current) { maxWidth.toPx() }
+            // 跟手位移：拖动时整屏实时平移，相邻图从屏幕边缘补位；松手再吸附 / 回弹
+            val offsetX = remember(safeIndex) { Animatable(0f) }
+            // 正在靠近的相邻图（首尾循环取），位移回到 0 时清空
+            var incoming by remember(safeIndex) { mutableStateOf<Int?>(null) }
+
+            Box(
                 modifier = Modifier
                     .fillMaxSize()
                     .pointerInput(safeIndex, images.size) {
                         detectTapGestures(onLongPress = { menuOpen = true })
                     }
-                    .pointerInput(safeIndex, images.size) {
-                        if (images.size <= 1) return@pointerInput
-                        detectHorizontalDragGestures(
-                            onDragStart = { dragX = 0f },
-                            onHorizontalDrag = { _, amount -> dragX += amount },
-                            onDragCancel = { dragX = 0f },
-                            onDragEnd = {
-                                val moved = dragX
-                                dragX = 0f
-                                if (abs(moved) < size.width * 0.18f) return@detectHorizontalDragGestures
-                                // 首尾循环，与原来的「上一张 / 下一张」行为一致
-                                val next = if (moved < 0) {
-                                    (safeIndex + 1) % images.size
-                                } else {
-                                    (safeIndex - 1 + images.size) % images.size
+                    .draggable(
+                        orientation = Orientation.Horizontal,
+                        state = rememberDraggableState { delta ->
+                            scope.launch {
+                                offsetX.snapTo(offsetX.value + delta)
+                                val moved = offsetX.value
+                                val dir = when {
+                                    moved < -1f -> ViewerSwipe.NEXT
+                                    moved > 1f -> ViewerSwipe.PREV
+                                    else -> ViewerSwipe.NONE
                                 }
-                                onIndexChange(next)
+                                val target = ViewerSwipe.neighbor(safeIndex, dir, images.size)
+                                if (target != incoming) {
+                                    incoming = target
+                                    // 邻居提前进内存缓存，翻过去首帧即出图
+                                    if (target != null) warmUp(target)
+                                }
+                            }
+                        },
+                        onDragStopped = { velocity ->
+                            val decision = ViewerSwipe.decide(offsetX.value, velocity, pagePx)
+                            if (decision == ViewerSwipe.NONE) {
+                                // 没滑够：弹簧回原位，图片不换
+                                offsetX.animateTo(
+                                    targetValue = 0f,
+                                    animationSpec = spring(
+                                        dampingRatio = 0.85f,
+                                        stiffness = Spring.StiffnessMediumLow,
+                                    ),
+                                )
+                            } else {
+                                // 滑够：把整屏推出去（邻居正好补到正中），再提交下标
+                                offsetX.animateTo(
+                                    targetValue = if (decision == ViewerSwipe.NEXT) -pagePx else pagePx,
+                                    animationSpec = tween(220, easing = FastOutSlowInEasing),
+                                )
+                                incoming = null
+                                ViewerSwipe.neighbor(safeIndex, decision, images.size)
+                                    ?.let { onIndexChange(it) }
+                            }
+                        },
+                    ),
+            ) {
+                RemoteImage(
+                    url = AppContainer.api.mediaUrl(rj, file.id),
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .graphicsLayer { translationX = offsetX.value },
+                    contentScale = ContentScale.Fit,
+                    // 全屏看图：长边按 1440 解码（卡片用 720），比原图清晰又不会 OOM
+                    targetPx = VIEWER_TARGET_PX,
+                )
+                incoming?.let { i ->
+                    RemoteImage(
+                        url = AppContainer.api.mediaUrl(rj, images[i].id),
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .graphicsLayer {
+                                // 贴住当前图：左滑（负位移）时邻居停在右侧一屏处
+                                translationX = offsetX.value +
+                                    if (offsetX.value < 0f) pagePx else -pagePx
                             },
-                        )
-                    },
-                contentScale = ContentScale.Fit,
-                // 全屏看图：长边按 1440 解码（卡片用 720），比原图清晰又不会 OOM
-                targetPx = 1440,
-            )
+                        contentScale = ContentScale.Fit,
+                        targetPx = VIEWER_TARGET_PX,
+                    )
+                }
+            }
             // 顶栏：左 ✕ 关闭 / 中 文件大小 / 右 当前第几张·同目录总数 + ⋮
             Box(
                 modifier = Modifier
