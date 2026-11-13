@@ -1,12 +1,18 @@
 package com.yuzuki.app.ui
 
+import android.Manifest
+import android.content.pm.PackageManager
+import android.os.Build
 import android.util.Base64
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -20,8 +26,10 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -30,13 +38,13 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -52,14 +60,17 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import androidx.core.content.ContextCompat
 import com.yuzuki.app.data.AppContainer
 import com.yuzuki.app.data.FilterCond
+import com.yuzuki.app.data.ImageSave
 import com.yuzuki.app.data.MediaFile
 import com.yuzuki.app.data.Work
 import com.yuzuki.app.data.WorkDetail
@@ -67,8 +78,10 @@ import com.yuzuki.app.playback.PlaybackController
 import com.yuzuki.app.ui.theme.LocalAppearance
 import com.yuzuki.app.ui.theme.WebColors
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlin.math.abs
 import okhttp3.Request
 
 /*
@@ -92,11 +105,12 @@ private fun MediaFile.dirOf(): String = relPath.substringBeforeLast('/', "")
 
 private fun MediaFile.depth(): Int = (relPath.split('/').size - 1).coerceAtLeast(0)
 
-/** FileList.formatSize：B / KB / MB（1 位小数）。 */
+/** FileList.formatSize：B / KB / MB / GB（大图查看器也会用到，图片可能上百 MB）。 */
 private fun formatSize(n: Long): String = when {
     n < 1024 -> "$n B"
     n < 1024 * 1024 -> "%.1f KB".format(n / 1024.0)
-    else -> "%.1f MB".format(n / 1024.0 / 1024.0)
+    n < 1024L * 1024 * 1024 -> "%.1f MB".format(n / 1024.0 / 1024.0)
+    else -> "%.2f GB".format(n / 1024.0 / 1024.0 / 1024.0)
 }
 
 /** FileList.icon：文件类型 → 线性图标名。 */
@@ -309,8 +323,6 @@ fun WorkDetailScreen(
             rj = rj,
             onIndexChange = { viewerIndex = it },
             onClose = { viewerIndex = null },
-            onMessage = { message = it },
-            onReload = { scope.launch { reload() } },
         )
     }
 }
@@ -781,129 +793,190 @@ private fun ImageViewer(
     rj: String,
     onIndexChange: (Int) -> Unit,
     onClose: () -> Unit,
-    onMessage: (String) -> Unit,
-    onReload: () -> Unit,
 ) {
     val scope = rememberCoroutineScope()
-    val file = images[index.coerceIn(0, images.lastIndex)]
-    var menu by remember { mutableStateOf(false) }
+    val context = LocalContext.current
+    val safeIndex = index.coerceIn(0, images.lastIndex)
+    val file = images[safeIndex]
+
+    var menuOpen by remember { mutableStateOf(false) }
+    var hint by remember { mutableStateOf<String?>(null) }
+    var downloading by remember { mutableStateOf(false) }
+    // 横滑累计位移：松手时超过屏宽 18% 才翻页，纵向抖动不会误触
+    var dragX by remember(safeIndex) { mutableFloatStateOf(0f) }
+
+    // Dialog 是独立窗口，根布局的 AppToast 会被它盖住，所以提示条自己画、1.8s 自动消失
+    LaunchedEffect(hint) {
+        if (hint != null) {
+            delay(1800)
+            hint = null
+        }
+    }
+
+    fun downloadNow() {
+        if (downloading) return
+        downloading = true
+        scope.launch {
+            val result = ImageSave.downloadToGallery(
+                context = context,
+                url = AppContainer.api.mediaUrl(rj, file.id),
+                filename = file.filename,
+            )
+            downloading = false
+            hint = result.fold(
+                onSuccess = { "已保存到相册 Pictures/Yuzuki" },
+                onFailure = { "保存失败：${it.message ?: "未知错误"}" },
+            )
+        }
+    }
+
+    // Android 8/9 写公共 Pictures 目录需要存储权限；10+ 走 MediaStore 免权限
+    val permissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission(),
+    ) { granted ->
+        if (granted) downloadNow() else hint = "没有存储权限，无法保存"
+    }
+
+    fun requestDownload() {
+        menuOpen = false
+        val granted = ContextCompat.checkSelfPermission(
+            context,
+            Manifest.permission.WRITE_EXTERNAL_STORAGE,
+        ) == PackageManager.PERMISSION_GRANTED
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q && !granted) {
+            permissionLauncher.launch(Manifest.permission.WRITE_EXTERNAL_STORAGE)
+        } else {
+            downloadNow()
+        }
+    }
+
     Dialog(
         onDismissRequest = onClose,
         properties = DialogProperties(usePlatformDefaultWidth = false),
     ) {
-        Box(modifier = Modifier.fillMaxSize().background(Color(0xFF0D0F12))) {
+        Box(modifier = Modifier.fillMaxSize().background(Color(0xFF000000))) {
             RemoteImage(
                 url = AppContainer.api.mediaUrl(rj, file.id),
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(24.dp)
-                    .pointerInput(Unit) {
-                        detectTapGestures(onLongPress = { menu = true })
+                    .pointerInput(safeIndex, images.size) {
+                        detectTapGestures(onLongPress = { menuOpen = true })
+                    }
+                    .pointerInput(safeIndex, images.size) {
+                        if (images.size <= 1) return@pointerInput
+                        detectHorizontalDragGestures(
+                            onDragStart = { dragX = 0f },
+                            onHorizontalDrag = { _, amount -> dragX += amount },
+                            onDragCancel = { dragX = 0f },
+                            onDragEnd = {
+                                val moved = dragX
+                                dragX = 0f
+                                if (abs(moved) < size.width * 0.18f) return@detectHorizontalDragGestures
+                                // 首尾循环，与原来的「上一张 / 下一张」行为一致
+                                val next = if (moved < 0) {
+                                    (safeIndex + 1) % images.size
+                                } else {
+                                    (safeIndex - 1 + images.size) % images.size
+                                }
+                                onIndexChange(next)
+                            },
+                        )
                     },
                 contentScale = ContentScale.Fit,
+                // 全屏看图：长边按 1440 解码（卡片用 720），比原图清晰又不会 OOM
+                targetPx = 1440,
             )
-            Row(
-                modifier = Modifier.fillMaxWidth().align(Alignment.TopCenter).padding(16.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
+            // 顶栏：左 ✕ 关闭 / 中 文件大小 / 右 当前第几张·同目录总数 + ⋮
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .align(Alignment.TopCenter)
+                    .statusBarsPadding()
+                    .padding(horizontal = 8.dp, vertical = 6.dp),
             ) {
-                IconButton(onClick = onClose, modifier = Modifier.size(48.dp)) {
-                    BackArrowIcon(WebColors.Text, Modifier.size(22.dp))
+                ViewerIconButton(
+                    onClick = onClose,
+                    modifier = Modifier.align(Alignment.CenterStart),
+                ) {
+                    ClearIcon(Color.White, Modifier.size(20.dp))
                 }
-                Text("${index + 1}/${images.size}", fontSize = 15.sp, color = WebColors.Text)
-                Text(
-                    "操作",
-                    fontSize = 14.sp,
-                    color = WebColors.Text,
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(WebColors.control(0.7f))
-                        .clickable { menu = true }
-                        .padding(horizontal = 14.dp, vertical = 9.dp),
-                )
-            }
-            Row(
-                modifier = Modifier.fillMaxWidth().align(Alignment.BottomCenter).padding(16.dp),
-                horizontalArrangement = Arrangement.SpaceEvenly,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text(
-                    "上一张",
-                    fontSize = 14.sp,
-                    color = WebColors.Text,
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(WebColors.control(0.7f))
-                        .clickable { onIndexChange((index - 1 + images.size) % images.size) }
-                        .padding(horizontal = 14.dp, vertical = 9.dp),
-                )
-                Text("${index + 1} / ${images.size}", fontSize = 13.sp, color = WebColors.Muted)
-                Text(
-                    "下一张",
-                    fontSize = 14.sp,
-                    color = WebColors.Text,
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(WebColors.control(0.7f))
-                        .clickable { onIndexChange((index + 1) % images.size) }
-                        .padding(horizontal = 14.dp, vertical = 9.dp),
-                )
-            }
-            if (menu) {
-                Column(
+                // 参考图里的「原画表示」不放，中间只留当前图片文件大小
+                Box(
                     modifier = Modifier
                         .align(Alignment.Center)
-                        .clip(RoundedCornerShape(16.dp))
-                        .background(WebColors.panel(null, 1f))
-                        .border(1.dp, WebColors.Border, RoundedCornerShape(16.dp))
-                        .padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                        .clip(CircleShape)
+                        .background(ViewerPillBg)
+                        .padding(horizontal = 12.dp, vertical = 6.dp),
                 ) {
-                    Text("图片操作", fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = WebColors.Text)
-                    ViewerAction("设为作品封面") {
-                        menu = false
-                        scope.launch {
-                            AppContainer.api.setWorkCover(rj, file.id)
-                                .onSuccess { onMessage("封面已更新"); onReload() }
-                                .onFailure { onMessage("设置封面失败") }
+                    Text(formatSize(file.size), fontSize = 12.sp, color = ViewerText)
+                }
+                Row(
+                    modifier = Modifier.align(Alignment.CenterEnd),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(2.dp),
+                ) {
+                    Text(
+                        "${safeIndex + 1}/${images.size}",
+                        fontSize = 13.sp,
+                        color = ViewerText,
+                        modifier = Modifier
+                            .clip(CircleShape)
+                            .background(ViewerPillBg)
+                            .padding(horizontal = 10.dp, vertical = 5.dp),
+                    )
+                    Box {
+                        ViewerIconButton(onClick = { menuOpen = true }) {
+                            MoreVerticalIcon(Color.White, Modifier.size(18.dp))
+                        }
+                        DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                            DropdownMenuItem(
+                                text = { Text(if (downloading) "下载中…" else "下载图片") },
+                                enabled = !downloading,
+                                onClick = { requestDownload() },
+                            )
                         }
                     }
-                    ViewerAction("设为移动壁纸") {
-                        menu = false
-                        scope.launch {
-                            uploadWallpaper(rj, file, "mobile")
-                                .onSuccess { onMessage("移动壁纸已更新"); WallpaperState.bump() }
-                                .onFailure { onMessage("壁纸上传失败：${it.message}") }
-                        }
-                    }
-                    ViewerAction("设为桌面壁纸") {
-                        menu = false
-                        scope.launch {
-                            uploadWallpaper(rj, file, "desktop")
-                                .onSuccess { onMessage("桌面壁纸已更新") }
-                                .onFailure { onMessage("壁纸上传失败：${it.message}") }
-                        }
-                    }
-                    ViewerAction("取消") { menu = false }
+                }
+            }
+            hint?.let { text ->
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .navigationBarsPadding()
+                        .padding(bottom = 28.dp)
+                        .clip(CircleShape)
+                        .background(Color(0xE61B1B23))
+                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                ) {
+                    Text(text, fontSize = 13.sp, color = ViewerText)
                 }
             }
         }
     }
 }
 
+/** 查看器内的深色半透明胶囊底：亮图上也能保证图标与文字可读（项目禁用模糊 / 叠层遮罩）。 */
+private val ViewerPillBg = Color(0x66000000)
+
+/** 查看器文字色：与 App 其它深色面板一致的高对比白。 */
+private val ViewerText = Color(0xFFF2F2F5)
+
 @Composable
-private fun ViewerAction(text: String, onClick: () -> Unit) {
-    Text(
-        text,
-        fontSize = 14.sp,
-        color = WebColors.Text,
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(12.dp))
-            .background(WebColors.control(0.7f))
-            .clickable(onClick = onClick)
-            .padding(horizontal = 14.dp, vertical = 10.dp),
-    )
+private fun ViewerIconButton(
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    content: @Composable () -> Unit,
+) {
+    Box(
+        modifier = modifier
+            .size(40.dp)
+            .clip(CircleShape)
+            .background(ViewerPillBg)
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        content()
+    }
 }
 
 private suspend fun uploadWallpaper(rj: String, file: MediaFile, kind: String): Result<Unit> = withContext(Dispatchers.IO) {

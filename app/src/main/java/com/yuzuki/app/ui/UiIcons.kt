@@ -203,8 +203,20 @@ fun ClearIcon(tint: Color, modifier: Modifier = Modifier) {
     }
 }
 
-/** 收藏星标：未收藏为空心描边，已收藏为实心。 */
+/** 更多操作（⋮）：三个实心圆点，图片查看器顶栏用。 */
 @Composable
+fun MoreVerticalIcon(tint: Color, modifier: Modifier = Modifier) {
+    Canvas(modifier) {
+        val u = size.minDimension / VIEW
+        val cx = size.width / 2f
+        val cy = size.height / 2f
+        listOf(-6.5f, 0f, 6.5f).forEach { dy ->
+            drawCircle(tint, 1.8f * u, Offset(cx, cy + dy * u))
+        }
+    }
+}
+
+/** 收藏星标：未收藏为空心描边，已收藏为实心。 */@Composable
 fun FavoriteStarIcon(favored: Boolean, tint: Color, modifier: Modifier = Modifier) {
     Canvas(modifier) {
         val path = starPath(size)

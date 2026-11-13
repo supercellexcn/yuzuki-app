@@ -25,6 +25,7 @@ data/        Models（DTO + org.json 解析）· YuzukiApi（全量 REST）· Ap
              SettingsRepository · PrefsRepository · LibraryRepository（在线优先 + 离线兜底）
              OfflineCache（JSON 快照 / 封面 / 音频 / 播放记录补报队列）
              CacheUsage（缓存分类统计 / 清理 / 格式化，纯 JVM 可测）
+             ImageSave（图片下载落相册：MIME / 文件名清洗 / MediaStore 写入，纯逻辑可测）
              PlaybackSnapshot / PlaybackSnapshotFile / PlaybackStore（本机播放位置，纯 Kotlin 可测）
 playback/    PlaybackService（MediaSessionService，唯一持有 ExoPlayer 与 MediaSession）
              PlaybackController（MediaController 客户端 + StateFlow 投影 / 30s 快照 / 进播放页恢复）
@@ -148,6 +149,10 @@ ADB=.toolchain/sdk/platform-tools/adb.exe
    `FavoritesState.toggleWorkWithToast` / `toggleWithToast`，失败提示「操作失败，请检查网络」。
 6. 作品详情用顶栏返回箭头或系统返回键退出；图片查看器打开时返回键先关闭查看器。
    详情里点音视频文件「播放」会直接进全屏播放器（覆盖层自动收起），离开播放器回到库页。
+7. 图片查看器：顶栏左 ✕ 关闭、中间只显示当前图片文件大小、右边「当前第几张/同文件夹图片总数」+ ⋮，
+   图片区**左右滑动**切换同目录内的图片（首尾循环，位移过屏宽 18% 才翻页）；⋮ 菜单目前只有「下载图片」，
+   保存到系统相册 `Pictures/Yuzuki/`（Android 10+ 免权限，8/9 首次会申请存储权限）。
+   查看器内不再放「设为封面 / 设为壁纸」，这两个入口仍在文件列表长按菜单里。
 
 ## 分阶段状态
 
@@ -333,6 +338,29 @@ ADB=.toolchain/sdk/platform-tools/adb.exe
   `yuzuki-0.1.23-1113-1225.apk` + `yuzuki-latest.apk`，三方 sha256 一致 `5919fd5f…7c6e01c2`。
   无线调试：配对端口 40917（`pair` 报 protocol fault，旧凭据仍有效）→ mDNS 发现连接端口 43483。
 
+**本次增量验证（2026-11-13，图片查看器改版 · 分支 `feat/image-viewer`）**：
+
+- 布局按参考稿重排为「顶栏三件套 + 全屏图」：左 ✕ 关闭（40dp 半透明圆底）、
+  中「当前图片文件大小」（参考图的「原画表示」不显示，`formatSize` 顺带补到 GB 档）、
+  右「当前第几张/同文件夹图片总数」+ ⋮。所有顶栏元素自带半透明深色胶囊底，
+  亮图上也能读清（项目仍禁用 blur / 整屏叠层遮罩）。
+- 去掉原先的底栏「上一张 / 下一张」「N / M」与居中「操作」面板，改为**左右滑动**切换同一文件夹内的图片
+  （`detectHorizontalDragGestures`，位移 > 屏宽 18% 才翻页，首尾循环）；长按图片仍可叫出 ⋮ 菜单。
+- ⋮ 菜单目前只有「下载图片」：`data/ImageSave.kt` 取 `mediaUrl` 字节后写入相册 `Pictures/Yuzuki/`。
+  Android 10+ 走 MediaStore（`RELATIVE_PATH` + `IS_PENDING`，免权限）；8/9 走公共目录 + `MediaScannerConnection`，
+  需 `WRITE_EXTERNAL_STORAGE`（清单带 `maxSdkVersion="28"`，首用时运行时申请）。同名文件追加 ` (n)` 不覆盖。
+  结果用查看器自绘的底部提示条反馈（Dialog 是独立窗口，根布局的 `AppToast` 会被盖住）。
+- 查看器解码长边 720 → **1440**（全屏 720 明显发软，仍降采样避免 OOM）。
+- 查看器内的「设为作品封面 / 移动壁纸 / 桌面壁纸」已移除，这三项仍在**文件列表长按菜单**，功能不丢。
+- `assembleRelease` 通过；`testDebugUnitTest` **87 例全过、0 失败 0 错误**（新增 `ImageSaveTest` 7 例：
+  后缀 MIME、未知后缀兜底、路径/非法字符清洗、空名兜底、无扩展名补 jpg、相册目录约定）。
+- 静态断言：`上一张` / `下一张` / `ViewerAction` / `图片操作` 在 `WorkDetailScreen.kt` 仅剩注释一处；
+  `targetPx = 1440` / `MoreVerticalIcon(` / `requestDownload()` / `ImageSave.downloadToGallery` 均命中。
+- Release `0.1.24` 已发布共享 `yuzuki-0.1.24-1113-1248.apk` + `yuzuki-latest.apk`，
+  与本地 `app-release.apk` 三方 sha256 一致 `a8d0e2e2…11fc60e`。
+- **装机未完成**：`192.168.5.16:43483` 连接超时、`adb mdns services` 也不再广播
+  （无线调试需重新打开 / 亮屏），待设备恢复在线后 `adb connect` + `install -r` 即可，APK 已在共享目录。
+
 **仍待验证**：A1–A5 接口同源断言、锁屏 metadata 与 `artworkData`、连续 `next()` 3 次通知不消失、
 息屏 5 分钟进度增长、蓝牙耳机按键、通知点击直达播放页、flac/mkv 解码、base64 图片上传返回码、
 断网离线回放与补报去重。
@@ -347,6 +375,8 @@ ADB=.toolchain/sdk/platform-tools/adb.exe
 - 退出登录清 Keystore token、停播放服务；离线音频缓存默认保留。
 - 设置页只统计 / 删除本机缓存目录，不再调用 `PUT /api/settings`，也不触发清空媒体库等服务端危险操作；清除缓存需二次确认。
 - 本机播放位置只写 `filesDir/playback/state.json`：不调用任何服务端接口、不参与缓存统计与清除；退出登录时清掉。
+- 「下载图片」只把当前图片写入系统相册 `Pictures/Yuzuki/`（Android 10+ 免权限；8/9 的存储权限仅
+  `maxSdkVersion=28` 生效），不上传、不改服务端数据。
 
 ## 已知限制
 

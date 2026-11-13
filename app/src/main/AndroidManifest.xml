@@ -10,6 +10,10 @@
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
     <!-- Media3 ExoPlayer 默认持有唤醒锁（WAKE_MODE_LOCAL），缺这条会在播放瞬间抛 SecurityException -->
     <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <!-- 图片下载落相册：Android 10+ 走 MediaStore 免权限，只有 8/9 需要这条（运行时申请） -->
+    <uses-permission
+        android:name="android.permission.WRITE_EXTERNAL_STORAGE"
+        android:maxSdkVersion="28" />
 
     <application
         android:name=".YuzukiApp"
