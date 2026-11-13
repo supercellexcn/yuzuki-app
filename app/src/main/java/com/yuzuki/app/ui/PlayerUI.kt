@@ -213,6 +213,14 @@ fun FullscreenPlayer(
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
+                    // 当前播放的文件名：队列里换曲 / 冷启动恢复都要能一眼看出在放哪个文件
+                    Text(
+                        text = item.file.filename,
+                        fontSize = 12.sp,
+                        color = WebColors.Muted,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
                     if (work != null && work.circle.isNotBlank()) {
                         val circleFav = FavoritesState.circles.contains(work.circle)
                         Row(

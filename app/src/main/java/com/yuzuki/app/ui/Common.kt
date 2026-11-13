@@ -28,9 +28,11 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.produceState
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -155,9 +157,13 @@ fun RemoteImage(
     targetPx: Int = ImageCache.DEFAULT_TARGET_PX,
 ) {
     val context = LocalContext.current
-    val cached = remember(url, targetPx) { ImageCache.peek(url, targetPx) }
-    val bitmap by produceState<Bitmap?>(initialValue = cached, url, targetPx) {
-        if (value == null) value = ImageCache.load(context, url, targetPx)
+    // 不能用 produceState(initialValue = cached, url, targetPx)：它内部是 remember（无 key）的
+    // mutableStateOf，key 变化只重启 producer，不会把 value 复位成新的 initialValue；
+    // producer 里的 `if (value == null)` 读到的还是上一张非空位图，于是新封面被整个跳过加载
+    // （表现为播放器换了作品、详情页重设封面后，画面仍停在旧图）。这里显式按 url 复位。
+    var bitmap by remember(url, targetPx) { mutableStateOf(ImageCache.peek(url, targetPx)) }
+    LaunchedEffect(url, targetPx) {
+        if (bitmap == null) bitmap = ImageCache.load(context, url, targetPx)
     }
     Box(modifier = modifier.background(placeholder)) {
         if (bitmap != null) {

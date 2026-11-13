@@ -141,12 +141,13 @@ ADB=.toolchain/sdk/platform-tools/adb.exe
    详情 / 收藏 / 设置 / 改密是覆盖层，盖在 Pager 之上，此时不响应翻页；覆盖层自带不透明页面底色，
    不会透出下层的库页卡片或播放器模糊封面。
    设置页只管理本机缓存：显示已使用缓存大小与分类明细，可二次确认后一键清除；不读写服务端设置。
-   播放页信息区顺序固定为 标题 → 社团 → 系列 → 声优 → 类型标签；会还原上次播放的文件、整条播放列表与秒数
-   （本机记录，不自动开播，点播放才续上）。
+   播放页信息区顺序固定为 标题 → 当前文件名 → 社团 → 系列 → 声优 → 类型标签；会还原上次播放的文件、
+   整条播放列表与秒数（本机记录，不自动开播，点播放才续上）。
 5. 收藏（作品 / 社团 / 声优 / 标签）、随机播放、循环模式切换都会在底部 Tab 上方弹出 App 内轻提示
    （圆角胶囊，1s 后消失，连续触发只保留最新一条；不走系统 Toast）。收藏统一调用
    `FavoritesState.toggleWorkWithToast` / `toggleWithToast`，失败提示「操作失败，请检查网络」。
 6. 作品详情用顶栏返回箭头或系统返回键退出；图片查看器打开时返回键先关闭查看器。
+   详情里点音视频文件「播放」会直接进全屏播放器（覆盖层自动收起），离开播放器回到库页。
 
 ## 分阶段状态
 
@@ -308,6 +309,29 @@ ADB=.toolchain/sdk/platform-tools/adb.exe
   `onIsPlayingChanged` 都在抄 `currentPosition`（此时为 0）。改为新增 `awaitingStartPosition`：READY 且起始位置
   生效前，进度一律沿用快照值；判定抽到 `RestoreLogic.shouldUsePlayerPosition`（含 3s 超时兜底，避免永久冻结），
   并补 5 例断言（未就绪 / 就绪未生效 / 就绪已生效 / 快照为 0 / 超时兜底）。
+
+**本次增量验证（2026-11-13，播放器三个 BUG 修复）**：
+
+- **封面不换（冷启动最明显）**：`RemoteImage` 原本用
+  `produceState(initialValue = cached, url, targetPx)`，而 `produceState` 内部的 state 是 `remember`（无 key）的
+  `mutableStateOf` —— key 变化只重启 producer、**不会把 value 复位**，producer 里的 `if (value == null)`
+  读到的仍是上一张非空位图，于是新 url 被整个跳过加载。冷启动时 `syncFromController()` 会把服务里残留的
+  上一首投影进 state，播放器页作为邻页（`beyondViewportPageCount = 1`）已渲染旧封面，再点新作品播放就停在旧图。
+  改为 `remember(url, targetPx) { mutableStateOf(peek(...)) }` + `LaunchedEffect(url, targetPx)`：
+  url 一变立即复位、命中内存缓存则下一帧直接出图；同源修好「详情页设封面后 `&v=` 不刷新」。
+- **详情点文件不跳播放器**：`setFullscreen(true)` 只让 Pager 滚到播放器页，而详情是**画在 Pager 之上的覆盖层**，
+  仍盖在最上层。新增 `WorkDetailScreen(onOpenPlayer)`，由 `RootScreen.openPlayerFromOverlay()` 统一做
+  「置全屏 → 收起覆盖层（`nav.replace(Route.Library)`，与底部播放器 Tab 同语义）→ 翻到播放器页」；
+  「nav 变化 → Pager 归位」的 effect 加全屏守卫（`PlayerNav.shouldSyncPager`），否则「播放页点 (i) 进详情
+  再点文件」会被 nav 同步又拽回库页。返回语义：离开播放器回到**库页**（不回详情），与点 Tab 一致。
+- **播放器信息区补当前文件名**：标题下方一行 `item.file.filename`（12sp / Muted / 单行省略），
+  队列换曲与冷启动恢复都能一眼看出在放哪个文件（文件名在 `PlaybackSnapshot` 里本来就有落盘）。
+- `assembleRelease` 通过；`testDebugUnitTest` **80 例全过、0 失败 0 错误**（新增 `PlayerNav` 2 例：
+  详情点文件必须收起覆盖层、全屏时 nav 不同步 Pager）。静态断言：`import ...produceState` 与
+  `by produceState` 均零命中，`onOpenPlayer` / `item.file.filename` 命中。未截图验证。
+- Release `0.1.23` 已装机（`versionCode 1023`，`lastUpdateTime 2026-11-13 12:27`），并发布共享
+  `yuzuki-0.1.23-1113-1225.apk` + `yuzuki-latest.apk`，三方 sha256 一致 `5919fd5f…7c6e01c2`。
+  无线调试：配对端口 40917（`pair` 报 protocol fault，旧凭据仍有效）→ mDNS 发现连接端口 43483。
 
 **仍待验证**：A1–A5 接口同源断言、锁屏 metadata 与 `artworkData`、连续 `next()` 3 次通知不消失、
 息屏 5 分钟进度增长、蓝牙耳机按键、通知点击直达播放页、flac/mkv 解码、base64 图片上传返回码、

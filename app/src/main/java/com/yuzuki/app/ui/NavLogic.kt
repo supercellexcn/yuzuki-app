@@ -40,6 +40,22 @@ class NavStack<T>(initial: T) {
     val canBack: Boolean get() = stack.isNotEmpty()
 }
 
+/**
+ * 全屏播放器（Pager 第 1 页）与覆盖层（详情 / 收藏 / 设置 / 改密）的互斥规则。
+ *
+ * 背景：播放器只是 Pager 的一页，而详情等是画在 Pager 之上的覆盖层。
+ * 在详情里点文件播放时只 setFullscreen(true) 是不够的 —— 覆盖层仍然盖住播放器页，
+ * 界面看起来毫无反应；反过来，播放器展开期间任何 nav 变化都不能把 Pager 拽回别的板块，
+ * 否则「播放页 → 详情 → 点文件」会被 nav 同步再拉回库页。
+ */
+object PlayerNav {
+    /** 覆盖层还开着（当前不在库页）就必须先收起它，否则播放器页永远被盖住。 */
+    fun shouldCloseOverlay(currentIsLibrary: Boolean): Boolean = !currentIsLibrary
+
+    /** nav 变化 → Pager 归位：全屏播放器展开时跳过，避免与「进播放器」的翻页互相拉扯。 */
+    fun shouldSyncPager(fullscreen: Boolean): Boolean = !fullscreen
+}
+
 object PagingLogic {
     /** 后端 /api/works 把 pageSize clamp 到 1..200，前端必须同步，否则 offset 会跳页漏数据。 */
     const val MAX_PAGE_SIZE = 200

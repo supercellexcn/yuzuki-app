@@ -99,6 +99,16 @@ fun RootScreen(
         scope.launch { pagerState.animateScrollToPage(LIBRARY_PAGE) }
     }
 
+    /**
+     * 从覆盖层（详情）点文件播放：详情盖在 Pager 之上，只置全屏标志的话播放器页看不见，
+     * 所以先把覆盖层收起（与底部「播放器」Tab 的做法一致），再把 Pager 落到播放器页。
+     */
+    fun openPlayerFromOverlay() {
+        PlaybackController.setFullscreen(true)
+        if (PlayerNav.shouldCloseOverlay(nav.current is Route.Library)) nav.replace(Route.Library)
+        scope.launch { pagerState.animateScrollToPage(PLAYER_PAGE) }
+    }
+
     fun animateDrawer(target: Float) {
         scope.launch {
             animate(drawerFraction, target, animationSpec = tween(200)) { v, _ -> drawerFraction = v }
@@ -142,8 +152,11 @@ fun RootScreen(
         }
     }
 
-    // 代码改导航（返回键 / 侧栏跳转）时把 Pager 摆回对应板块
-    LaunchedEffect(nav.current) {
+    // 代码改导航（返回键 / 侧栏跳转）时把 Pager 摆回对应板块。
+    // 全屏播放器展开期间跳过：否则「详情里点文件播放」时这里会把刚翻到播放器页的 Pager 拽回库页
+    // （播放页点 (i) 进详情再点文件就会撞上，此时全屏标志本来就是 true，不会重新触发翻页）。
+    LaunchedEffect(nav.current, playState.fullscreen) {
+        if (!PlayerNav.shouldSyncPager(playState.fullscreen)) return@LaunchedEffect
         val target = when (nav.current) {
             is Route.Library -> LIBRARY_PAGE
             is Route.History -> HISTORY_PAGE
@@ -271,6 +284,7 @@ fun RootScreen(
                                 onOpenWork = { nav.go(Route.Work(it)) },
                                 onOpenLibrary = { nav.replace(Route.Library) },
                                 onOpenDrawer = { animateDrawer(1f) },
+                                onOpenPlayer = ::openPlayerFromOverlay,
                             )
                             is Route.Favorites -> FavoritesScreen(
                                 onOpenWork = { nav.go(Route.Work(it)) },

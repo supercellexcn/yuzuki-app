@@ -173,4 +173,19 @@ class NavLogicTest {
         assertEquals(0, ScrollRestore.clampIndex(80, 0))
         assertEquals(30, ScrollRestore.clampIndex(30, 50))
     }
+
+    @Test
+    fun `详情点文件播放必须先收起覆盖层`() {
+        // 覆盖层开着（详情 / 收藏 / 设置 / 改密）：不收起就会盖住 Pager 的播放器页
+        assertTrue(PlayerNav.shouldCloseOverlay(currentIsLibrary = false))
+        // 已经在库页：没有覆盖层可收，只翻页
+        assertFalse(PlayerNav.shouldCloseOverlay(currentIsLibrary = true))
+    }
+
+    @Test
+    fun `全屏播放器展开时 nav 不同步 Pager`() {
+        // 播放页点 (i) 进详情再点文件：nav 回到库页，但 Pager 必须留在播放器页
+        assertFalse(PlayerNav.shouldSyncPager(fullscreen = true))
+        assertTrue(PlayerNav.shouldSyncPager(fullscreen = false))
+    }
 }

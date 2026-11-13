@@ -121,6 +121,12 @@ fun WorkDetailScreen(
     onOpenWork: (String) -> Unit,
     onOpenLibrary: () -> Unit,
     onOpenDrawer: () -> Unit,
+    /**
+     * 点文件播放后进全屏播放器。详情是盖在 Pager 之上的覆盖层，
+     * 只调 PlaybackController.setFullscreen(true) 会被覆盖层挡住（看起来没反应），
+     * 所以由 RootScreen 负责「收起覆盖层 + 把 Pager 落到播放器页」。
+     */
+    onOpenPlayer: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val scope = rememberCoroutineScope()
@@ -261,7 +267,7 @@ fun WorkDetailScreen(
                     },
                     onOpenFile = { file ->
                         PlaybackController.play(rj, file, work, queue)
-                        PlaybackController.setFullscreen(true)
+                        onOpenPlayer()
                     },
                     onImageAction = { file, kind -> scope.launch { runImageAction(rj, file, kind, onCover = { coverVersion = System.currentTimeMillis() }, onMessage = { message = it }) } },
                 )
