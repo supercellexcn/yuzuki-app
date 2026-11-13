@@ -208,8 +208,16 @@ fun RootScreen(
                 sumX += dx
                 absYAcc += abs(dy)
                 if (!dragging) {
-                    if (sumX > startSlop && sumX > absYAcc * 1.5f && drawerFraction <= 0f &&
-                        !playState.fullscreen && pagerState.currentPage == LIBRARY_PAGE
+                    // 内层横向滚动容器（详情页「相关推荐」）按下时就已认领本轮手势，
+                    // 滚到最左端再右滑也不会把侧栏拉出来
+                    if (drawerFraction <= 0f && pagerState.currentPage == LIBRARY_PAGE &&
+                        DrawerDrag.canStart(
+                            sumX = sumX,
+                            absYAcc = absYAcc,
+                            startSlop = startSlop,
+                            innerClaimed = DrawerGate.claimedByInner,
+                            fullscreen = playState.fullscreen,
+                        )
                     ) {
                         dragging = true
                     }

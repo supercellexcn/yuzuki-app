@@ -149,6 +149,8 @@ ADB=.toolchain/sdk/platform-tools/adb.exe
    `FavoritesState.toggleWorkWithToast` / `toggleWithToast`，失败提示「操作失败，请检查网络」。
 6. 作品详情用顶栏返回箭头或系统返回键退出；图片查看器打开时返回键先关闭查看器。
    详情里点音视频文件「播放」会直接进全屏播放器（覆盖层自动收起），离开播放器回到库页。
+   详情页**空白处右滑仍会拉出侧栏**，但「相关推荐」这一横向滚动行按下即认领手势
+   （`Modifier.claimHorizontalGesture()`），在行内左右滑动（含滚到最左端再右滑）不会把侧栏拽出来。
 7. 图片查看器：顶栏左 ✕ 关闭、中间只显示当前图片文件大小、右边「当前第几张/同文件夹图片总数」+ ⋮，
    图片区**左右滑动**切换同目录内的图片：拖动时整屏跟手平移、相邻图从屏幕边缘补位，
    松手位移过屏宽 25% 或速度过 900px/s 就滑完翻页，否则弹簧回弹（首尾循环）；
@@ -366,6 +368,22 @@ ADB=.toolchain/sdk/platform-tools/adb.exe
   与本地 `app-release.apk` 三方 sha256 一致 `48a98bf1…10ac3d5`；装机 `versionCode=1025`、启动无崩溃。
 - 装机备注：设备同时存在 mDNS 与 IP 两个 adb 条目时报 `more than one device`，
   且 `-s` 必须写在 `install` 之前（`adb -s <serial> install -r`），写在后面会被当成「装到 SD 卡」而失败。
+
+**本次增量验证（2026-11-13，详情页相关推荐不再误开侧栏）**：
+
+- 现象：详情页「相关推荐」横向滚动行滚到最左端后再右滑，会把左侧抽屉拉出来。
+- 根因：`RootScreen` 的侧栏手势是 Pager 外层 `pointerInput` 的 **Initial pass 旁路观察**——
+  刻意不消费事件、也看不到子级是否消费。横向滚动行到边界后没人消费这段位移，
+  外层照样累计 `sumX` 并起手。
+- 修法：新增 `ui/DrawerGate.kt`
+  - `DrawerGate`：本轮手势是否已被横向容器认领（`@Volatile` 标记）。
+  - `Modifier.claimHorizontalGesture()`：`awaitEachGesture` + `awaitFirstDown(pass = Initial)`，
+    **按下那一帧**就认领（此时外层 `sumX` 还是 0，必定未起手），抬手/取消时 `finally` 释放。
+  - `DrawerDrag.canStart(...)`：把外层起手条件纯函数化并加 `innerClaimed` 守卫，JVM 可测。
+- 作用于「相关推荐」的 `Row`（唯一横向滚动容器）；详情页其它区域右滑仍照常拉侧栏，库页/历史页手感不变。
+- `testDebugUnitTest` **93 例全过**（新增 2 例：认领后不拉起、原起手条件保持）。
+- Release `0.1.26` 发布 `yuzuki-0.1.26-1113-1317.apk` + `yuzuki-latest.apk`，
+  与本地 `app-release.apk` 三方 sha256 一致 `e049dbf4…5391e0b`；装机 `versionCode=1026`、启动无崩溃。
 
 **仍待验证**：A1–A5 接口同源断言、锁屏 metadata 与 `artworkData`、连续 `next()` 3 次通知不消失、
 息屏 5 分钟进度增长、蓝牙耳机按键、通知点击直达播放页、flac/mkv 解码、base64 图片上传返回码、

@@ -734,7 +734,11 @@ private fun RecBlock(
         works.isEmpty() -> RecEmpty("暂无相关推荐，可在「设置」中开启或立即计算推荐。")
         else -> Row(
             // .rec: flex / gap 12 / overflow-x auto
-            modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+            // claimHorizontalGesture：本行左右滑动时不把 RootScreen 的侧栏手势扯出来
+            modifier = Modifier
+                .fillMaxWidth()
+                .horizontalScroll(rememberScrollState())
+                .claimHorizontalGesture(),
             horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             // 固定卡宽，高度各自自然（不强行等高，避免多留空白）

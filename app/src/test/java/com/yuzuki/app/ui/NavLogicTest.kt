@@ -227,4 +227,32 @@ class NavLogicTest {
         // 宽高为 0（首帧未测量）不做判定，避免除零式误翻
         assertEquals(ViewerSwipe.NONE, ViewerSwipe.decide(-999f, -9999f, 0f))
     }
+
+    @Test
+    fun `横向滚动容器认领后侧栏不拉起`() {
+        // 详情页「相关推荐」按下就认领：无论右移多远，都不能把侧栏拽出来
+        assertFalse(
+            DrawerDrag.canStart(
+                sumX = 400f,
+                absYAcc = 0f,
+                startSlop = 48f,
+                innerClaimed = true,
+                fullscreen = false,
+            ),
+        )
+    }
+
+    @Test
+    fun `侧栏起手判定保持原条件`() {
+        fun can(sumX: Float, absY: Float, slop: Float = 48f, fullscreen: Boolean = false) =
+            DrawerDrag.canStart(sumX, absY, slop, innerClaimed = false, fullscreen = fullscreen)
+
+        // 页面空白处右滑（未过门槛 / 已过门槛）
+        assertFalse(can(30f, 0f))
+        assertTrue(can(200f, 10f))
+        // 纵向为主：不拉起，避免滑列表时误触
+        assertFalse(can(100f, 200f))
+        // 全屏播放器展开时不允许拉侧栏
+        assertFalse(can(200f, 10f, fullscreen = true))
+    }
 }
