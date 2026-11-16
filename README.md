@@ -1,5 +1,8 @@
 # Yuzuki Android 客户端（全原生）
 
+远程仓库：<https://github.com/supercellexcn/yuzuki-app.git>（`main` 分支；LICENSE 为 Apache-2.0）。
+本地构建工具链（`.toolchain/`、`local.properties`）与 APK 不入库，克隆后按 `方案.md` 配置 JDK17 / Android SDK 即可构建。
+
 在 `D:\node\yuzuki` 现有服务**零改动**的前提下提供 Android 客户端：
 **单 Activity + Jetpack Compose 全原生 UI + 直连现有 `/api/*` + 原生 Media3 播放内核**，
 界面采用 **Material 3 风格**（不透明容器、高对比文字、全圆角）。WebView 与全部 JS 注入已彻底移除。完整实施规格与实现记录见 [方案.md](./方案.md)。
