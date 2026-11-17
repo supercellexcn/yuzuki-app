@@ -229,6 +229,10 @@ fun WorkCard(
                     if (work.salesCount != null) {
                         CardInfoRow("销量", "%,d".format(work.salesCount))
                     }
+                    // 播放次数：紧跟在销量下方独占一行；0 次不占位，免得整屏都是「播放 0」
+                    if (work.playCount > 0) {
+                        CardInfoRow("播放", "%,d".format(work.playCount))
+                    }
                 }
                 if (work.actors.isNotEmpty()) {
                     // 自算换行（Column+Row）代替 FlowRow：换行结果与真实宽度一致，
@@ -468,6 +472,19 @@ fun WorkRow(
                     if (work.salesCount != null) {
                         Text(
                             "销量 ${"%,d".format(work.salesCount)}",
+                            fontSize = 12.sp,
+                            lineHeight = 16.sp,
+                            color = WebColors.Muted,
+                            maxLines = 1,
+                        )
+                    }
+                    // 播放次数接在「社团 · 销量」之后的同一行：「· N」；
+                    // 前面两者都没显示时不带分隔点，避免行首出现孤零零的「·」
+                    if (work.playCount > 0) {
+                        val plays = "%,d".format(work.playCount)
+                        val sep = if (work.circle.isNotBlank() || work.salesCount != null) "· " else ""
+                        Text(
+                            "$sep$plays",
                             fontSize = 12.sp,
                             lineHeight = 16.sp,
                             color = WebColors.Muted,

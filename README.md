@@ -388,6 +388,21 @@ ADB=.toolchain/sdk/platform-tools/adb.exe
 - Release `0.1.26` 发布 `yuzuki-0.1.26-1113-1317.apk` + `yuzuki-latest.apk`，
   与本地 `app-release.apk` 三方 sha256 一致 `e049dbf4…5391e0b`；装机 `versionCode=1026`、启动无崩溃。
 
+**本次增量验证（2026-11-17，卡片 / 列表补播放次数 · 分支 `feat/card-play-count`）**：
+
+- 背景：`Work.playCount`（`play_count`）一直被解析但卡片从不展示，只有收藏管理页的行用到
+  （`CollectionsScreen` 的「播放 N 次」），首页 / 详情 / 列表卡片只显示 `salesCount`。
+- 改法（仅 `ui/WorkCards.kt` 两处，不动数据层、不新增字段）：
+  - `WorkCard` 详情模式信息区：在「销量」下方新增一行 `CardInfoRow("播放", "%,d".format(playCount))`，
+    与销量同字号（13sp）/同色（label muted、value 正文色）。
+  - `WorkRow` 列表行：在「社团 · 销量」之后同行追加 `· N`（12sp muted），
+    前面两项都没显示时省掉分隔点，避免行首出现孤零零的「·」。
+- 取舍：`playCount > 0` 才渲染，0 次不占位（否则整屏「播放 0」噪声且凭空撑高瀑布流卡片）；
+  图片模式（只有封面）与播放历史卡片不改。
+- `assembleDebug` / `assembleRelease` 通过；`testDebugUnitTest` **93 例全过、0 失败 0 错误**。未截图验证。
+- Release `0.1.27` 已发布共享：`yuzuki-0.1.27-1117-1923.apk` + `yuzuki-latest.apk`，
+  sha256 与本地 `app-release.apk` 三方一致 `3ddef123…878e71`；本次 `adb devices` 无设备，未装机，观感由用户自测。
+
 **仍待验证**：A1–A5 接口同源断言、锁屏 metadata 与 `artworkData`、连续 `next()` 3 次通知不消失、
 息屏 5 分钟进度增长、蓝牙耳机按键、通知点击直达播放页、flac/mkv 解码、base64 图片上传返回码、
 断网离线回放与补报去重。
