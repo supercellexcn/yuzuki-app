@@ -154,27 +154,43 @@ fun FunnelIcon(tint: Color, modifier: Modifier = Modifier) {
     }
 }
 
-/** 升降序切换：箭头 + 从长到短的横线（desc）/ 从短到长（asc）。 */
+/**
+ * 升降序切换（首页排序胶囊右侧）：左侧一枚完整箭头 + 右侧三条横线。
+ *
+ * 旧实现的问题：箭头只画了左撇，右半边误写成水平线段（`y` 没改成 15.5 / 8.5），
+ * 放大后是个「一撇加一横」的畸形箭头，所以看着奇怪。这里重画为左右对称的箭头，
+ * 横线统一左对齐、长度按 desc「上长下短」/ asc「上短下长」渐变，与参考图一致。
+ */
 @Composable
 fun SortOrderIcon(descending: Boolean, tint: Color, modifier: Modifier = Modifier) {
     Canvas(modifier) {
         val u = size.minDimension / VIEW
-        val stroke = 1.7f * u
+        // 24 视口里塞了 6 条线，16dp 下 1.7 会显得过细，这里略加粗到 1.9 与其它图标观感齐平
+        val stroke = 1.9f * u
+        fun seg(x1: Float, y1: Float, x2: Float, y2: Float) = drawLine(
+            color = tint,
+            start = Offset(x1 * u, y1 * u),
+            end = Offset(x2 * u, y2 * u),
+            strokeWidth = stroke,
+            cap = StrokeCap.Round,
+        )
+
+        // 箭头：竖杆 + 左右两撇等长（3.2 半宽 / 3.6 高），收在 24 视口内留 1.5 边距
+        val shaft = 6.6f
         if (descending) {
-            drawLine(tint, Offset(7f * u, 4f * u), Offset(7f * u, 19f * u), stroke, StrokeCap.Round)
-            drawLine(tint, Offset(3.5f * u, 15.5f * u), Offset(7f * u, 19f * u), stroke, StrokeCap.Round)
-            drawLine(tint, Offset(10.5f * u, 19f * u), Offset(7f * u, 19f * u), stroke, StrokeCap.Round)
-            drawLine(tint, Offset(12f * u, 5f * u), Offset(20.5f * u, 5f * u), stroke, StrokeCap.Round)
-            drawLine(tint, Offset(12f * u, 10f * u), Offset(17.5f * u, 10f * u), stroke, StrokeCap.Round)
-            drawLine(tint, Offset(12f * u, 15f * u), Offset(15f * u, 15f * u), stroke, StrokeCap.Round)
+            seg(shaft, 4.6f, shaft, 19.2f)
+            seg(shaft - 3.2f, 15.6f, shaft, 19.2f)
+            seg(shaft + 3.2f, 15.6f, shaft, 19.2f)
         } else {
-            drawLine(tint, Offset(7f * u, 20f * u), Offset(7f * u, 5f * u), stroke, StrokeCap.Round)
-            drawLine(tint, Offset(3.5f * u, 8.5f * u), Offset(7f * u, 5f * u), stroke, StrokeCap.Round)
-            drawLine(tint, Offset(10.5f * u, 5f * u), Offset(7f * u, 5f * u), stroke, StrokeCap.Round)
-            drawLine(tint, Offset(12f * u, 19f * u), Offset(20.5f * u, 19f * u), stroke, StrokeCap.Round)
-            drawLine(tint, Offset(12f * u, 14f * u), Offset(17.5f * u, 14f * u), stroke, StrokeCap.Round)
-            drawLine(tint, Offset(12f * u, 9f * u), Offset(15f * u, 9f * u), stroke, StrokeCap.Round)
+            seg(shaft, 19.4f, shaft, 4.8f)
+            seg(shaft - 3.2f, 8.4f, shaft, 4.8f)
+            seg(shaft + 3.2f, 8.4f, shaft, 4.8f)
         }
+
+        // 三条横线：左端对齐在 12.6，长度 8.4 / 5.6 / 2.8，行距 6.4 与箭头竖向居中对齐
+        val left = 12.6f
+        val lengths = if (descending) listOf(8.4f, 5.6f, 2.8f) else listOf(2.8f, 5.6f, 8.4f)
+        listOf(5.2f, 11.6f, 18f).forEachIndexed { i, y -> seg(left, y, left + lengths[i], y) }
     }
 }
 

@@ -495,7 +495,8 @@ private fun LibraryTopBar(
                         SortOrderIcon(
                             descending = LibraryState.order == "desc",
                             tint = WebColors.Text,
-                            modifier = Modifier.size(16.dp),
+                            // 26dp 的点击区里给到 18dp：箭头 + 三条线在小尺寸下才分得开
+                            modifier = Modifier.size(18.dp),
                         )
                     }
                 }

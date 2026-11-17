@@ -403,6 +403,19 @@ ADB=.toolchain/sdk/platform-tools/adb.exe
 - Release `0.1.27` 已发布共享：`yuzuki-0.1.27-1117-1923.apk` + `yuzuki-latest.apk`，
   sha256 与本地 `app-release.apk` 三方一致 `3ddef123…878e71`；本次 `adb devices` 无设备，未装机，观感由用户自测。
 
+**本次增量验证（2026-11-17，升降序图标重绘）**：
+
+- 现象：首页排序胶囊右侧的升降序图标「很奇怪」——不像箭头加横线。
+- 根因（`ui/UiIcons.kt` `SortOrderIcon`）：箭头只画了左撇，右半边误写成**水平线段**
+  （`Offset(10.5f, 19f) → (7f, 19f)`，`y` 没跟着改成 15.5；升序分支同理 8.5），
+  于是箭头呈「一撇一横」的畸形，右侧三条线又紧贴竖杆，整体读不出「排序」语义。
+- 重画：箭头改为**左右对称的两撇**（半宽 3.2 / 高 3.6，竖杆 x=6.6，desc 向下、asc 向上）；
+  三条横线统一左对齐 x=12.6，长度 8.4 / 5.6 / 2.8，desc 上长下短、asc 上短下长；
+  线宽 1.7→**1.9**，绘制尺寸 `LibraryScreen` 16→**18dp**（26dp 点击区内），小尺寸下线条才分得开。
+- `assembleDebug` / `assembleRelease` 通过。未截图验证，观感由用户自测。
+- Release `0.1.28` 已发布共享 `yuzuki-0.1.28-1117-1932.apk` + `yuzuki-latest.apk`，
+  三方 sha256 一致 `137a5170…961b20`；已装 `192.168.5.16:35225`（`versionCode=1028 / versionName=0.1.28`）。
+
 **仍待验证**：A1–A5 接口同源断言、锁屏 metadata 与 `artworkData`、连续 `next()` 3 次通知不消失、
 息屏 5 分钟进度增长、蓝牙耳机按键、通知点击直达播放页、flac/mkv 解码、base64 图片上传返回码、
 断网离线回放与补报去重。
