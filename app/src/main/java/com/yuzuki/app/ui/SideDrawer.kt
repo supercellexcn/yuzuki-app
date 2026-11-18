@@ -41,10 +41,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -63,36 +63,30 @@ import kotlin.math.roundToInt
 /**
  * 浮动圆控件的几何（纯数值，JVM 单测直接断言，不依赖 Compose 运行时）。
  *
- * 这里**没有侧栏面板**：滑动只是把一组圆控件浮到内容之上，
- * 圆按屏宽等分（4 列），整体随手指水平位移进出。
+ * 这里**没有侧栏面板**：滑动只是把一组圆控件浮到内容之上，整体随手指水平位移进出。
+ *
+ * 尺寸不走「按屏宽等分」——那样 360 屏上圆直径会到 71dp，铺满整行，看起来又大又散。
+ * 按市场主流做法（Material 3 FAB 56dp / 24dp 图标 / 16dp 间距，AssistiveTouch、
+ * Telegram、Google Photos 的浮动圆菜单都是这一套）固定成 56dp，整组居中。
  */
 internal object DrawerGeometry {
     /** 滑入 / 收起时手指位移换算成「全开」的基准宽度（占屏宽比例）。 */
     const val SWIPE_RATIO = 0.8f
-    /** 圆组左右内边距。 */
-    const val PAD_DP = 20f
-    /** 圆之间的水平间距。 */
-    const val GAP_DP = 12f
-    /** 圆直径上下限：太小点不准，太大在大屏上显得空。 */
-    const val MIN_CIRCLE_DP = 56f
-    const val MAX_CIRCLE_DP = 78f
+    /** 圆直径：M3 FAB 标准尺寸，全版本统一，不随屏宽变化。 */
+    const val CIRCLE_DP = 56f
+    /** 圆内图标占圆径的比例：56 × 0.43 ≈ 24dp，正是 Material 标准图标尺寸。 */
+    const val ICON_RATIO = 0.43f
+    /** 圆与圆之间的水平 / 垂直间距（Material 的 4dp 栅格：16dp）。 */
+    const val GAP_DP = 16f
 
     fun swipeDp(screenWidthDp: Float): Float = screenWidthDp.coerceAtLeast(240f) * SWIPE_RATIO
 
-    /** 一列圆的直径：屏宽扣掉左右内边距与列间距后按列数等分。 */
-    fun circleDp(
-        screenWidthDp: Float,
-        padDp: Float = PAD_DP,
+    /** 圆组的整体宽度（4 列 + 3 个间距），用于让各行左对齐并整体居中。 */
+    fun groupWidthDp(
+        circleDp: Float = CIRCLE_DP,
         gapDp: Float = GAP_DP,
         columns: Int = 4,
-    ): Float {
-        val usable = screenWidthDp - padDp * 2 - gapDp * (columns - 1)
-        return (usable / columns).coerceIn(MIN_CIRCLE_DP, MAX_CIRCLE_DP)
-    }
-
-    /** 圆组的整体宽度（4 列 + 3 个间距），用于让各行左对齐。 */
-    fun groupWidthDp(circleDp: Float, gapDp: Float = GAP_DP, columns: Int = 4): Float =
-        circleDp * columns + gapDp * (columns - 1)
+    ): Float = circleDp * columns + gapDp * (columns - 1)
 
     /**
      * 圆组顶部位置：以「拉出时手指按下的高度」为中心算起，上下各留 [marginPx]。
@@ -118,7 +112,7 @@ private val SIDE_FILTERS = listOf(
 
 /** 底部两个圆与底部导航栏之间留出的距离。 */
 private val BottomOrbGap = 18.dp
-private val OrbRowGap = 18.dp
+private val OrbRowGap = DrawerGeometry.GAP_DP.dp
 private val OrbGroupMargin = 12.dp
 
 /**
@@ -163,9 +157,9 @@ fun SideDrawer(
 
     val density = LocalDensity.current
     val swipePx = with(density) { swipeWidth.toPx() }
-    val screenWidthDp = LocalConfiguration.current.screenWidthDp.toFloat()
-    val circle = DrawerGeometry.circleDp(screenWidthDp).dp
-    val groupWidth = DrawerGeometry.groupWidthDp(circle.value).dp
+    // 成熟浮动圆菜单的固定尺寸：56dp 圆 / 24dp 图标 / 16dp 间距，整组居中
+    val circle = DrawerGeometry.CIRCLE_DP.dp
+    val groupWidth = DrawerGeometry.groupWidthDp().dp
     val gap = DrawerGeometry.GAP_DP.dp
     val groupHeight = circle * 2 + OrbRowGap
     // 底部两个圆占掉的竖向空间：登录圆 + 与导航栏的间距 + 导航栏本身
@@ -343,7 +337,8 @@ private fun Orb(
     icon: @Composable (Color, Modifier) -> Unit,
 ) {
     val tint = if (active) accent else WebColors.Text
-    Box(modifier = Modifier.size(size)) {
+    // 阴影让圆在压暗的内容上「浮」起来，和 M3 FAB 的层次一致（不涉及模糊 / 半透明容器）
+    Box(modifier = Modifier.size(size).shadow(elevation = 3.dp, shape = CircleShape)) {
         Box(
             modifier = Modifier
                 .fillMaxSize()
@@ -358,7 +353,7 @@ private fun Orb(
             contentAlignment = Alignment.Center,
         ) {
             // 没有文字了，图标直接落在圆心；0.46 让图形在圆里不显小、也不顶到边
-            icon(tint, Modifier.size(size * 0.46f))
+            icon(tint, Modifier.size(size * DrawerGeometry.ICON_RATIO))
         }
         if (badge > 0) {
             Box(
@@ -400,6 +395,7 @@ private fun AccountOrb(
         Box(
             modifier = Modifier
                 .size(size)
+                .shadow(elevation = 3.dp, shape = CircleShape)
                 .clip(CircleShape)
                 .background(accent)
                 .clickable { menuVisible = true },

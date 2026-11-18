@@ -5,9 +5,11 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * 浮动圆控件的纯几何：滑入基准宽度、4 个圆等分屏宽并限制直径、圆组宽度、
+ * 浮动圆控件的纯几何：滑入基准宽度、固定的 FAB 尺寸（56dp 圆 / 24dp 图标 / 16dp 间距）、
  * 以及圆组跟随起手高度并在上下边界被钳制。
- * 圆的实际绘制不参与单测，这里只钉住「多宽」「多大」「多高」这些数值规则。
+ *
+ * 这里刻意**不**按屏宽等分圆直径：早期版本那样做，360 屏上圆会到 71dp，整行铺满，显得又大又散；
+ * 现在对齐 Material 3 FAB 与主流浮动圆菜单的固定尺寸，规则由本测试钉住。
  */
 class DrawerGeometryTest {
 
@@ -21,26 +23,25 @@ class DrawerGeometryTest {
     }
 
     @Test
-    fun `4 个圆等分屏宽`() {
-        // 360 屏：扣左右 20 与 3 段 12 的间距 → (360 - 40 - 36) / 4
-        assertEquals(71f, DrawerGeometry.circleDp(360f), 0.01f)
-        // 320 屏
-        assertEquals(61f, DrawerGeometry.circleDp(320f), 0.01f)
-        // 大屏封顶，不能无限变大
-        assertEquals(DrawerGeometry.MAX_CIRCLE_DP, DrawerGeometry.circleDp(412f), 0.01f)
-        // 极窄屏保底，否则点不准
-        assertEquals(DrawerGeometry.MIN_CIRCLE_DP, DrawerGeometry.circleDp(240f), 0.01f)
+    fun `圆直径固定为 M3 FAB 尺寸且图标为标准 24dp`() {
+        assertEquals(56f, DrawerGeometry.CIRCLE_DP, 0.01f)
+        // 56 × 0.43 ≈ 24.1dp，正好是 Material 标准图标尺寸
+        val icon = DrawerGeometry.CIRCLE_DP * DrawerGeometry.ICON_RATIO
+        assertEquals(24.08f, icon, 0.01f)
+        // 间距走 4dp 栅格
+        assertEquals(0f, DrawerGeometry.GAP_DP % 4f, 0.01f)
     }
 
     @Test
-    fun `常规屏 4 个圆不会溢出屏宽`() {
-        val screen = 360f
-        val circle = DrawerGeometry.circleDp(screen)
-        val group = DrawerGeometry.groupWidthDp(circle)
-        assertEquals(4 * circle + 3 * 12f, group, 0.01f)
-        assertTrue(group + 2 * DrawerGeometry.PAD_DP <= screen + 0.01f)
-        // 圆直径必须容得下圆内的图标 + 小字
-        assertTrue(circle >= 56f)
+    fun `整组宽度居中且窄屏也放得下`() {
+        val group = DrawerGeometry.groupWidthDp()
+        // 4 × 56 + 3 × 16 = 272
+        assertEquals(272f, group, 0.01f)
+        // 最窄的常见屏（320dp）两侧仍各有 24dp 留白，不会贴边
+        assertTrue(group <= 320f - 2 * 24f)
+        // 竖排两行（4 筛选 + 1 收藏）的总高
+        val groupHeight = DrawerGeometry.CIRCLE_DP * 2 + DrawerGeometry.GAP_DP
+        assertEquals(128f, groupHeight, 0.01f)
     }
 
     @Test
