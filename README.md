@@ -518,7 +518,7 @@ ADB=.toolchain/sdk/platform-tools/adb.exe
 - 需求：App 端不记忆自己上次的搜索条件，也不带出 / 不覆盖网页端保存的搜索条件。
 - 根因：`/api/prefs` 是 App 与网页端**共用的一份**「搜索关键词 + 筛选 + 排序」。App 启动会恢复它
   （于是把网页上次的搜索词带进搜索框），改筛选 / 排序时又 `PUT` 覆盖它 —— 两个方向互相污染。
-- 改动（分支 `feat/no-search-prefs`）：
+- 改动（分支 `feat/no-search-prefs`，已于 2026-11-18 快进合并进 `main`）：
   - `ui/AppStates.kt`：`LibraryState` 删除 `restore()` / `persist()` / `persistAsync()`，
     `addCond` / `removeCond` / `clearConds` / `updateSort` / `toggleOrder` / `home` 去掉落盘调用
     → 关键词与条件只存内存，冷启动恒为「空关键词 + 无筛选 + added/desc」；
