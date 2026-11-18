@@ -118,9 +118,9 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
     private suspend fun enterMain(base: String, token: String) {
         AppContainer.bindSession(base, token)
-        // 先把「本地设置」拉回来再进主界面（最多等 1.5s）。
-        // 否则主界面首帧会用默认外观，等设置回来再刷新。
-        // 库页的搜索 / 筛选 / 排序不从这里恢复：它们只活在本次会话内存里，冷启动一律为空。
+        // 服务端设置只用于「每页数量 / 快进秒数 / 相关推荐开关」这类非配色项；
+        // 界面配色完全走本机 DataStore（AppearanceStore），不从这里覆盖。
+        // 库页的搜索 / 筛选 / 排序也不从这里恢复：它们只活在本次会话内存里，冷启动一律为空。
         withTimeoutOrNull(1500) {
             AppContainer.settings.load()
         }

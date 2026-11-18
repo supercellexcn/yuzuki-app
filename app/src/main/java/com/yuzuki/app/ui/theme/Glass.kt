@@ -12,7 +12,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.unit.dp
-import com.yuzuki.app.data.AppSettings
+import com.yuzuki.app.data.AppearancePrefs
 import kotlin.math.roundToInt
 
 /** 纯 Kotlin 外观计算，JVM 单测可直接断言（不依赖 Android/Compose）。 */
@@ -77,8 +77,9 @@ object GlassSpec {
 }
 
 /**
- * 服务端外观设置。配色公式与网页端 `useAppearance.ts` 完全一致：
- * 主题色、面板 / 控件 / 标签透明度都直接参与渲染，保证两端观感一致。
+ * App 本机外观。**只由本地 [AppearancePrefs] 构造**，不读服务端 `/api/settings`：
+ * 网页端改配色不会影响 App，App 改色也不会回写服务端（刻意保留 web 的配色公式，
+ * 让两端观感仍然一致，只是数据来源分开）。
  */
 data class Appearance(
     /** 处理后的强调色（原色对比度不足时已按 WCAG 提亮）。 */
@@ -94,34 +95,22 @@ data class Appearance(
     val controlAlpha: Float = 0.7f,
     val panelBlur: Float = 0f,
     val tagBlur: Float = 0f,
-    val wallpaperBlur: Float = 0f,
-    val wallpaperEnabled: Boolean = true,
-    val wallpaperVersion: Long = 0L,
-    val animationMs: Int = 250,
-    val cardSize: String = "medium",
-    val cardWidth: Int = 180,
 ) {
     companion object {
-        fun from(s: AppSettings): Appearance {
-            val nav = s.themeColorNav.takeIf { it.isNotBlank() } ?: "#A78BFA"
+        fun from(prefs: AppearancePrefs): Appearance {
+            val p = prefs.sanitized()
             return Appearance(
                 // 与 web 的 readableAccent 一致：够亮就保持原色，不够才提亮
-                themeColor = WebColors.toHex(WebColors.accent(nav)),
-                navColor = nav,
-                actorColor = s.themeColorActor.takeIf { it.isNotBlank() } ?: "#7BC86C",
-                tagColor = s.themeColorTag.takeIf { it.isNotBlank() } ?: "#F2A65A",
-                actorTagAlpha = GlassSpec.alpha(s.actorTagOpacity),
-                genreTagAlpha = GlassSpec.alpha(s.genreTagOpacity),
-                panelAlpha = GlassSpec.alpha(s.panelOpacity),
-                filelistAlpha = GlassSpec.alpha(s.filelistOpacity),
-                controlAlpha = GlassSpec.alpha(s.controlOpacity),
-                panelBlur = GlassSpec.blurDp(s.panelBlur),
-                tagBlur = GlassSpec.blurDp(s.tagBlur),
-                wallpaperBlur = GlassSpec.blurDp(s.wallpaperBlur),
-                wallpaperEnabled = s.wallpaperMobileEnabled,
-                animationMs = GlassSpec.animationMs(s.animationDuration),
-                cardSize = s.cardSize,
-                cardWidth = s.cardWidth,
+                themeColor = WebColors.toHex(WebColors.accent(p.navColor)),
+                navColor = p.navColor,
+                actorColor = p.actorColor,
+                tagColor = p.tagColor,
+                actorTagAlpha = p.actorTagOpacity / 100f,
+                genreTagAlpha = p.genreTagOpacity / 100f,
+                panelAlpha = p.panelOpacity / 100f,
+                // 文件列表沿用面板透明度，不再单独占一个设置项
+                filelistAlpha = p.panelOpacity / 100f,
+                controlAlpha = p.controlOpacity / 100f,
             )
         }
 

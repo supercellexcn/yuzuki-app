@@ -21,8 +21,9 @@ class MainActivity : ComponentActivity() {
         PlaybackController.warmUp()
         handleIntent(intent)
         setContent {
-            val settings by AppContainer.settings.state.collectAsState()
-            YuzukiTheme(appearance = Appearance.from(settings)) {
+            // 外观只吃本机 DataStore：网页端 /api/settings 的主题色不再影响 App
+            val prefs by AppContainer.appearance.state.collectAsState()
+            YuzukiTheme(appearance = Appearance.from(prefs)) {
                 AppRoot()
             }
         }

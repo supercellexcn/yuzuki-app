@@ -14,7 +14,8 @@
   **库页的搜索 / 筛选 / 排序不互通、也不记忆**：只活在本次会话内存里，App 不读写服务端 `/api/prefs`，
   既不记住自己上次的条件，也不会带出或覆盖网页端的搜索条件
 - 播放走原生 Media3，支持锁屏 / 后台续播 / 通知栏换曲不消失
-- 首版交付 web 移动版全部功能（图片查看器、离线缓存等）；App 设置页只管本机缓存，服务端设置项由网页端承担
+- 首版交付 web 移动版全部功能（图片查看器、离线缓存等）；App 设置页负责「外观 + 本机缓存」，
+  **界面配色只读本机 DataStore，不读服务端 `/api/settings`**：网页端改主题色不影响 App，App 改色也不回写网页端
 - 界面采用 Material 3 风格：不透明容器、高对比文字，不使用模糊 / 半透明叠层 / 壁纸背景
   （底部导航栏 2026-11-18 曾改为亚克力毛玻璃，实测无法稳定取样，已回退为纯黑，见「交互改版」）
 - 全工程不使用 WebView；所有框体一律圆角（`ui/theme/Radius.kt`）
@@ -24,12 +25,13 @@
 
 ```
 ui/          单 Activity + AppNav 返回栈 + RootScreen（Column：内容 weight + 底部 3 Tab 在下面）
-             LibraryScreen · WorkDetailScreen · CollectionsScreen · SettingsScreen（本机缓存管理）· PlayerUI
+             LibraryScreen · WorkDetailScreen · CollectionsScreen · SettingsScreen（外观 + 本机缓存）· PlayerUI
              LibraryListViewModel（库页数据 / 分页 / 滚动快照；两个 Lazy 滚动 state 由 RootScreen 持有）
              FeedPull（信息流顶部下拉手势 + 纯判定）
 ui/theme/    Material 3 配色 + Surface 组件封装（Glass* 为兼容层）· GlassSpec 纯函数 · 圆角 / 动画令牌
 data/        Models（DTO + org.json 解析）· YuzukiApi（全量 REST）· AppContainer（服务定位）
              SettingsRepository · LibraryRepository（在线优先 + 离线兜底）
+             AppearancePrefs / AppearanceStore（App 本机外观，DataStore `app_appearance`）
              OfflineCache（JSON 快照 / 封面 / 音频 / 播放记录补报队列）
              CacheUsage（缓存分类统计 / 清理 / 格式化，纯 JVM 可测）
              ImageSave（图片下载落相册：MIME / 文件名清洗 / MediaStore 写入，纯逻辑可测）
@@ -151,7 +153,9 @@ ADB=.toolchain/sdk/platform-tools/adb.exe
    松手吸附门槛按方向区分：展开需过 40%，收起只需过 22%（≈57dp），不用一路滑到底。
    详情 / 收藏 / 设置 / 改密是覆盖层，盖在 Pager 之上，此时不响应翻页；覆盖层自带不透明页面底色，
    不会透出下层的库页卡片或播放器模糊封面。
-   设置页只管理本机缓存：显示已使用缓存大小与分类明细，可二次确认后一键清除；不读写服务端设置。
+   设置页分两块：**外观**（主题色 / 声优标签色 / 类型标签色 + 面板、控件、两类标签的不透明度，
+   预设色板 + 自定义 `#RRGGBB`，改完即时生效并只存本机 DataStore，带「恢复默认外观」）
+   与**本机缓存**（已用大小、分类明细、二次确认清除）。两块都不读写服务端设置。
    播放页信息区顺序固定为 标题 → 当前文件名 → 社团 → 系列 → 声优 → 类型标签；会还原上次播放的文件、
    整条播放列表与秒数（本机记录，不自动开播，点播放才续上）。
 5. 收藏（作品 / 社团 / 声优 / 标签）、随机播放、循环模式切换都会在底部 Tab 上方弹出 App 内轻提示
@@ -204,7 +208,7 @@ ADB=.toolchain/sdk/platform-tools/adb.exe
 | N3 | 作品详情、文件树、图片查看器、设封面 / 壁纸、相关推荐 | ✅ |
 | N4 | 原生播放队列、迷你条 + 全屏播放器、PlayReporter 时长上报 | ✅ |
 | N5 | 锁屏 / 通知 / 线控、收藏 4 Tab、历史列表 / 卡片 | ✅ |
-| N6 | 设置页（本机缓存用量与清除；web 式服务端设置项已移除） | ✅ |
+| N6 | 设置页（本机外观：主题色 / 标签色 / 不透明度；本机缓存用量与清除；web 式服务端设置项已移除） | ✅ |
 | N7 | 离线缓存（JSON 快照、音频下载、播放记录补报队列） | ✅ |
 | N8 | A1–A5 同源回归、真机锁屏 / 解码 / 上传断言 | ⏳ 需局域网服务与真机 |
 | N9 | 系统媒体控制对齐（MediaController 迁移、队列进 playlist、三态循环、封面磁盘缓存、断网退避重试） | ✅ 静态验证通过，真机回归待 N8 |
@@ -535,6 +539,32 @@ ADB=.toolchain/sdk/platform-tools/adb.exe
   与本地 `app-release.apk` 三方 sha256 一致 `b966fb52…06c910a89a`；已装到 `192.168.5.16:37557`
   （`versionCode=1038`、`versionName=0.1.38`），未启动、测试由用户自测。
 
+**本次增量验证（2026-11-18 五改，App 外观改为本机设置 · 分支 `feat/local-appearance`）**：
+
+- 需求：①App 界面颜色不再受网页版设置影响；②设置页新增 App 外观设置，数据存本地、不再从 yuzuki 同步。
+- 根因：`MainActivity` 直接把 `AppContainer.settings`（`GET /api/settings`）映射成 `Appearance`，
+  主题色 / 声优色 / 标签色 / 三种透明度全部来自服务端，网页端一改 App 立刻跟着变。
+- 改动：
+  - 新增 `data/AppearancePrefs.kt`（纯 Kotlin）：`navColor / actorColor / tagColor /
+    panelOpacity / controlOpacity / actorTagOpacity / genreTagOpacity` + `sanitized()`
+    （色值统一 `#RRGGBB`、非法回退、透明度夹 0–100）+ 预设色板 + `isValidHex`；
+  - 新增 `data/AppearanceStore.kt`：独立 DataStore（`app_appearance`），`StateFlow` + `load/save/reset`，
+    退出登录不清除（本机偏好而非账号数据）；
+  - `ui/theme/Glass.kt`：`Appearance.from(AppSettings)` → `Appearance.from(AppearancePrefs)`，
+    删除 `cardSize / cardWidth / animationMs / wallpaper*` 字段；文件列表透明度与面板共用一项；
+  - `YuzukiApp.onCreate` 同步读一次本地外观（避免冷启动先闪默认紫），`MainActivity` 只订阅该 Flow；
+  - `SettingsScreen` 新增「外观」卡片：3 组颜色（6 色预设 + 「自定义颜色…」HEX 弹窗，非法值禁用确定）、
+    4 个不透明度滑块（拖动只改本地值、松手才落盘）、「恢复默认外观」。
+- 服务端设置仍保留给「每页数量 / 快进秒数 / 相关推荐开关」这类非配色项，`/api/settings` 写入点仍在 App 侧无调用。
+- `assembleRelease` 通过；`testDebugUnitTest` **109 例全过、0 失败 0 错误**
+  （新增 `AppearancePrefsTest` 9 例：默认值、hex 规范化、非法回退、`isValidHex`、透明度夹紧、
+  坏存储值回退、暗色只提亮强调色、面板与文件列表同透明度、预设色板合法性）。
+- 静态断言：`Appearance.from(AppSettings)` 零命中；`ui/` 层不再出现 `themeColorNav / themeColorActor /
+  themeColorTag`；`AppContainer.appearance` 只在 `YuzukiApp` / `MainActivity` / `SettingsScreen` 出现。
+- Release `0.1.39` 已发布共享：`yuzuki-0.1.39-1118-2157.apk` + `yuzuki-latest.apk`；
+  已装到 `192.168.5.16:37557`（`versionCode=1039`、`versionName=0.1.39`），未启动、测试由用户自测。
+
+
 **仍待验证**：A1–A5 接口同源断言、锁屏 metadata 与 `artworkData`、连续 `next()` 3 次通知不消失、
 息屏 5 分钟进度增长、蓝牙耳机按键、通知点击直达播放页、flac/mkv 解码、base64 图片上传返回码、
 断网离线回放与补报去重。
@@ -557,7 +587,8 @@ ADB=.toolchain/sdk/platform-tools/adb.exe
 - 仅家中 WiFi 可用；离开 WiFi 只能看离线缓存内容；明文 HTTP 的 token 在局域网可被嗅探。
 - 冷门格式（wma 等）需后续接入 `media3-decoder-ffmpeg`；flac/mkv/mp4/wav/m4a 由 Media3 默认解码器覆盖。
 - 界面采用 Material 3 风格：不再渲染液态玻璃 / 壁纸 / 模糊 / 半透明叠层（所有框体都是不透明容器）；
-  服务端的外观设置（模糊、透明度、壁纸启停）由网页端管理，App 设置页不提供入口，也不参与本机渲染
+  App 的配色（主题色、标签色、不透明度）由**本机设置页**管理并只存本机，不读服务端 `/api/settings`，
+  网页端改配色不会影响 App，App 改色也不会回写网页端
   （作品详情页的「设为壁纸」仍会上传图片到服务端，属于独立功能）。
 - 底部导航不做背景模糊（见「交互改版」）：Compose 1.7.4 在这台机器上取不到内容层像素，
   四版自研实现均无效，最终回退纯黑。

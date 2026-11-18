@@ -1,7 +1,9 @@
 package com.yuzuki.app.ui
 
 import android.content.Context
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -19,10 +21,13 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -35,21 +40,28 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.yuzuki.app.data.AppContainer
+import com.yuzuki.app.data.AppearancePalette
+import com.yuzuki.app.data.AppearancePrefs
 import com.yuzuki.app.data.CacheUsage
+import com.yuzuki.app.data.isValidHex
+import com.yuzuki.app.data.normalizeHex
 import com.yuzuki.app.ui.theme.GlassPill
 import com.yuzuki.app.ui.theme.GlassSurface
 import com.yuzuki.app.ui.theme.ShapeCard
+import com.yuzuki.app.ui.theme.composeColor
 import com.yuzuki.app.ui.theme.WebColors
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlin.math.roundToInt
 
 /**
- * 设置页（手机端本地设置）：只负责「已使用缓存」与「清除缓存」。
+ * 设置页（手机端本地设置）：App 外观 + 本机缓存。
  *
- * 不再复刻 web 端的服务端设置项：不读写 /api/settings、不触发扫描 / 上传 / 清空媒体库，
- * 因此不会影响 PC 浏览器与其他设备的全局配置。统计与清理统一走 [CacheUsage]，
- * 两者口径一致，清完必然显示 0 B。
+ * 外观（主题色 / 标签色 / 不透明度）只存本机 DataStore，**不读写 /api/settings**：
+ * 网页端改配色不影响 App，App 改色也不影响 PC 浏览器。
+ * 缓存卡片只统计 / 清理本机缓存，不触发扫描 / 上传 / 清空媒体库。
  */
 @Composable
 fun SettingsScreen(onBack: () -> Unit, modifier: Modifier = Modifier) {
@@ -100,6 +112,8 @@ fun SettingsScreen(onBack: () -> Unit, modifier: Modifier = Modifier) {
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
+            AppearanceCard()
+
             GlassSurface(modifier = Modifier.fillMaxWidth(), shape = ShapeCard) {
                 Column(
                     modifier = Modifier.padding(20.dp),
@@ -231,6 +245,290 @@ fun SettingsScreen(onBack: () -> Unit, modifier: Modifier = Modifier) {
             shape = ShapeCard,
         )
     }
+}
+
+/**
+ * 外观卡片：颜色 + 不透明度，改完立即生效并落本机 DataStore。
+ * 不提供模糊 / 壁纸项 —— App 端本来就不渲染这些（见 README「已知限制」）。
+ */
+@Composable
+private fun AppearanceCard(modifier: Modifier = Modifier) {
+    val prefs by AppContainer.appearance.state.collectAsState()
+    val scope = rememberCoroutineScope()
+
+    fun apply(next: AppearancePrefs) {
+        scope.launch { AppContainer.appearance.save(next) }
+    }
+
+    GlassSurface(modifier = modifier.fillMaxWidth(), shape = ShapeCard) {
+        Column(
+            modifier = Modifier.padding(20.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp),
+        ) {
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(
+                    text = "外观",
+                    style = MaterialTheme.typography.titleSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Text(
+                    text = "只作用于本机，不会同步到网页端，也不会被网页端的主题色覆盖",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+
+            ColorSetting(
+                title = "主题色",
+                desc = "顶栏、卡片底色与强调色",
+                value = prefs.navColor,
+                palette = AppearancePalette.nav,
+                onPick = { apply(prefs.copy(navColor = it)) },
+            )
+            SectionDivider()
+            ColorSetting(
+                title = "声优标签色",
+                desc = "卡片与详情里的声优胶囊",
+                value = prefs.actorColor,
+                palette = AppearancePalette.actor,
+                onPick = { apply(prefs.copy(actorColor = it)) },
+            )
+            SectionDivider()
+            ColorSetting(
+                title = "类型标签色",
+                desc = "封面类型标签与筛选标签",
+                value = prefs.tagColor,
+                palette = AppearancePalette.tag,
+                onPick = { apply(prefs.copy(tagColor = it)) },
+            )
+            SectionDivider()
+
+            Text(
+                text = "不透明度",
+                style = MaterialTheme.typography.titleSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            OpacitySetting("面板", prefs.panelOpacity) { apply(prefs.copy(panelOpacity = it)) }
+            OpacitySetting("控件", prefs.controlOpacity) { apply(prefs.copy(controlOpacity = it)) }
+            OpacitySetting("声优标签", prefs.actorTagOpacity) { apply(prefs.copy(actorTagOpacity = it)) }
+            OpacitySetting("类型标签", prefs.genreTagOpacity) { apply(prefs.copy(genreTagOpacity = it)) }
+
+            SectionDivider()
+            GlassPill(
+                modifier = Modifier.heightIn(min = 44.dp),
+                onClick = {
+                    scope.launch {
+                        AppContainer.appearance.reset()
+                        AppToast.show("已恢复默认外观")
+                    }
+                },
+            ) {
+                Box(
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        text = "恢复默认外观",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SectionDivider() {
+    Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(WebColors.Border))
+}
+
+@Composable
+private fun ColorSetting(
+    title: String,
+    desc: String,
+    value: String,
+    palette: List<String>,
+    onPick: (String) -> Unit,
+) {
+    var custom by remember { mutableStateOf(false) }
+    val current = normalizeHex(value)
+
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(2.dp),
+            ) {
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
+                Text(
+                    text = desc,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Text(
+                text = current,
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            palette.forEach { hex ->
+                SwatchDot(hex = hex, selected = normalizeHex(hex) == current) { onPick(hex) }
+            }
+        }
+        GlassPill(
+            modifier = Modifier.heightIn(min = 40.dp),
+            onClick = { custom = true },
+        ) {
+            Box(
+                modifier = Modifier.padding(horizontal = 14.dp, vertical = 9.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    text = "自定义颜色…",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.primary,
+                )
+            }
+        }
+    }
+
+    if (custom) {
+        HexColorDialog(
+            initial = current,
+            onDismiss = { custom = false },
+            onConfirm = { hex ->
+                custom = false
+                onPick(hex)
+            },
+        )
+    }
+}
+
+@Composable
+private fun androidx.compose.foundation.layout.RowScope.SwatchDot(
+    hex: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+) {
+    Box(
+        modifier = Modifier
+            .weight(1f)
+            .height(44.dp)
+            .clip(CircleShape)
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Box(
+            modifier = Modifier
+                .size(30.dp)
+                .clip(CircleShape)
+                .background(composeColor(hex))
+                .border(
+                    BorderStroke(
+                        width = if (selected) 2.dp else 1.dp,
+                        color = if (selected) WebColors.Text else WebColors.Border,
+                    ),
+                    CircleShape,
+                ),
+        )
+    }
+}
+
+@Composable
+private fun OpacitySetting(title: String, value: Int, onCommit: (Int) -> Unit) {
+    // 拖动期间只改本地值，松手才落盘：避免每帧写一次 DataStore
+    var local by remember(value) { mutableStateOf(value.coerceIn(0, 100).toFloat()) }
+    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurface,
+                modifier = Modifier.weight(1f),
+            )
+            Text(
+                text = "${local.roundToInt()}%",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        Slider(
+            value = local,
+            onValueChange = { local = it },
+            onValueChangeFinished = { onCommit(local.roundToInt()) },
+            valueRange = 0f..100f,
+            modifier = Modifier.fillMaxWidth().height(48.dp),
+        )
+    }
+}
+
+/** 自定义色值弹窗：非法输入禁用「确定」，并提示格式。 */
+@Composable
+private fun HexColorDialog(
+    initial: String,
+    onDismiss: () -> Unit,
+    onConfirm: (String) -> Unit,
+) {
+    var text by remember { mutableStateOf(initial) }
+    val valid = isValidHex(text)
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("自定义颜色") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedTextField(
+                    value = text,
+                    onValueChange = { text = it.take(7) },
+                    singleLine = true,
+                    isError = !valid,
+                    label = { Text("十六进制色值") },
+                    placeholder = { Text("#A78BFA") },
+                )
+                if (valid) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Box(
+                            modifier = Modifier
+                                .size(18.dp)
+                                .clip(CircleShape)
+                                .background(composeColor(normalizeHex(text))),
+                        )
+                        Text(
+                            text = normalizeHex(text),
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(start = 8.dp),
+                        )
+                    }
+                } else {
+                    Text(
+                        text = "请输入 6 位色值，例如 #A78BFA",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = { onConfirm(normalizeHex(text)) },
+                enabled = valid,
+            ) { Text("确定") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } },
+        shape = ShapeCard,
+    )
 }
 
 private suspend fun measureCache(context: Context): CacheUsage.Snapshot = withContext(Dispatchers.IO) {

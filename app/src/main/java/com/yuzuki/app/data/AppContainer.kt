@@ -27,6 +27,8 @@ object AppContainer {
         private set
 
     val settings by lazy { SettingsRepository(api, offline) }
+    /** App 本机外观（颜色 / 透明度），与服务端设置完全分离。 */
+    val appearance by lazy { AppearanceStore(app) }
     val offline by lazy { OfflineCache(app) }
     val library by lazy { LibraryRepository(api, offline) }
     val reporter by lazy { com.yuzuki.app.playback.PlayReporter(api, offline) }
