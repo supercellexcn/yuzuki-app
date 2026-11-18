@@ -14,8 +14,8 @@
   **库页的搜索 / 筛选 / 排序不互通、也不记忆**：只活在本次会话内存里，App 不读写服务端 `/api/prefs`，
   既不记住自己上次的条件，也不会带出或覆盖网页端的搜索条件
 - 播放走原生 Media3，支持锁屏 / 后台续播 / 通知栏换曲不消失
-- 首版交付 web 移动版全部功能（图片查看器、离线缓存等）；App 设置页负责「外观 + 本机缓存」，
-  **界面配色只读本机 DataStore，不读服务端 `/api/settings`**：网页端改主题色不影响 App，App 改色也不回写网页端
+- 首版交付 web 移动版全部功能（图片查看器、离线缓存等）；App 设置页负责「外观 + 手势 + 本机缓存」，
+  **这些设置只读本机 DataStore，不读服务端 `/api/settings`**：网页端改主题色不影响 App，App 改色也不回写网页端
 - 界面采用 Material 3 风格：不透明容器、高对比文字，不使用模糊 / 半透明叠层 / 壁纸背景
   （底部导航栏 2026-11-18 曾改为亚克力毛玻璃，实测无法稳定取样，已回退为纯黑，见「交互改版」）
 - 全工程不使用 WebView；所有框体一律圆角（`ui/theme/Radius.kt`）
@@ -32,6 +32,7 @@ ui/theme/    Material 3 配色 + Surface 组件封装（Glass* 为兼容层）·
 data/        Models（DTO + org.json 解析）· YuzukiApi（全量 REST）· AppContainer（服务定位）
              SettingsRepository · LibraryRepository（在线优先 + 离线兜底）
              AppearancePrefs / AppearanceStore（App 本机外观，DataStore `app_appearance`）
+             InteractionPrefs / InteractionStore（手势时长等交互偏好，DataStore `app_interaction`）
              OfflineCache（JSON 快照 / 封面 / 音频 / 播放记录补报队列）
              CacheUsage（缓存分类统计 / 清理 / 格式化，纯 JVM 可测）
              ImageSave（图片下载落相册：MIME / 文件名清洗 / MediaStore 写入，纯逻辑可测）
@@ -153,9 +154,10 @@ ADB=.toolchain/sdk/platform-tools/adb.exe
    松手吸附门槛按方向区分：展开需过 40%，收起只需过 22%（≈57dp），不用一路滑到底。
    详情 / 收藏 / 设置 / 改密是覆盖层，盖在 Pager 之上，此时不响应翻页；覆盖层自带不透明页面底色，
    不会透出下层的库页卡片或播放器模糊封面。
-   设置页分两块：**外观**（主题色 / 声优标签色 / 类型标签色 + 面板、控件、两类标签的不透明度，
-   预设色板 + 自定义 `#RRGGBB`，改完即时生效并只存本机 DataStore，带「恢复默认外观」）
-   与**本机缓存**（已用大小、分类明细、二次确认清除）。两块都不读写服务端设置。
+   设置页分三块：**外观**（主题色 / 声优标签色 / 类型标签色 + 面板、控件、两类标签的不透明度，
+   预设色板 + 自定义 `#RRGGBB`，改完即时生效并只存本机 DataStore，带「恢复默认外观」）、
+   **手势**（退出随机推荐的按住时长，1–10 秒滑块，默认 3 秒，存 `app_interaction`）
+   与**本机缓存**（已用大小、分类明细、二次确认清除）。三块都不读写服务端设置。
    播放页信息区顺序固定为 标题 → 当前文件名 → 社团 → 系列 → 声优 → 类型标签；会还原上次播放的文件、
    整条播放列表与秒数（本机记录，不自动开播，点播放才续上）。
 5. 收藏（作品 / 社团 / 声优 / 标签）、随机播放、循环模式切换都会在底部 Tab 上方弹出 App 内轻提示
@@ -197,11 +199,13 @@ ADB=.toolchain/sdk/platform-tools/adb.exe
 - 左半屏松手：列表 → 卡片详情 → 封面模式 循环切换（等价于原悬浮控件的 M 键）；
   右半屏松手：未在随机 → 进入随机推荐；已在随机 → `LibraryState.randomEpoch++` 换一批
   （批次号参与列表条件指纹，条件没变也会重新请求）。生效时轻震一下 + AppToast 提示。
-- **随机模式出口**：右半屏下拉越过 64dp 门槛后**停住不动 3 秒**即退出随机（`FeedPull.HOLD_MS`），
-  回到当前搜索 / 筛选 / 排序对应的常规列表。悬停计时与「手指移动 / 抬起」赛跑，手指移动超过 4dp
-  就重新计时（不会边拖边读秒）；触发后本次手势不再执行「换一批」，提示条自动回落。
-  已处于随机模式时右半屏文案变成「松开换一批 · 按住 3 秒退出随机」，这是移动端唯一的退出入口。
-- **悬停读秒**：开始计时后提示条逐秒显示「按住不动 · N 秒后退出随机」（3 → 2 → 1 → 退出），
+- **随机模式出口**：右半屏下拉越过 64dp 门槛后**按住不动**到设定时长即退出随机
+  （`InteractionPrefs.exitRandomHoldSeconds`，默认 3 秒，设置页可在 1–10 秒间调；
+  未读设置时兜底 `FeedPull.HOLD_MS`），回到当前搜索 / 筛选 / 排序对应的常规列表。
+  悬停计时与「手指移动 / 抬起」赛跑，手指移动超过 4dp 就重新计时（不会边拖边读秒）；
+  触发后本次手势不再执行「换一批」，提示条自动回落。已处于随机模式时右半屏文案变成
+  「松开换一批 · 按住 N 秒退出随机」（N 取设置值），这是移动端唯一的退出入口。
+- **悬停读秒**：开始计时后提示条逐秒显示「按住不动 · N 秒后退出随机」（按设置时长倒数到 0 退出），
   手势最多睡 1 秒就醒一次刷新读秒（`FeedPull.holdSecondsLeft` 向上取整）；只有整数秒变化才回调，
   只重组提示条自身，不带着信息流一起重组。计时被中断（手指移动 / 退出门槛 / 抬手）时立即清掉读秒。
 
@@ -609,6 +613,22 @@ ADB=.toolchain/sdk/platform-tools/adb.exe
   （原「悬停满 3 秒」用例改写为「悬停读秒按整秒递减到 0 触发」，覆盖 0 / 999 / 1000 / 2999 / 3000ms 边界）。
 - Release `0.1.41` 已发布共享（`yuzuki-0.1.41-1118-2211.apk` + `yuzuki-latest.apk`，三方 sha256 一致
   `f2d3fc1d…2203c47`）；已装到 `192.168.5.16:37557`（`versionCode=1041`、`versionName=0.1.41`），未启动。
+
+**本次增量验证（2026-11-18 八改，退出随机的按住时长改为可配置 · 分支 `feat/pull-exit-random` · Release `0.1.42`）**：
+
+- 需求：退出随机推荐的这个时长，要能在设置里配。
+- 改动：
+  - 新增 `data/InteractionPrefs.kt`（纯 Kotlin：默认 3 秒、范围 1–10 秒、`holdMillis()` 秒转毫秒）
+    与 `data/InteractionStore.kt`（DataStore `app_interaction`，`StateFlow + load/save/reset`）；
+  - `AppContainer` 暴露 `interaction`，`YuzukiApp.onCreate` 与外观一起同步加载（冷启动即生效）；
+  - `SettingsScreen` 新增「手势」卡片：1–10 秒滑块（松手才落盘）+ 说明文案；
+  - `LibraryScreen` 订阅 `AppContainer.interaction`，把 `holdMs` 传给 `feedPullGesture`
+    （`pointerInput` 以 `holdMs` 为 key，改完设置不用重启页面就生效），
+    提示条文案的总秒数同步取设置值（`FeedPullHint(holdTotalSec = …)`）。
+- `assembleRelease` 通过；`testDebugUnitTest` **115 例全过、0 失败 0 错误**
+  （新增 `InteractionPrefsTest` 3 例：默认值与 `FeedPull.HOLD_MS` 对齐、范围夹紧、秒转毫秒夹紧）。
+- Release `0.1.42` 已发布共享（`yuzuki-0.1.42-1118-2217.apk` + `yuzuki-latest.apk`，sha256 一致
+  `2a94ae22…a3f20d`）；已装到 `192.168.5.16:37557`（`versionCode=1042`、`versionName=0.1.42`），未启动。
 
 **仍待验证**：A1–A5 接口同源断言、锁屏 metadata 与 `artworkData`、连续 `next()` 3 次通知不消失、
 息屏 5 分钟进度增长、蓝牙耳机按键、通知点击直达播放页、flac/mkv 解码、base64 图片上传返回码、

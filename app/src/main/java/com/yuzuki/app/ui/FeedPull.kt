@@ -122,7 +122,7 @@ fun Modifier.feedPullGesture(
     holdMs: Long = FeedPull.HOLD_MS,
     onHoldTick: (remainingSec: Int) -> Unit = {},
     onHold: () -> Unit = {},
-): Modifier = pointerInput(Unit) {
+): Modifier = pointerInput(holdMs) {
     val startSlop = 6.dp.toPx()
     val holdSlop = 4.dp.toPx()
     val maxPx = FeedPull.MAX_DP.dp.toPx()
@@ -233,7 +233,8 @@ fun Modifier.feedPullGesture(
  * 顶端露出的提示条：一条空白区 + 居中的「箭头 + 松开以…」。
  *
  * 箭头默认朝下（继续拉），越过门槛弹簧翻成朝上（可以松手）；文字随露出高度淡入。
- * 已处于随机模式时，右半屏的文案会带上出口提示；开始悬停后每秒读一次剩余秒数。
+ * 已处于随机模式时，右半屏的文案会带上出口提示（时长取设置里的 [holdTotalSec]）；
+ * 开始悬停后每秒读一次剩余秒数。
  *
  * `reveal` / `holdRemaining` 用 lambda 传进来是刻意的：读秒每秒最多触发一次提示条自身重组，
  * 不会带着整个信息流一起重组。
@@ -245,12 +246,13 @@ fun FeedPullHint(
     thresholdPx: Float,
     exitRandomHint: Boolean = false,
     holdRemaining: () -> Int = { 0 },
+    holdTotalSec: Int = (FeedPull.HOLD_MS / 1000).toInt(),
     modifier: Modifier = Modifier,
 ) {
     val sec = holdRemaining()
     val text = when {
         side == FeedPullSide.Right && exitRandomHint && sec > 0 -> "按住不动 · $sec 秒后退出随机"
-        side == FeedPullSide.Right && exitRandomHint -> "松开换一批 · 按住 ${FeedPull.HOLD_MS / 1000} 秒退出随机"
+        side == FeedPullSide.Right && exitRandomHint -> "松开换一批 · 按住 ${holdTotalSec.coerceAtLeast(1)} 秒退出随机"
         side == FeedPullSide.Right -> "松开以获取随机推荐"
         else -> "松开以切换展示模式"
     }

@@ -44,6 +44,7 @@ import com.yuzuki.app.data.AppContainer
 import com.yuzuki.app.data.AppearancePalette
 import com.yuzuki.app.data.AppearancePrefs
 import com.yuzuki.app.data.CacheUsage
+import com.yuzuki.app.data.InteractionPrefs
 import com.yuzuki.app.data.isValidHex
 import com.yuzuki.app.data.normalizeHex
 import com.yuzuki.app.ui.theme.GlassPill
@@ -57,10 +58,10 @@ import kotlinx.coroutines.withContext
 import kotlin.math.roundToInt
 
 /**
- * 设置页（手机端本地设置）：App 外观 + 本机缓存。
+ * 设置页（手机端本地设置）：App 外观 + 手势时长 + 本机缓存。
  *
- * 外观（主题色 / 标签色 / 不透明度）只存本机 DataStore，**不读写 /api/settings**：
- * 网页端改配色不影响 App，App 改色也不影响 PC 浏览器。
+ * 外观（主题色 / 标签色 / 不透明度）与手势（退出随机的按住时长）都只存本机 DataStore，
+ * **不读写 /api/settings**：网页端改配置不影响 App，App 改设置也不影响 PC 浏览器。
  * 缓存卡片只统计 / 清理本机缓存，不触发扫描 / 上传 / 清空媒体库。
  */
 @Composable
@@ -113,6 +114,7 @@ fun SettingsScreen(onBack: () -> Unit, modifier: Modifier = Modifier) {
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
             AppearanceCard()
+            GestureCard()
 
             GlassSurface(modifier = Modifier.fillMaxWidth(), shape = ShapeCard) {
                 Column(
@@ -341,6 +343,71 @@ private fun AppearanceCard(modifier: Modifier = Modifier) {
 @Composable
 private fun SectionDivider() {
     Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(WebColors.Border))
+}
+
+/**
+ * 手势卡片：只放会改变操作的时长项，值存本机 `app_interaction`，不进服务端。
+ */
+@Composable
+private fun GestureCard(modifier: Modifier = Modifier) {
+    val prefs by AppContainer.interaction.state.collectAsState()
+    val scope = rememberCoroutineScope()
+
+    GlassSurface(modifier = modifier.fillMaxWidth(), shape = ShapeCard) {
+        Column(
+            modifier = Modifier.padding(20.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Text(
+                text = "手势",
+                style = MaterialTheme.typography.titleSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            HoldSecondsSetting(prefs.exitRandomHoldSeconds) { seconds ->
+                scope.launch {
+                    AppContainer.interaction.save(prefs.copy(exitRandomHoldSeconds = seconds))
+                }
+            }
+            Text(
+                text = "库页右半屏下拉越过门槛后，按住不动达到该时长即退出随机推荐；" +
+                    "提前松手仍是换一批（随机模式下提示条会读秒）。",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+}
+
+@Composable
+private fun HoldSecondsSetting(value: Int, onCommit: (Int) -> Unit) {
+    val min = InteractionPrefs.MinHoldSeconds
+    val max = InteractionPrefs.MaxHoldSeconds
+    // 拖动期间只改本地值，松手才落盘
+    var local by remember(value) { mutableStateOf(value.coerceIn(min, max).toFloat()) }
+    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                text = "退出随机推荐：按住时长",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurface,
+                modifier = Modifier.weight(1f),
+            )
+            Text(
+                text = "${local.roundToInt()} 秒",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        Slider(
+            value = local,
+            onValueChange = { local = it },
+            onValueChangeFinished = { onCommit(local.roundToInt()) },
+            valueRange = min.toFloat()..max.toFloat(),
+            // 1 秒一档：10 个刻度之间 8 个台阶
+            steps = max - min - 1,
+            modifier = Modifier.fillMaxWidth().height(48.dp),
+        )
+    }
 }
 
 @Composable

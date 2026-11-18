@@ -42,6 +42,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -69,7 +70,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.yuzuki.app.data.AppContainer
 import com.yuzuki.app.data.FilterCond
+import com.yuzuki.app.data.InteractionPrefs
 import com.yuzuki.app.ui.theme.LocalAppearance
 import com.yuzuki.app.ui.theme.ShapeItem
 import com.yuzuki.app.ui.theme.ShapePill
@@ -260,6 +263,9 @@ fun LibraryScreen(
     val scope = rememberCoroutineScope()
     val density = LocalDensity.current
     val triggerPx = with(density) { FeedPull.TRIGGER_DP.dp.toPx() }
+    // 退出随机的按住时长（设置页可配，本机 DataStore）
+    val interaction by AppContainer.interaction.state.collectAsState()
+    val holdMs = InteractionPrefs.holdMillis(interaction.exitRandomHoldSeconds)
 
     // 顶部下拉：露出高度跟手指走，松手再决定执行还是弹回
     var pullReveal by remember { mutableFloatStateOf(0f) }
@@ -314,8 +320,10 @@ fun LibraryScreen(
             settlePull()
         },
         onCancel = ::settlePull,
-        // 随机模式没有别的出口：右半屏下拉越过门槛后停住 3 秒退出（松手不再「换一批」）
+        // 随机模式没有别的出口：右半屏下拉越过门槛后按住不动（时长见设置）退出，
+        // 松手不再「换一批」
         holdEnabled = { LibraryState.randomMode },
+        holdMs = holdMs,
         onHoldTick = { holdSec = it },
         onHold = {
             holdSec = 0
@@ -362,6 +370,7 @@ fun LibraryScreen(
                 thresholdPx = triggerPx,
                 exitRandomHint = LibraryState.randomMode,
                 holdRemaining = { holdSec },
+                holdTotalSec = interaction.exitRandomHoldSeconds,
                 modifier = Modifier.align(Alignment.TopCenter),
             )
             Box(
