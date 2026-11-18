@@ -362,7 +362,14 @@ private fun Orb(
                 .clickable(onClick = onClick),
             contentAlignment = Alignment.Center,
         ) {
-            icon(tint, Modifier.size(size * 0.34f))
+            // 图标是主体：占圆径一半（SideIcon 的 24 视口自带留白，视觉上约 1/3 圆径），
+            // 再整体上移一点，给底部小字留位置，视觉重心仍在圆内
+            icon(
+                tint,
+                Modifier
+                    .size(size * 0.5f)
+                    .offset(y = -(size * 0.08f)),
+            )
             Text(
                 label,
                 fontSize = 9.sp,
@@ -372,7 +379,7 @@ private fun Orb(
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
-                    .padding(bottom = size * 0.12f),
+                    .padding(bottom = size * 0.10f),
             )
         }
         if (badge > 0) {
@@ -422,9 +429,10 @@ private fun AccountOrb(
         ) {
             Text(
                 initial,
-                fontSize = 18.sp,
+                fontSize = 20.sp,
                 fontWeight = FontWeight.Bold,
                 color = onAccent,
+                modifier = Modifier.offset(y = -(size * 0.06f)),
             )
             Text(
                 "账号",
@@ -434,7 +442,7 @@ private fun AccountOrb(
                 maxLines = 1,
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
-                    .padding(bottom = size * 0.12f),
+                    .padding(bottom = size * 0.10f),
             )
         }
         DropdownMenu(expanded = menuVisible, onDismissRequest = { menuVisible = false }) {
