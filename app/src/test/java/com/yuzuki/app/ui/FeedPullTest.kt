@@ -80,14 +80,21 @@ class FeedPullTest {
     }
 
     @Test
-    fun `悬停满 3 秒才触发`() {
-        assertEquals(3_000L, FeedPull.holdRemainingMs(elapsedMs = 0L))
-        assertEquals(1L, FeedPull.holdRemainingMs(elapsedMs = 2_999L))
-        assertEquals(0L, FeedPull.holdRemainingMs(elapsedMs = 3_000L))
-        // 表停了也不会变成负数（不会让 withTimeout 立刻误触发）
-        assertEquals(0L, FeedPull.holdRemainingMs(elapsedMs = 5_000L))
-        // 自定义门槛同样按剩余时间算
-        assertEquals(500L, FeedPull.holdRemainingMs(elapsedMs = 1_500L, holdMs = 2_000L))
+    fun `悬停读秒按整秒递减到 0 触发`() {
+        // 起手立刻显示 3，整秒 1s / 2s 后变 2 / 1，满 3s 变 0
+        assertEquals(3, FeedPull.holdSecondsLeft(elapsedMs = 0L))
+        assertEquals(3, FeedPull.holdSecondsLeft(elapsedMs = 1L))
+        assertEquals(3, FeedPull.holdSecondsLeft(elapsedMs = 999L))
+        assertEquals(2, FeedPull.holdSecondsLeft(elapsedMs = 1_000L))
+        assertEquals(2, FeedPull.holdSecondsLeft(elapsedMs = 1_999L))
+        assertEquals(1, FeedPull.holdSecondsLeft(elapsedMs = 2_000L))
+        assertEquals(1, FeedPull.holdSecondsLeft(elapsedMs = 2_999L))
+        assertEquals(0, FeedPull.holdSecondsLeft(elapsedMs = 3_000L))
+        // 表停了也不会变成负数
+        assertEquals(0, FeedPull.holdSecondsLeft(elapsedMs = 5_000L))
+        // 自定义门槛同样按整秒算
+        assertEquals(2, FeedPull.holdSecondsLeft(elapsedMs = 500L, holdMs = 2_000L))
+        assertEquals(0, FeedPull.holdSecondsLeft(elapsedMs = 2_000L, holdMs = 2_000L))
     }
 
     @Test

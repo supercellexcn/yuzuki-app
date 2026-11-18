@@ -45,6 +45,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -263,6 +264,8 @@ fun LibraryScreen(
     // 顶部下拉：露出高度跟手指走，松手再决定执行还是弹回
     var pullReveal by remember { mutableFloatStateOf(0f) }
     var pullSide by remember { mutableStateOf(FeedPullSide.NONE) }
+    // 悬停读秒：0 = 不在计时，其余是「还有几秒退出随机」
+    var holdSec by remember { mutableIntStateOf(0) }
 
     fun settlePull() {
         scope.launch {
@@ -313,7 +316,9 @@ fun LibraryScreen(
         onCancel = ::settlePull,
         // 随机模式没有别的出口：右半屏下拉越过门槛后停住 3 秒退出（松手不再「换一批」）
         holdEnabled = { LibraryState.randomMode },
+        onHoldTick = { holdSec = it },
         onHold = {
+            holdSec = 0
             if (LibraryState.exitRandom()) {
                 haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                 AppToast.show("已退出随机推荐")
@@ -356,6 +361,7 @@ fun LibraryScreen(
                 reveal = { pullReveal },
                 thresholdPx = triggerPx,
                 exitRandomHint = LibraryState.randomMode,
+                holdRemaining = { holdSec },
                 modifier = Modifier.align(Alignment.TopCenter),
             )
             Box(

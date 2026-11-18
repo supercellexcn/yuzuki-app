@@ -201,6 +201,9 @@ ADB=.toolchain/sdk/platform-tools/adb.exe
   回到当前搜索 / 筛选 / 排序对应的常规列表。悬停计时与「手指移动 / 抬起」赛跑，手指移动超过 4dp
   就重新计时（不会边拖边读秒）；触发后本次手势不再执行「换一批」，提示条自动回落。
   已处于随机模式时右半屏文案变成「松开换一批 · 按住 3 秒退出随机」，这是移动端唯一的退出入口。
+- **悬停读秒**：开始计时后提示条逐秒显示「按住不动 · N 秒后退出随机」（3 → 2 → 1 → 退出），
+  手势最多睡 1 秒就醒一次刷新读秒（`FeedPull.holdSecondsLeft` 向上取整）；只有整数秒变化才回调，
+  只重组提示条自身，不带着信息流一起重组。计时被中断（手指移动 / 退出门槛 / 抬手）时立即清掉读秒。
 
 ## 分阶段状态
 
@@ -591,6 +594,21 @@ ADB=.toolchain/sdk/platform-tools/adb.exe
   `f85368cb…b22161e`）；
   已装到 `192.168.5.16:37557`（`versionCode=1040`、`versionName=0.1.40`）。首次 `install -r` 返回
   `INSTALL_FAILED_ABORTED: User rejected permissions`（设备端确认弹窗），原样重试后 Success。
+
+**本次增量验证（2026-11-18 七改，悬停读秒 · 分支 `feat/pull-exit-random` · Release `0.1.41`）**：
+
+- 反馈：悬停时没有任何读秒，不知道还要按多久。
+- 改动：
+  - `ui/FeedPull.kt`：`holdRemainingMs()` → `holdSecondsLeft()`（向上取整，0 = 到点）；
+    `feedPullGesture` 新增 `onHoldTick(remainingSec)`，计时期间最多睡 1 秒就醒一次，
+    整数秒变化时才回调（3 → 2 → 1 → 触发），计时中断（移动 > 4dp / 掉出门槛 / 抬手）回调 0。
+  - `ui/FeedPull.kt`：`FeedPullHint` 新增 `holdRemaining: () -> Int`，读秒中显示
+    「按住不动 · N 秒后退出随机」；lambda 传参让每秒只重组提示条自身。
+  - `ui/LibraryScreen.kt`：`holdSec`（`mutableIntStateOf`）接线 `onHoldTick` / `holdRemaining`。
+- `assembleRelease` 通过；`testDebugUnitTest` **112 例全过、0 失败 0 错误**
+  （原「悬停满 3 秒」用例改写为「悬停读秒按整秒递减到 0 触发」，覆盖 0 / 999 / 1000 / 2999 / 3000ms 边界）。
+- Release `0.1.41` 已发布共享（`yuzuki-0.1.41-1118-2211.apk` + `yuzuki-latest.apk`，三方 sha256 一致
+  `f2d3fc1d…2203c47`）；已装到 `192.168.5.16:37557`（`versionCode=1041`、`versionName=0.1.41`），未启动。
 
 **仍待验证**：A1–A5 接口同源断言、锁屏 metadata 与 `artworkData`、连续 `next()` 3 次通知不消失、
 息屏 5 分钟进度增长、蓝牙耳机按键、通知点击直达播放页、flac/mkv 解码、base64 图片上传返回码、

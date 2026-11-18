@@ -88,9 +88,12 @@ object FeedPull {
     fun holdEligible(side: FeedPullSide, dragging: Boolean, armed: Boolean, enabled: Boolean): Boolean =
         dragging && armed && enabled && side == FeedPullSide.Right
 
-    /** 距离触发还差多少毫秒：已满（或超时）返回 0，调用方据此决定立即触发。 */
-    fun holdRemainingMs(elapsedMs: Long, holdMs: Long = HOLD_MS): Long =
-        (holdMs - elapsedMs).coerceAtLeast(0L)
+    /** 读秒用：距离触发还剩几秒（向上取整），0 表示已到点、可以触发。 */
+    fun holdSecondsLeft(elapsedMs: Long, holdMs: Long = HOLD_MS): Int {
+        val left = holdMs - elapsedMs
+        if (left <= 0L) return 0
+        return ((left + 999L) / 1000L).toInt()
+    }
 }
 
 /**
@@ -99,6 +102,7 @@ object FeedPull {
  *
  * 右半屏越过门槛后手指停住 [holdMs] 毫秒触发 [onHold]（退出随机），此后本次手势不再执行
  * [onRelease]（不会顺带「换一批」），但位移继续被吃掉，直到手指抬起。
+ * 悬停期间每过一秒回调一次 [onHoldTick]，提示条据此读秒；计时被重置时回调 0。
  *
  * @param atTop       列表是否停在顶部；不满足时整段手势都不参与
  * @param onDrag      拖动中回调（露出高度 px、落点侧），用于实时驱动提示条
@@ -106,6 +110,7 @@ object FeedPull {
  * @param onCancel    手势被判定为横滑而放弃
  * @param holdEnabled 是否允许长按退出（当前处于随机模式才允许）
  * @param holdMs      悬停多久触发，默认 3 秒
+ * @param onHoldTick  读秒回调：剩余秒数，0 = 不在计时
  * @param onHold      悬停到位回调
  */
 fun Modifier.feedPullGesture(
@@ -115,6 +120,7 @@ fun Modifier.feedPullGesture(
     onCancel: () -> Unit,
     holdEnabled: () -> Boolean = { false },
     holdMs: Long = FeedPull.HOLD_MS,
+    onHoldTick: (remainingSec: Int) -> Unit = {},
     onHold: () -> Unit = {},
 ): Modifier = pointerInput(Unit) {
     val startSlop = 6.dp.toPx()
@@ -136,6 +142,16 @@ fun Modifier.feedPullGesture(
         var holdFired = false
         // 0 表示「当前没有在计时」；非 0 是本轮悬停的起点
         var holdStart = 0L
+        // 已经报给 UI 的剩余秒数（0 = 未读秒），只在整数秒变化时回调
+        var tickSec = 0
+
+        /** 计时中断（手指动了 / 退出门槛 / 手势结束）时把读秒收干净。 */
+        fun clearTick() {
+            if (tickSec != 0) {
+                tickSec = 0
+                onHoldTick(0)
+            }
+        }
 
         while (true) {
             val waiting = !holdFired && FeedPull.holdEligible(
@@ -144,32 +160,38 @@ fun Modifier.feedPullGesture(
                 armed = FeedPull.armed(FeedPull.offsetPx(sumY, maxPx), triggerPx),
                 enabled = holdEnabled(),
             )
-            if (!waiting) {
-                holdStart = 0L
-            } else if (holdStart == 0L) {
-                holdStart = SystemClock.uptimeMillis()
-            }
-            val remaining = if (waiting) {
-                FeedPull.holdRemainingMs(SystemClock.uptimeMillis() - holdStart, holdMs)
+            var timeout = -1L
+            if (waiting) {
+                if (holdStart == 0L) holdStart = SystemClock.uptimeMillis()
+                val elapsed = SystemClock.uptimeMillis() - holdStart
+                val sec = FeedPull.holdSecondsLeft(elapsed, holdMs)
+                if (sec <= 0) {
+                    clearTick()
+                    holdFired = true
+                    holdStart = 0L
+                    onHold()
+                    continue
+                }
+                if (sec != tickSec) {
+                    tickSec = sec
+                    onHoldTick(sec)
+                }
+                // 最多睡 1 秒：到下一个整数秒就醒一次刷新读秒，到点则直接触发
+                timeout = minOf(holdMs - elapsed, 1_000L).coerceAtLeast(1L)
             } else {
-                -1L
+                holdStart = 0L
+                clearTick()
             }
 
             // 悬停计时与「手指移动 / 抬起」赛跑，先到者生效
-            val event = if (remaining >= 0L) {
-                withTimeoutOrNull(remaining.coerceAtLeast(1L)) {
-                    awaitPointerEvent(PointerEventPass.Initial)
-                }
+            val event = if (timeout >= 0L) {
+                withTimeoutOrNull(timeout) { awaitPointerEvent(PointerEventPass.Initial) }
             } else {
                 awaitPointerEvent(PointerEventPass.Initial)
             }
 
-            if (event == null) {
-                holdFired = true
-                holdStart = 0L
-                onHold()
-                continue
-            }
+            // 只是「到点醒来刷新读秒」，不是手指事件，继续等
+            if (event == null) continue
 
             val change = event.changes.firstOrNull { it.id == down.id } ?: break
             if (!change.pressed) break
@@ -197,6 +219,7 @@ fun Modifier.feedPullGesture(
             }
         }
 
+        clearTick()
         when {
             cancelled -> onCancel()
             // 已经退出随机：本次手势不再二次执行「换一批」，提示条的回落由 onHold 负责
@@ -210,10 +233,10 @@ fun Modifier.feedPullGesture(
  * 顶端露出的提示条：一条空白区 + 居中的「箭头 + 松开以…」。
  *
  * 箭头默认朝下（继续拉），越过门槛弹簧翻成朝上（可以松手）；文字随露出高度淡入。
- * 已处于随机模式时，右半屏的文案会带上出口提示「按住 3 秒退出随机」。
+ * 已处于随机模式时，右半屏的文案会带上出口提示；开始悬停后每秒读一次剩余秒数。
  *
- * `reveal` 用 lambda 传进来是刻意的：高度在**布局阶段**读、透明度在**绘制阶段**读，
- * 拖动时不会每帧重组整个信息流，只有「是否越过门槛」这一件事会触发重组。
+ * `reveal` / `holdRemaining` 用 lambda 传进来是刻意的：读秒每秒最多触发一次提示条自身重组，
+ * 不会带着整个信息流一起重组。
  */
 @Composable
 fun FeedPullHint(
@@ -221,9 +244,12 @@ fun FeedPullHint(
     reveal: () -> Float,
     thresholdPx: Float,
     exitRandomHint: Boolean = false,
+    holdRemaining: () -> Int = { 0 },
     modifier: Modifier = Modifier,
 ) {
+    val sec = holdRemaining()
     val text = when {
+        side == FeedPullSide.Right && exitRandomHint && sec > 0 -> "按住不动 · $sec 秒后退出随机"
         side == FeedPullSide.Right && exitRandomHint -> "松开换一批 · 按住 ${FeedPull.HOLD_MS / 1000} 秒退出随机"
         side == FeedPullSide.Right -> "松开以获取随机推荐"
         else -> "松开以切换展示模式"
