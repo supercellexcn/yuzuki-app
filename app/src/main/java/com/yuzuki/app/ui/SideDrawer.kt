@@ -48,7 +48,6 @@ import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
@@ -245,7 +244,6 @@ fun SideDrawer(
                                     LibraryState.conds.any { c -> c.type == entry.type && c.value == it.name }
                                 }
                                 Orb(
-                                    label = entry.label,
                                     size = circle,
                                     active = active > 0,
                                     badge = active,
@@ -259,7 +257,6 @@ fun SideDrawer(
                         // 第 2 行：收藏圆（与第 1 列对齐）
                         Row(horizontalArrangement = Arrangement.spacedBy(gap)) {
                             Orb(
-                                label = "收藏",
                                 size = circle,
                                 accent = accent,
                                 onAccent = onAccent,
@@ -293,7 +290,6 @@ fun SideDrawer(
                         onLogout = { onAfterNavigate(); onLogout() },
                     )
                     Orb(
-                        label = "设置",
                         size = circle,
                         accent = accent,
                         onAccent = onAccent,
@@ -333,12 +329,11 @@ fun SideDrawer(
 }
 
 /**
- * 圆控件：**图标是主体、放在圆心**，小字压在圆内底部（9sp，不挤占图标位置）。
+ * 圆控件：**只有图标、绝对居中**（圆内不再放文字）。
  * 筛选生效时圆描边换成强调色、右上角显示已选数量（角标画在裁剪层之外，不会被圆裁掉）。
  */
 @Composable
 private fun Orb(
-    label: String,
     size: Dp,
     accent: Color,
     onAccent: Color,
@@ -362,23 +357,8 @@ private fun Orb(
                 .clickable(onClick = onClick),
             contentAlignment = Alignment.Center,
         ) {
-            // 圆内是「图标 + 小字」一个整体，垂直居中：图标占圆径 42%（视觉图形约 28%），
-            // 字 10sp 在图标下方，上下留白均匀，不贴边也不挤在一起
-            Column(
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.Center,
-            ) {
-                icon(tint, Modifier.size(size * 0.42f))
-                Spacer(Modifier.height(size * 0.04f))
-                Text(
-                    label,
-                    fontSize = 10.sp,
-                    fontWeight = if (active) FontWeight.SemiBold else FontWeight.Medium,
-                    color = tint,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
+            // 没有文字了，图标直接落在圆心；0.46 让图形在圆里不显小、也不顶到边
+            icon(tint, Modifier.size(size * 0.46f))
         }
         if (badge > 0) {
             Box(
@@ -425,26 +405,13 @@ private fun AccountOrb(
                 .clickable { menuVisible = true },
             contentAlignment = Alignment.Center,
         ) {
-            // 与其它圆同一套对齐：首字母当图标、小字在下，整体在圆内居中
-            Column(
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.Center,
-            ) {
-                Text(
-                    initial,
-                    fontSize = 20.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = onAccent,
-                )
-                Spacer(Modifier.height(size * 0.04f))
-                Text(
-                    "账号",
-                    fontSize = 10.sp,
-                    fontWeight = FontWeight.Medium,
-                    color = onAccent,
-                    maxLines = 1,
-                )
-            }
+            // 与其它圆一致：只有内容、绝对居中，首字母当图标
+            Text(
+                initial,
+                fontSize = 22.sp,
+                fontWeight = FontWeight.Bold,
+                color = onAccent,
+            )
         }
         DropdownMenu(expanded = menuVisible, onDismissRequest = { menuVisible = false }) {
             DropdownMenuItem(
