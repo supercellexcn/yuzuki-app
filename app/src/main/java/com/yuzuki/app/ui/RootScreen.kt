@@ -28,6 +28,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
@@ -253,7 +254,14 @@ fun RootScreen(
     }
 
     Box(modifier = modifier.fillMaxSize()) {
-        Column(modifier = Modifier.fillMaxSize()) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                // 浮动圆控件浮出时，下层内容整体做一次高斯模糊（半径跟手渐入）：
+                // 半导体感来自模糊本身，api 31+ 走 GPU RenderEffect；31 以下 Compose 自动跳过，
+                // 只剩 SideDrawer 里的压暗层，不会崩也不会花屏。
+                .blur(radius = 14.dp * drawerFraction),
+        ) {
             Box(modifier = Modifier.weight(1f).then(drawerObserve)) {
                 HorizontalPager(
                     state = pagerState,

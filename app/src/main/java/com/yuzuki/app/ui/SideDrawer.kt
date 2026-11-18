@@ -188,6 +188,8 @@ fun SideDrawer(
     Box(
         modifier = Modifier
             .fillMaxSize()
+            // 透明压暗层：圆浮在内容之上时把底下的列表压暗一点，文字 / 图片不会和圆抢视线
+            .background(Color.Black.copy(alpha = 0.45f * fraction))
             // 向左拖即收起，位移实时回传给 RootScreen
             .pointerInput(swipePx) {
                 var total = 0f
@@ -331,7 +333,7 @@ fun SideDrawer(
 }
 
 /**
- * 圆控件：圆内竖排 **图标 + 小字**（字在圆里，不在圆下面）。
+ * 圆控件：**图标是主体、放在圆心**，小字压在圆内底部（9sp，不挤占图标位置）。
  * 筛选生效时圆描边换成强调色、右上角显示已选数量（角标画在裁剪层之外，不会被圆裁掉）。
  */
 @Composable
@@ -360,18 +362,18 @@ private fun Orb(
                 .clickable(onClick = onClick),
             contentAlignment = Alignment.Center,
         ) {
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                icon(tint, Modifier.size(size * 0.3f))
-                Spacer(Modifier.height(size * 0.05f))
-                Text(
-                    label,
-                    fontSize = 11.sp,
-                    fontWeight = if (active) FontWeight.SemiBold else FontWeight.Medium,
-                    color = tint,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
+            icon(tint, Modifier.size(size * 0.34f))
+            Text(
+                label,
+                fontSize = 9.sp,
+                fontWeight = if (active) FontWeight.SemiBold else FontWeight.Medium,
+                color = tint,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(bottom = size * 0.12f),
+            )
         }
         if (badge > 0) {
             Box(
@@ -394,7 +396,10 @@ private fun Orb(
     }
 }
 
-/** 左下角账号圆：圆内首字母 + 「账号」，点开仍是改密 / 服务地址 / 退出登录。 */
+/**
+ * 左下角账号圆：首字母是主体、居中，小字「账号」压在圆内底部。
+ * 点开仍是改密 / 服务地址 / 退出登录。
+ */
 @Composable
 private fun AccountOrb(
     size: Dp,
@@ -415,22 +420,22 @@ private fun AccountOrb(
                 .clickable { menuVisible = true },
             contentAlignment = Alignment.Center,
         ) {
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Text(
-                    initial,
-                    fontSize = 16.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = onAccent,
-                )
-                Spacer(Modifier.height(size * 0.05f))
-                Text(
-                    "账号",
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.Medium,
-                    color = onAccent,
-                    maxLines = 1,
-                )
-            }
+            Text(
+                initial,
+                fontSize = 18.sp,
+                fontWeight = FontWeight.Bold,
+                color = onAccent,
+            )
+            Text(
+                "账号",
+                fontSize = 9.sp,
+                fontWeight = FontWeight.Medium,
+                color = onAccent,
+                maxLines = 1,
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(bottom = size * 0.12f),
+            )
         }
         DropdownMenu(expanded = menuVisible, onDismissRequest = { menuVisible = false }) {
             DropdownMenuItem(
