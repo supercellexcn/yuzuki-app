@@ -35,8 +35,8 @@ enum class MainTab { Library, Player, History }
 /** 导航栏高度。页面底部要让出这一段（[LocalTabBarInset]），否则最后一项会被栏压住。 */
 val TabBarHeight = 65.dp
 
-/** 栏身底色：黑里带一点紫味，65% 不透明 —— 透了，但文字对比度仍够。 */
-private val TabBarTint = Color(0xA60A0A10)
+/** 栏身底色：黑里带一点紫味，55% 不透明 —— 透得出信息流，磨砂感也还在。 */
+private val TabBarTint = Color(0x8C0A0A12)
 private val TabSelected = Color(0xFFA888F8)
 private val TabUnselected = Color(0xFF8E8E9A)
 

@@ -1,6 +1,8 @@
 package com.yuzuki.app.ui
 
 import android.content.Context
+import androidx.compose.animation.core.animate
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -17,6 +19,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -41,8 +44,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
@@ -60,6 +65,7 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.yuzuki.app.data.FilterCond
@@ -68,6 +74,8 @@ import com.yuzuki.app.ui.theme.ShapeItem
 import com.yuzuki.app.ui.theme.ShapePill
 import com.yuzuki.app.ui.theme.WebColors
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlin.math.roundToInt
 import kotlinx.coroutines.flow.distinctUntilChanged
 
 /*
@@ -249,12 +257,45 @@ fun LibraryScreen(
     // 底部导航压在内容之上（亚克力），列表末尾要让出这一段，否则最后一行被栏挡住
     val barInset = LocalTabBarInset.current
     val haptic = LocalHapticFeedback.current
+    val scope = rememberCoroutineScope()
+    val density = LocalDensity.current
+    val triggerPx = with(density) { FeedPull.TRIGGER_DP.dp.toPx() }
+
+    // 顶部下拉：露出高度跟手指走，松手再决定执行还是弹回
+    var pullReveal by remember { mutableFloatStateOf(0f) }
+    var pullSide by remember { mutableStateOf(FeedPullSide.NONE) }
+
+    fun settlePull() {
+        scope.launch {
+            animate(pullReveal, 0f, animationSpec = tween(220)) { v, _ -> pullReveal = v }
+        }
+    }
 
     /**
-     * 信息流顶端下拉：左半屏循环切换「列表 → 卡片详情 → 封面模式」，右半屏换随机推荐。
-     * 只在列表停在顶部时响应，其余时候这段下拉本来就是无效空白。
+     * 松手生效：左半屏循环切换「列表 → 卡片详情 → 封面模式」，右半屏进入随机 / 换一批。
      */
-    val feedPull = Modifier.feedPullAtTop(
+    fun runPullAction(side: FeedPullSide) {
+        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+        when (side) {
+            FeedPullSide.Left -> {
+                LibraryState.cycleView()
+                AppToast.show(
+                    when (LibraryState.view) {
+                        LibraryView.Detail -> "卡片详情"
+                        LibraryView.Image -> "封面模式"
+                        LibraryView.List -> "列表模式"
+                    },
+                )
+            }
+            FeedPullSide.Right -> {
+                val entered = LibraryState.pullRandom()
+                AppToast.show(if (entered) "随机推荐" else "换一批随机推荐")
+            }
+            FeedPullSide.NONE -> Unit
+        }
+    }
+
+    val feedPull = Modifier.feedPullGesture(
         atTop = {
             if (LibraryState.view == LibraryView.List) {
                 listState.firstVisibleItemIndex == 0 && listState.firstVisibleItemScrollOffset == 0
@@ -262,26 +303,15 @@ fun LibraryScreen(
                 gridState.firstVisibleItemIndex == 0 && gridState.firstVisibleItemScrollOffset == 0
             }
         },
-        onPull = { side ->
-            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-            when (side) {
-                FeedPullSide.Left -> {
-                    LibraryState.cycleView()
-                    AppToast.show(
-                        when (LibraryState.view) {
-                            LibraryView.Detail -> "卡片详情"
-                            LibraryView.Image -> "封面模式"
-                            LibraryView.List -> "列表模式"
-                        },
-                    )
-                }
-                FeedPullSide.Right -> {
-                    val entered = LibraryState.pullRandom()
-                    AppToast.show(if (entered) "随机推荐" else "换一批随机推荐")
-                }
-                FeedPullSide.NONE -> Unit
-            }
+        onDrag = { reveal, side ->
+            pullSide = side
+            pullReveal = reveal
         },
+        onRelease = { reveal, side ->
+            if (FeedPull.armed(reveal, triggerPx)) runPullAction(side)
+            settlePull()
+        },
+        onCancel = ::settlePull,
     )
 
     Column(modifier = modifier.fillMaxSize()) {
@@ -311,107 +341,122 @@ fun LibraryScreen(
             )
         }
 
-        when {
-            vm.error != null && vm.items.isEmpty() -> StateBox(
-                message = vm.error ?: "加载失败",
-                modifier = Modifier.padding(horizontal = PAGE_PAD_H.dp).fillMaxWidth(),
-                onRetry = { vm.requestPage(reset = true, fingerprint = fingerprint) },
+        // 信息流区域：下拉时整体下移，顶端露出提示条（空白区 + 箭头 + 松开以…）
+        Box(modifier = Modifier.weight(1f)) {
+            FeedPullHint(
+                side = pullSide,
+                reveal = { pullReveal },
+                thresholdPx = triggerPx,
+                modifier = Modifier.align(Alignment.TopCenter),
             )
-            // 列表模式：一行一个作品，整片圆角容器 + 行间 1px 分隔
-            LibraryState.view == LibraryView.List -> Box(
+            Box(
                 modifier = Modifier
-                    .weight(1f)
-                    .padding(horizontal = PAGE_PAD_H.dp)
-                    .clip(RoundedCornerShape(14.dp))
+                    .fillMaxSize()
+                    .offset { IntOffset(0, pullReveal.roundToInt()) }
                     .then(feedPull),
             ) {
-                LazyColumn(
-                    state = listState,
-                    contentPadding = PaddingValues(
-                        top = if (hasFilter) 12.dp else PAGE_PAD_TOP.dp,
-                        bottom = PAGE_PAD_BOTTOM.dp + barInset,
-                    ),
-                    modifier = Modifier.fillMaxSize(),
-                ) {
-                    lazyColumnItems(vm.items, key = { it.rjCode }) { work ->
-                        WorkRow(
-                            work = work,
-                            rowBg = cardBg,
-                            actorBg = actorBg,
-                            onOpen = { onOpenWork(work.rjCode) },
-                            onCond = { cond -> LibraryState.addCond(cond) },
-                            showDivider = work.rjCode != vm.items.lastOrNull()?.rjCode,
-                        )
+                when {
+                    vm.error != null && vm.items.isEmpty() -> StateBox(
+                        message = vm.error ?: "加载失败",
+                        modifier = Modifier.padding(horizontal = PAGE_PAD_H.dp).fillMaxWidth(),
+                        onRetry = { vm.requestPage(reset = true, fingerprint = fingerprint) },
+                    )
+                    // 列表模式：一行一个作品，整片圆角容器 + 行间 1px 分隔
+                    LibraryState.view == LibraryView.List -> Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(horizontal = PAGE_PAD_H.dp)
+                            .clip(RoundedCornerShape(14.dp)),
+                    ) {
+                        LazyColumn(
+                            state = listState,
+                            contentPadding = PaddingValues(
+                                top = if (hasFilter) 12.dp else PAGE_PAD_TOP.dp,
+                                bottom = PAGE_PAD_BOTTOM.dp + barInset,
+                            ),
+                            modifier = Modifier.fillMaxSize(),
+                        ) {
+                            lazyColumnItems(vm.items, key = { it.rjCode }) { work ->
+                                WorkRow(
+                                    work = work,
+                                    rowBg = cardBg,
+                                    actorBg = actorBg,
+                                    onOpen = { onOpenWork(work.rjCode) },
+                                    onCond = { cond -> LibraryState.addCond(cond) },
+                                    showDivider = work.rjCode != vm.items.lastOrNull()?.rjCode,
+                                )
+                            }
+                            item(key = "footer") {
+                                LibraryFooter(
+                                    loading = vm.loading,
+                                    loadMoreError = vm.loadMoreError,
+                                    endReached = vm.endReached,
+                                    hasItems = vm.items.isNotEmpty(),
+                                    hasFilter = hasFilter,
+                                    onRetry = { vm.requestPage(reset = false, fingerprint = fingerprint) },
+                                )
+                            }
+                        }
                     }
-                    item(key = "footer") {
-                        LibraryFooter(
-                            loading = vm.loading,
-                            loadMoreError = vm.loadMoreError,
-                            endReached = vm.endReached,
-                            hasItems = vm.items.isNotEmpty(),
-                            hasFilter = hasFilter,
-                            onRetry = { vm.requestPage(reset = false, fingerprint = fingerprint) },
-                        )
-                    }
-                }
-            }
-            else -> BoxWithConstraints(modifier = Modifier.weight(1f).then(feedPull)) {
-                // 图片模式：卡片全是正方形，高度跟列宽走。但 Fixed 列宽会把除不尽的余数补给前几列
-                // （实测 1280px 屏左列 557 / 右列 556），而瀑布流两列各自累加 y，1px 落差会一路放大。
-                // 这里按整数列宽算一个统一封面高度，两列严格等高。
-                val coverHeight = if (LibraryState.imageMode) {
-                    val density = LocalDensity.current
-                    val gapPx = with(density) { GRID_GAP.dp.roundToPx() }
-                    val padPx = with(density) { PAGE_PAD_H.dp.roundToPx() }
-                    val cellPx = (constraints.maxWidth - padPx * 2 - gapPx * (columns - 1)) / columns
-                    with(density) { cellPx.toDp() }
-                } else {
-                    null
-                }
-                LazyVerticalStaggeredGrid(
-                    columns = StaggeredGridCells.Fixed(columns),
-                    state = gridState,
-                    contentPadding = PaddingValues(
-                        start = PAGE_PAD_H.dp,
-                        end = PAGE_PAD_H.dp,
-                        top = if (hasFilter) 12.dp else PAGE_PAD_TOP.dp,
-                        bottom = PAGE_PAD_BOTTOM.dp + barInset,
-                    ),
-                    horizontalArrangement = Arrangement.spacedBy(GRID_GAP.dp),
-                    verticalItemSpacing = GRID_GAP.dp,
-                    modifier = Modifier.fillMaxSize(),
-                ) {
-                    // 小红书式瀑布流：两列各自按卡片自然高度向下排，彼此互不影响
-                    items(vm.items, key = { it.rjCode }) { work ->
-                        WorkCard(
-                            work = work,
-                            imageMode = LibraryState.imageMode,
-                            cardBg = cardBg,
-                            metaBg = metaBg,
-                            genreBg = genreBg,
-                            actorBg = actorBg,
-                            onOpen = { onOpenWork(work.rjCode) },
-                            modifier = Modifier.fillMaxWidth(),
-                            onCond = { cond -> LibraryState.addCond(cond) },
-                            coverHeight = coverHeight,
-                        )
-                    }
-                    item(span = StaggeredGridItemSpan.FullLine, key = "footer") {
-                        LibraryFooter(
-                            loading = vm.loading,
-                            loadMoreError = vm.loadMoreError,
-                            endReached = vm.endReached,
-                            hasItems = vm.items.isNotEmpty(),
-                            hasFilter = hasFilter,
-                            onRetry = { vm.requestPage(reset = false, fingerprint = fingerprint) },
-                        )
+                    else -> BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+                        // 图片模式：卡片全是正方形，高度跟列宽走。但 Fixed 列宽会把除不尽的余数补给前几列
+                        // （实测 1280px 屏左列 557 / 右列 556），而瀑布流两列各自累加 y，1px 落差会一路放大。
+                        // 这里按整数列宽算一个统一封面高度，两列严格等高。
+                        val coverHeight = if (LibraryState.imageMode) {
+                            val gapPx = with(density) { GRID_GAP.dp.roundToPx() }
+                            val padPx = with(density) { PAGE_PAD_H.dp.roundToPx() }
+                            val cellPx =
+                                (constraints.maxWidth - padPx * 2 - gapPx * (columns - 1)) / columns
+                            with(density) { cellPx.toDp() }
+                        } else {
+                            null
+                        }
+                        LazyVerticalStaggeredGrid(
+                            columns = StaggeredGridCells.Fixed(columns),
+                            state = gridState,
+                            contentPadding = PaddingValues(
+                                start = PAGE_PAD_H.dp,
+                                end = PAGE_PAD_H.dp,
+                                top = if (hasFilter) 12.dp else PAGE_PAD_TOP.dp,
+                                bottom = PAGE_PAD_BOTTOM.dp + barInset,
+                            ),
+                            horizontalArrangement = Arrangement.spacedBy(GRID_GAP.dp),
+                            verticalItemSpacing = GRID_GAP.dp,
+                            modifier = Modifier.fillMaxSize(),
+                        ) {
+                            // 小红书式瀑布流：两列各自按卡片自然高度向下排，彼此互不影响
+                            items(vm.items, key = { it.rjCode }) { work ->
+                                WorkCard(
+                                    work = work,
+                                    imageMode = LibraryState.imageMode,
+                                    cardBg = cardBg,
+                                    metaBg = metaBg,
+                                    genreBg = genreBg,
+                                    actorBg = actorBg,
+                                    onOpen = { onOpenWork(work.rjCode) },
+                                    modifier = Modifier.fillMaxWidth(),
+                                    onCond = { cond -> LibraryState.addCond(cond) },
+                                    coverHeight = coverHeight,
+                                )
+                            }
+                            item(span = StaggeredGridItemSpan.FullLine, key = "footer") {
+                                LibraryFooter(
+                                    loading = vm.loading,
+                                    loadMoreError = vm.loadMoreError,
+                                    endReached = vm.endReached,
+                                    hasItems = vm.items.isNotEmpty(),
+                                    hasFilter = hasFilter,
+                                    onRetry = { vm.requestPage(reset = false, fingerprint = fingerprint) },
+                                )
+                            }
+                        }
                     }
                 }
             }
         }
     }
-
 }
+
 
 /** 列表底部：加载中 / 加载失败重试 / 已加载全部 / 空态。 */
 @Composable

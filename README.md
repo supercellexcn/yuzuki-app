@@ -172,8 +172,10 @@ ADB=.toolchain/sdk/platform-tools/adb.exe
 - 根布局从 `Column`（内容 weight + 栏在下面）改成 `Box`：Pager 与覆盖层铺满整屏，
   `MainNavigationBar` 用 `align(BottomCenter)` 压在内容之上，所以信息流是**从栏后穿过**的。
 - 内容根容器挂 `Modifier.acrylicSource(backdrop)`：把本帧内容录进一个 `GraphicsLayer` 再画出来
-  （画面与不用它时逐像素一致）。栏身只从层里取「自己身后那一条」做 `RenderEffect` 模糊：
-  `translate(top = -(内容高 − 栏高))` 后 `drawLayer`，再压 `#0A0A10 / 65%` 深色 + 顶部 1px 高光。
+  （画面与不用它时逐像素一致）。栏身再建一个**只有栏高大小**的小层，把「自己身后那一条」
+  `translate(top = -(内容高 − 层高))` 录进去（顶端多录一个模糊半径，模糊才有源可采），
+  给这个小层挂 `BlurEffect(26dp, TileMode.Clamp)` 后 `clipRect` 画回来，最后压 `#0A0A12 / 55%`
+  深色 + 顶部 1px 高光。效果直接挂在层上（不是 `Modifier.blur`），不受修饰符顺序影响。
   栏高只有 65dp，模糊成本与整屏模糊不是一个量级。
 - `BlurEffect` 依赖 Android 12+ 的 RenderEffect：API 26–30 退化为「透而不糊」的深色半透明
   （仍有透视，只是没有磨砂），不崩、不闪。播放器页自带整屏模糊背景，那一页跳过取样。
@@ -183,13 +185,18 @@ ADB=.toolchain/sdk/platform-tools/adb.exe
 
 **信息流顶部下拉手势**（`ui/FeedPull.kt`）
 
-- 只在**列表停在顶部**（首项 index=0 且 offset=0）时生效，其余时候这段下拉本来就是无效空白。
-- 用 Initial pass **旁路观察**（只读坐标、不消费事件）：列表照常滚动，也不与 Pager 横滑抢手势。
-- 判定（纯函数 `FeedPull.triggered`）：向下位移 > 56dp **且** > 横向累计 × 1.4，一次手势最多触发一次；
-  触发时轻震一下 + AppToast 提示。
-- 左半屏下拉：列表 → 卡片详情 → 封面模式 循环切换（等价于原悬浮控件的 M 键）；
-  右半屏下拉：未在随机 → 进入随机推荐；已在随机 → `LibraryState.randomEpoch++` 换一批
-  （批次号参与列表条件指纹，条件没变也会重新请求）。
+- 只在**列表停在顶部**（首项 index=0 且 offset=0）时起手，其余时候完全放行。
+- 交互是「**拖出提示条 → 松手才生效**」，不是拖到一半就切：
+  - 拖动时信息流整体下移（`offset` 在布局阶段读，不触发重组），顶端露出一条空白区；
+  - 空白区里居中显示「箭头 + 文案」：左半屏「松开以切换展示模式」，右半屏「松开以获取随机推荐」；
+  - 露出高度 = 手指位移 × 0.7（封顶 132dp），超过 **64dp** 门槛时箭头弹簧翻转朝上、文字变强调色，
+    此时松手才执行；没到门槛松手就 220ms 弹回去；
+  - 文案透明度随露出高度淡入，高度/透明度都在布局 / 绘制阶段读状态，拖动时 60fps 不重组列表。
+- 拉出提示条期间**消费**位移：信息流不再滚动，也不会出现系统的 overscroll 拉伸；
+  手感上必须先「明显向下」（> 6dp 且 > 横向累计 × 1.4）才开始，中途横向占主导则放弃这次下拉。
+- 左半屏松手：列表 → 卡片详情 → 封面模式 循环切换（等价于原悬浮控件的 M 键）；
+  右半屏松手：未在随机 → 进入随机推荐；已在随机 → `LibraryState.randomEpoch++` 换一批
+  （批次号参与列表条件指纹，条件没变也会重新请求）。生效时轻震一下 + AppToast 提示。
 
 ## 分阶段状态
 
@@ -452,7 +459,7 @@ ADB=.toolchain/sdk/platform-tools/adb.exe
 - 悬浮控件：删除 `ui/MobileDock.kt`（237 行）与 `DockState`，库页 / 历史页 / 详情页里
   `LaunchedEffect(DockState.scrollTopTicket)` 三处一并移除。回顶改由「重复点库 Tab」承担
   （`ScrollRestore.shouldScrollTopOnLibraryTab` 未改）。**侧栏抽屉（SideDrawer / DrawerGate）保持原样不动**。
-- 顶部下拉：新增 `ui/FeedPull.kt`；`LibraryScreen` 的列表容器与瀑布流容器各挂一份
+- 顶部下拉（0.1.29 初版）：新增 `ui/FeedPull.kt`；`LibraryScreen` 的列表容器与瀑布流容器各挂一份
   `Modifier.feedPullAtTop(...)`，`atTop` 按当前形态查 `listState` / `gridState` 的首项与偏移。
   左半屏走 `LibraryState.cycleView()`，右半屏走新增的 `LibraryState.pullRandom()`
   （`randomMode = true` + `randomEpoch++`，批次号已加入指纹）。
@@ -460,13 +467,33 @@ ADB=.toolchain/sdk/platform-tools/adb.exe
   新增 `ui/Acrylic.kt`（`rememberAcrylicBackdrop` / `acrylicSource` / `AcrylicBarSurface`）
   与 `LocalTabBarInset`，五处页面底部各让出 65dp。
 - `compileDebugKotlin` / `assembleRelease` 通过；`testDebugUnitTest` **98 例全过、0 失败 0 错误**
-  （新增 `FeedPullTest` 5 例：过门槛、差一点、向上拉、斜滑、左右半屏落点、右下拉进入随机并累加批次号）。
+  （新增 `FeedPullTest` 5 例：阻尼露出高度与封顶、松手门槛、横滑取消、左右半屏落点、
+  右下拉进入随机并累加批次号）。
 - 静态断言：`MobileDock` / `DockState` / `dockTop` 全库零命中；`acrylicSource` 只在 `RootScreen`
   出现一次（内容层），`MainNavigationBar` 是唯一 `backdrop` 消费方。
 - Release `0.1.29` 已发布共享：`yuzuki-0.1.29-1118-1924.apk` + `yuzuki-latest.apk`，
   与本地 `app-release.apk` 三方 sha256 一致 `335dde92…2d776a`；`versionCode=1029`。
 - 本次 `adb devices` 无设备（mDNS 只闪现过一次随即消失，历史地址 `192.168.5.16:35225` 已拒绝连接），
   **未装机**；真机观感（毛玻璃强度、下拉手感）由用户自测。
+
+**本次增量验证（2026-11-18 二改，下拉改「松手生效 + 提示条」、导航栏模糊改为显式层 · Release `0.1.30`）**：
+
+- 真机反馈两条：①下拉「拖到一半直接切换」太生硬，要「顶端露出空白提示区 + 箭头/文案 + 松手才生效」；
+  ②导航栏「有透明但没有模糊」。第 ② 条的修法：不再用 `Modifier.blur` + `drawBehind` 的组合
+  （顺序 / 父层不确定性太大），改成**给小层自己挂 `BlurEffect`**：
+  `strip.renderEffect = BlurEffect(26dp, TileMode.Clamp)`（`SideEffect` 里设一次），
+  `record` 时顶端多录一个模糊半径（`layerH = 栏高 + 半径`）保证模糊有源可采，`clipRect` 后 `drawLayer`。
+  栏身深色层从 65% 降到 **55%**（`TabBarTint = 0x8C0A0A12`），磨砂才看得出来。
+- 下拉改成三段式：拖动 → `feedPullGesture` 在 Initial pass **消费**位移（信息流不再滚动、也没有系统
+  overscroll 拉伸），`pullReveal = 位移 × 0.7`（封顶 132dp）驱动信息流整体下移、顶端露出
+  `FeedPullHint`（箭头 + 「松开以切换展示模式 / 松开以获取随机推荐」）；越过 **64dp** 箭头弹簧翻转朝上
+  （`animateFloatAsState` + `spring`），松手才执行；未到门槛 220ms `tween` 弹回。
+- 拖动期间不重组列表：露出高度在**布局阶段**（`Modifier.layout`）读、文字透明度在**绘制阶段**
+  （`graphicsLayer { alpha }`）读，只有「是否越过门槛」（`derivedStateOf`）与落点半边会触发重组。
+- `assembleRelease` 通过；`testDebugUnitTest` **98 例全过、0 失败 0 错误**。
+- Release `0.1.30` 已发布共享：`yuzuki-0.1.30-1118-1938.apk` + `yuzuki-latest.apk`，
+  与本地 `app-release.apk` 三方 sha256 一致 `e79f1cf8…0ec93b4`；`versionCode=1030`。
+  已装到 `192.168.5.16:37557`（`versionName=0.1.30`），测试由用户自测。
 
 **仍待验证**：A1–A5 接口同源断言、锁屏 metadata 与 `artworkData`、连续 `next()` 3 次通知不消失、
 息屏 5 分钟进度增长、蓝牙耳机按键、通知点击直达播放页、flac/mkv 解码、base64 图片上传返回码、

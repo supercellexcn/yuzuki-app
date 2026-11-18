@@ -6,38 +6,46 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * 信息流顶端下拉的纯判定：门槛、方向占比、左右半屏落点。
- * 手势本体（pointerInput）不参与单测，这里只钉住「什么时候算一次下拉」「落到哪一半」。
+ * 信息流顶端下拉的纯判定：阻尼露出高度、松手门槛、横向取消、左右半屏落点。
+ * 手势本体与动画不参与单测，这里只钉住「露出多少」「算不算到位」这些数值规则。
  */
 class FeedPullTest {
 
-    private val slop = 150f   // ≈56dp @ 2.68x
+    private val maxPx = 350f       // ≈132dp @ 2.68x
+    private val thresholdPx = 170f // ≈64dp @ 2.68x
 
     @Test
-    fun `纵向下拉过门槛才触发`() {
-        assertTrue(FeedPull.triggered(sumY = 200f, absXAcc = 10f, thresholdPx = slop))
-        // 差一点点
-        assertFalse(FeedPull.triggered(sumY = 140f, absXAcc = 0f, thresholdPx = slop))
+    fun `露出高度按阻尼跟手并封顶`() {
+        // 手指下拉 100px → 露出 70px（阻尼 0.7）
+        assertEquals(70f, FeedPull.offsetPx(sumY = 100f, maxPx = maxPx), 0.01f)
+        // 拉过头也不超过上限
+        assertEquals(maxPx, FeedPull.offsetPx(sumY = 10_000f, maxPx = maxPx), 0.01f)
+        // 手指反向（往上）露出一律为 0，不会出现负高度
+        assertEquals(0f, FeedPull.offsetPx(sumY = -200f, maxPx = maxPx), 0.01f)
     }
 
     @Test
-    fun `向上拉不触发`() {
-        assertFalse(FeedPull.triggered(sumY = -400f, absXAcc = 0f, thresholdPx = slop))
+    fun `越过门槛才算松手即生效`() {
+        assertFalse(FeedPull.armed(revealedPx = thresholdPx - 1f, thresholdPx = thresholdPx))
+        assertTrue(FeedPull.armed(revealedPx = thresholdPx, thresholdPx = thresholdPx))
+        assertTrue(FeedPull.armed(revealedPx = thresholdPx + 40f, thresholdPx = thresholdPx))
+        // 门槛为 0（未测量）时不判定为生效
+        assertFalse(FeedPull.armed(revealedPx = 300f, thresholdPx = 0f))
     }
 
     @Test
-    fun `斜着滑列表不触发`() {
-        // 纵向过了门槛，但横向累计同样大：这是斜滑，不是下拉
-        assertFalse(FeedPull.triggered(sumY = 300f, absXAcc = 260f, thresholdPx = slop))
-        // 横滑翻页 / 右滑拉侧栏
-        assertFalse(FeedPull.triggered(sumY = 160f, absXAcc = 300f, thresholdPx = slop))
+    fun `拖动中途转为横滑则取消`() {
+        // 一路向下：不取消
+        assertFalse(FeedPull.cancelOnHorizontal(sumY = 200f, absXAcc = 20f))
+        // 横向累计超过纵向的 1.2 倍：说明用户在横滑翻页 / 拉侧栏
+        assertTrue(FeedPull.cancelOnHorizontal(sumY = 100f, absXAcc = 150f))
     }
 
     @Test
     fun `左右半屏落点`() {
         assertEquals(FeedPullSide.Left, FeedPull.side(downX = 100f, widthPx = 1080f))
         assertEquals(FeedPullSide.Right, FeedPull.side(downX = 900f, widthPx = 1080f))
-        // 正中间算右半（与「过半才算右边」的直觉一致：严格小于才归左）
+        // 正中间算右半（严格小于才归左）
         assertEquals(FeedPullSide.Right, FeedPull.side(downX = 540f, widthPx = 1080f))
         assertEquals(FeedPullSide.NONE, FeedPull.side(downX = 100f, widthPx = 0f))
     }
