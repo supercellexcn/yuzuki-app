@@ -189,9 +189,6 @@ fun WorkDetailScreen(
     }
 
     LaunchedEffect(rj) { reload() }
-    LaunchedEffect(DockState.scrollTopTicket) {
-        if (DockState.scrollTopTicket > 0) listState.animateScrollToItem(0)
-    }
     // 图片查看器打开时，系统返回先关查看器，不直接退出作品
     BackHandler(enabled = viewerIndex != null) { viewerIndex = null }
 
@@ -242,8 +239,10 @@ fun WorkDetailScreen(
         LazyColumn(
             state = listState,
             modifier = Modifier.weight(1f).fillMaxWidth(),
-            // .content padding: 14px 20px 24px；.player-view gap: 16
-            contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 14.dp, bottom = 24.dp),
+            // .content padding: 14px 20px 24px；底部再让出压在内容之上的导航栏
+            contentPadding = PaddingValues(
+                start = 20.dp, end = 20.dp, top = 14.dp, bottom = 24.dp + LocalTabBarInset.current,
+            ),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
             item(key = "back") {

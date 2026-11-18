@@ -33,6 +33,13 @@ object LibraryState {
         private set
     var view by mutableStateOf(LibraryView.Detail)
     var randomMode by mutableStateOf(false)
+
+    /**
+     * 随机批次号：已处于随机模式时再要一批随机，条件本身没变，
+     * 靠这个计数参与列表条件指纹让页面重新拉数据。
+     */
+    var randomEpoch by mutableStateOf(0)
+        private set
     var scrollTopTicket by mutableStateOf(0)
         private set
 
@@ -86,6 +93,19 @@ object LibraryState {
     }
 
     fun toggleRandom() { randomMode = !randomMode }
+
+    /**
+     * 信息流右半屏下拉：「随机推荐」。
+     * 未在随机模式 → 进入随机并拉一批；已在随机模式 → 换一批（randomEpoch 参与条件指纹）。
+     * 返回 true 表示这次是「新进入随机」，供提示文案区分。
+     */
+    fun pullRandom(): Boolean {
+        val entered = !randomMode
+        randomMode = true
+        randomEpoch++
+        return entered
+    }
+
     fun scrollToTop() { scrollTopTicket++ }
     fun home() {
         query = ""
@@ -102,17 +122,6 @@ object LibraryState {
     private fun persistAsync() {
         libraryScope.launch { runCatching { persist() } }
     }
-}
-
-/**
- * 移动端悬浮控件（web `MobileDock.vue`）与页面之间的最小契约：
- * 只广播「回到顶部」，由各页面自己的滚动容器消费。
- */
-object DockState {
-    var scrollTopTicket by mutableStateOf(0)
-        private set
-
-    fun scrollToTop() { scrollTopTicket++ }
 }
 
 object WallpaperState {

@@ -10,7 +10,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -18,6 +17,7 @@ import androidx.compose.foundation.lazy.staggeredgrid.rememberLazyStaggeredGridS
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -27,6 +27,8 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.staticCompositionLocalOf
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.input.pointer.PointerEventPass
@@ -47,8 +49,14 @@ private const val LIBRARY_PAGE = 0
 private const val PLAYER_PAGE = 1
 private const val HISTORY_PAGE = 2
 
+/** 底部导航栏的高度：页面用它给自己留出「被栏压住」的那一段。 */
+val LocalTabBarInset = staticCompositionLocalOf { 0.dp }
+
 /**
  * 手机端根布局：横向 Pager（库 / 播放器 / 历史）+ 底部 3 Tab + 侧栏抽屉。
+ *
+ * 布局是**叠加式**的：Pager 与覆盖层铺满整屏，底部导航栏压在内容之上（亚克力毛玻璃），
+ * 所以滚动信息流会从导航栏后面穿过去。页面自己用 [LocalTabBarInset] 给内容留出这一段。
  *
  * 滑动语义与手指位移严格跟手：
  *   库页向左拖 → 播放器 → 历史；历史页向右拖 → 播放器 → 库；
@@ -87,6 +95,9 @@ fun RootScreen(
             else -> LIBRARY_PAGE
         },
     ) { 3 }
+
+    // 底部导航的亚克力取样源：内容层录一份离屏层，栏身只取自己身后那一条做模糊
+    val backdrop = rememberAcrylicBackdrop()
 
     LaunchedEffect(Unit) {
         FavoritesState.refresh()
@@ -237,9 +248,15 @@ fun RootScreen(
         }
     }
 
-    Box(modifier = modifier.fillMaxSize()) {
-        Column(modifier = Modifier.fillMaxSize()) {
-            Box(modifier = Modifier.weight(1f).then(drawerObserve)) {
+    CompositionLocalProvider(LocalTabBarInset provides TabBarHeight) {
+        Box(modifier = modifier.fillMaxSize()) {
+            // ---- 内容层：铺满整屏（底部被导航栏压住），并录一份给导航栏取样的离屏层 ----
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .acrylicSource(backdrop)
+                    .then(drawerObserve),
+            ) {
                 HorizontalPager(
                     state = pagerState,
                     // 邻页预组合，手指一拖内容就已经在那儿了
@@ -309,7 +326,7 @@ fun RootScreen(
                 }
             }
 
-            // 底部导航常驻，选中态跟随 Pager 当前页（滑动过程中就跟着高亮）
+            // ---- 底部导航：压在内容之上，亚克力毛玻璃，信息流从它身后穿过去 ----
             MainNavigationBar(
                 selected = when (pagerState.currentPage) {
                     PLAYER_PAGE -> MainTab.Player
@@ -343,45 +360,41 @@ fun RootScreen(
                         }
                     }
                 },
+                backdrop = backdrop,
+                // 播放页自带整屏模糊背景，那一页不必再取样
+                blurEnabled = pagerState.currentPage != PLAYER_PAGE,
+                modifier = Modifier.align(Alignment.BottomCenter),
             )
+
+            SideDrawer(
+                fraction = drawerFraction,
+                onDragBy = { delta ->
+                    drawerFraction = (drawerFraction + delta).coerceIn(0f, 1f)
+                    drawerOpen = drawerFraction > 0f
+                },
+                onDragEnd = { total -> settleDrawer(closing = total < 0f) },
+                userName = userName ?: "",
+                onDismiss = { animateDrawer(0f) },
+                onOpenFavorites = { nav.replace(Route.Favorites) },
+                onOpenSettings = { nav.go(Route.Settings) },
+                onOpenChangePassword = { nav.go(Route.ChangePassword) },
+                onChangeServer = {
+                    libraryVm.clear()
+                    onChangeServer()
+                },
+                onLogout = {
+                    libraryVm.clear()
+                    onLogout()
+                },
+                onApplyCond = { cond ->
+                    LibraryState.addCond(cond)
+                    nav.replace(Route.Library)
+                },
+                onAfterNavigate = { animateDrawer(0f) },
+            )
+
+            // App 内轻提示（收藏 / 随机 / 循环切换），挂在最顶层，抽屉之上也能看到
+            AppToastHost()
         }
-
-        // 移动端悬浮快捷控件（web MobileDock）：内容之上、抽屉之下
-        if (!playState.fullscreen) {
-            MobileDock(onGoHome = {
-                nav.replace(Route.Library)
-                scope.launch { pagerState.animateScrollToPage(LIBRARY_PAGE) }
-            })
-        }
-
-        SideDrawer(
-            fraction = drawerFraction,
-            onDragBy = { delta ->
-                drawerFraction = (drawerFraction + delta).coerceIn(0f, 1f)
-                drawerOpen = drawerFraction > 0f
-            },
-            onDragEnd = { total -> settleDrawer(closing = total < 0f) },
-            userName = userName ?: "",
-            onDismiss = { animateDrawer(0f) },
-            onOpenFavorites = { nav.replace(Route.Favorites) },
-            onOpenSettings = { nav.go(Route.Settings) },
-            onOpenChangePassword = { nav.go(Route.ChangePassword) },
-            onChangeServer = {
-                libraryVm.clear()
-                onChangeServer()
-            },
-            onLogout = {
-                libraryVm.clear()
-                onLogout()
-            },
-            onApplyCond = { cond ->
-                LibraryState.addCond(cond)
-                nav.replace(Route.Library)
-            },
-            onAfterNavigate = { animateDrawer(0f) },
-        )
-
-        // App 内轻提示（收藏 / 随机 / 循环切换），挂在最顶层，抽屉之上也能看到
-        AppToastHost()
     }
 }

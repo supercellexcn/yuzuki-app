@@ -14,15 +14,17 @@
 - 播放走原生 Media3，支持锁屏 / 后台续播 / 通知栏换曲不消失
 - 首版交付 web 移动版全部功能（图片查看器、离线缓存等）；App 设置页只管本机缓存，服务端设置项由网页端承担
 - 界面采用 Material 3 风格：不透明容器、高对比文字，不使用模糊 / 半透明叠层 / 壁纸背景
+  （**唯一例外**：底部导航栏是亚克力毛玻璃，见「底部导航」一节 —— 用户明确要求信息流从栏后穿过）
 - 全工程不使用 WebView；所有框体一律圆角（`ui/theme/Radius.kt`）
 - 验证只用编译 / 单测 / 接口断言 / Logcat，不截图
 
 ## 架构
 
 ```
-ui/          单 Activity + AppNav 返回栈 + RootScreen（底部 3 Tab / 顶栏 / 底部筛选面板 / 迷你条 / 全屏播放器）
+ui/          单 Activity + AppNav 返回栈 + RootScreen（叠加式：内容铺满 + 底部 3 Tab 压在内容之上）
              LibraryScreen · WorkDetailScreen · CollectionsScreen · SettingsScreen（本机缓存管理）· PlayerUI
              LibraryListViewModel（库页数据 / 分页 / 滚动快照；两个 Lazy 滚动 state 由 RootScreen 持有）
+             Acrylic（导航栏亚克力取样层）· FeedPull（信息流顶部下拉手势 + 纯判定）
 ui/theme/    Material 3 配色 + Surface 组件封装（Glass* 为兼容层）· GlassSpec 纯函数 · 圆角 / 动画令牌
 data/        Models（DTO + org.json 解析）· YuzukiApi（全量 REST）· AppContainer（服务定位）
              SettingsRepository · PrefsRepository · LibraryRepository（在线优先 + 离线兜底）
@@ -138,6 +140,9 @@ ADB=.toolchain/sdk/platform-tools/adb.exe
 2. 用与网页端相同的账号登录；token 存于 Android Keystore 加密的 DataStore。
 3. 首次登录强制改密由**原生** `ChangePasswordScreen` 完成（不再依赖 web 端路由）。
 4. 底部 Tab 切换媒体库 / 播放器 / 历史；侧栏抽屉进入设置 / 收藏管理 / 修改密码 / 服务地址 / 退出登录。
+   底部导航是**亚克力毛玻璃**（半透明 + 对栏身后那一条做模糊），库页 / 历史页的信息流从栏后滚过去；
+   右侧原来的悬浮竖条（MobileDock：主页 / 回顶 / 切视图 / 随机）已移除，功能由「库 Tab 重复点回顶」
+   与下面两条下拉手势承担。详见「交互改版」一节。
    三个板块是横向 Pager，翻页与手指位移跟手：库页向左拖 → 播放器 → 历史，历史页向右拖 → 播放器 → 库；
    库页已在最左，继续向右拖的溢出量把侧栏拉出来，侧栏本身向左拖即可收回（都是跟手位移，不是固定时长动画）；
    拉起侧栏要求「向右位移 > 16dp 且明显大于纵向位移」，列表纵向滑动时的手指抖动不会误开；
@@ -160,13 +165,39 @@ ADB=.toolchain/sdk/platform-tools/adb.exe
    ⋮ 菜单目前只有「下载图片」，保存到系统相册 `Pictures/Yuzuki/`（Android 10+ 免权限，8/9 首次会申请存储权限）。
    查看器内不再放「设为封面 / 设为壁纸」，这两个入口仍在文件列表长按菜单里。
 
+## 交互改版（2026-11-18）
+
+**底部导航亚克力毛玻璃**（`ui/Acrylic.kt` + `ui/BottomTabs.kt`）
+
+- 根布局从 `Column`（内容 weight + 栏在下面）改成 `Box`：Pager 与覆盖层铺满整屏，
+  `MainNavigationBar` 用 `align(BottomCenter)` 压在内容之上，所以信息流是**从栏后穿过**的。
+- 内容根容器挂 `Modifier.acrylicSource(backdrop)`：把本帧内容录进一个 `GraphicsLayer` 再画出来
+  （画面与不用它时逐像素一致）。栏身只从层里取「自己身后那一条」做 `RenderEffect` 模糊：
+  `translate(top = -(内容高 − 栏高))` 后 `drawLayer`，再压 `#0A0A10 / 65%` 深色 + 顶部 1px 高光。
+  栏高只有 65dp，模糊成本与整屏模糊不是一个量级。
+- `BlurEffect` 依赖 Android 12+ 的 RenderEffect：API 26–30 退化为「透而不糊」的深色半透明
+  （仍有透视，只是没有磨砂），不崩、不闪。播放器页自带整屏模糊背景，那一页跳过取样。
+- 叠加式布局会让内容落进栏所占的 65dp：新增 `LocalTabBarInset`（= `TabBarHeight`），
+  库页 / 历史页的 `contentPadding.bottom`、播放器控件区、详情 / 收藏 / 设置底部各让出这一段，
+  所以滚到底时最后一项仍完整可见。
+
+**信息流顶部下拉手势**（`ui/FeedPull.kt`）
+
+- 只在**列表停在顶部**（首项 index=0 且 offset=0）时生效，其余时候这段下拉本来就是无效空白。
+- 用 Initial pass **旁路观察**（只读坐标、不消费事件）：列表照常滚动，也不与 Pager 横滑抢手势。
+- 判定（纯函数 `FeedPull.triggered`）：向下位移 > 56dp **且** > 横向累计 × 1.4，一次手势最多触发一次；
+  触发时轻震一下 + AppToast 提示。
+- 左半屏下拉：列表 → 卡片详情 → 封面模式 循环切换（等价于原悬浮控件的 M 键）；
+  右半屏下拉：未在随机 → 进入随机推荐；已在随机 → `LibraryState.randomEpoch++` 换一批
+  （批次号参与列表条件指纹，条件没变也会重新请求）。
+
 ## 分阶段状态
 
 | 阶段 | 内容 | 状态 |
 |---|---|---|
 | N0 | 清除 WebView 层、原生导航骨架、GlassSurface 设计系统 | ✅ |
 | N1 | 全量 REST 客户端、DTO、Repository、登录 / 改密 / 401 | ✅ |
-| N2 | 媒体库（搜索 / 排序 / 筛选 / 分页 / 图片模式 / MobileDock）、抽屉、外观 | ✅ |
+| N2 | 媒体库（搜索 / 排序 / 筛选 / 分页 / 图片模式）、抽屉、外观（悬浮控件 MobileDock 已于 2026-11-18 移除） | ✅ |
 | N3 | 作品详情、文件树、图片查看器、设封面 / 壁纸、相关推荐 | ✅ |
 | N4 | 原生播放队列、迷你条 + 全屏播放器、PlayReporter 时长上报 | ✅ |
 | N5 | 锁屏 / 通知 / 线控、收藏 4 Tab、历史列表 / 卡片 | ✅ |
@@ -416,6 +447,27 @@ ADB=.toolchain/sdk/platform-tools/adb.exe
 - Release `0.1.28` 已发布共享 `yuzuki-0.1.28-1117-1932.apk` + `yuzuki-latest.apk`，
   三方 sha256 一致 `137a5170…961b20`；已装 `192.168.5.16:35225`（`versionCode=1028 / versionName=0.1.28`）。
 
+**本次增量验证（2026-11-18，去悬浮控件 + 顶部下拉手势 + 亚克力导航栏 · 分支 `feat/pull-gesture-acrylic-bar`）**：
+
+- 悬浮控件：删除 `ui/MobileDock.kt`（237 行）与 `DockState`，库页 / 历史页 / 详情页里
+  `LaunchedEffect(DockState.scrollTopTicket)` 三处一并移除。回顶改由「重复点库 Tab」承担
+  （`ScrollRestore.shouldScrollTopOnLibraryTab` 未改）。**侧栏抽屉（SideDrawer / DrawerGate）保持原样不动**。
+- 顶部下拉：新增 `ui/FeedPull.kt`；`LibraryScreen` 的列表容器与瀑布流容器各挂一份
+  `Modifier.feedPullAtTop(...)`，`atTop` 按当前形态查 `listState` / `gridState` 的首项与偏移。
+  左半屏走 `LibraryState.cycleView()`，右半屏走新增的 `LibraryState.pullRandom()`
+  （`randomMode = true` + `randomEpoch++`，批次号已加入指纹）。
+- 底部导航：`RootScreen` 改为叠加式 Box 布局，`MainNavigationBar` 压在内容之上；
+  新增 `ui/Acrylic.kt`（`rememberAcrylicBackdrop` / `acrylicSource` / `AcrylicBarSurface`）
+  与 `LocalTabBarInset`，五处页面底部各让出 65dp。
+- `compileDebugKotlin` / `assembleRelease` 通过；`testDebugUnitTest` **98 例全过、0 失败 0 错误**
+  （新增 `FeedPullTest` 5 例：过门槛、差一点、向上拉、斜滑、左右半屏落点、右下拉进入随机并累加批次号）。
+- 静态断言：`MobileDock` / `DockState` / `dockTop` 全库零命中；`acrylicSource` 只在 `RootScreen`
+  出现一次（内容层），`MainNavigationBar` 是唯一 `backdrop` 消费方。
+- Release `0.1.29` 已发布共享：`yuzuki-0.1.29-1118-1924.apk` + `yuzuki-latest.apk`，
+  与本地 `app-release.apk` 三方 sha256 一致 `335dde92…2d776a`；`versionCode=1029`。
+- 本次 `adb devices` 无设备（mDNS 只闪现过一次随即消失，历史地址 `192.168.5.16:35225` 已拒绝连接），
+  **未装机**；真机观感（毛玻璃强度、下拉手感）由用户自测。
+
 **仍待验证**：A1–A5 接口同源断言、锁屏 metadata 与 `artworkData`、连续 `next()` 3 次通知不消失、
 息屏 5 分钟进度增长、蓝牙耳机按键、通知点击直达播放页、flac/mkv 解码、base64 图片上传返回码、
 断网离线回放与补报去重。
@@ -437,9 +489,11 @@ ADB=.toolchain/sdk/platform-tools/adb.exe
 
 - 仅家中 WiFi 可用；离开 WiFi 只能看离线缓存内容；明文 HTTP 的 token 在局域网可被嗅探。
 - 冷门格式（wma 等）需后续接入 `media3-decoder-ffmpeg`；flac/mkv/mp4/wav/m4a 由 Media3 默认解码器覆盖。
-- 界面采用 Material 3 风格：不再渲染液态玻璃 / 壁纸 / 模糊 / 半透明叠层；
+- 界面采用 Material 3 风格：不再渲染液态玻璃 / 壁纸 / 模糊 / 半透明叠层
+  （**唯一例外**：底部导航栏的亚克力毛玻璃；其余框体仍是不透明容器）；
   服务端的外观设置（模糊、透明度、壁纸启停）由网页端管理，App 设置页不提供入口，也不参与本机渲染
   （作品详情页的「设为壁纸」仍会上传图片到服务端，属于独立功能）。
+- 亚克力只在 Android 12+ 是真模糊；Android 8–11 上底部导航为深色半透明（能透视，但没有磨砂感）。
 - 管理后台 `/admin` 未实现（web 移动端亦由路由守卫跳回媒体库）。
 - web 端后续新增功能不会自动同步到 App，两端独立发版。
 

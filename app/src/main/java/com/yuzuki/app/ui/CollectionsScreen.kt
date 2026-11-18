@@ -92,7 +92,13 @@ fun FavoritesScreen(
     }
     LaunchedEffect(Unit) { reload() }
 
-    Column(modifier = modifier.fillMaxSize().padding(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+    Column(
+        modifier = modifier
+            .fillMaxSize()
+            // 底部让出导航栏（它压在内容之上）
+            .padding(start = 12.dp, end = 12.dp, top = 12.dp, bottom = 12.dp + LocalTabBarInset.current),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
         Text("我的收藏", style = MaterialTheme.typography.titleMedium)
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             listOf("作品", "标签", "社团", "声优").forEachIndexed { index, label ->
@@ -228,11 +234,6 @@ fun HistoryScreen(
     }
 
     LaunchedEffect(Unit) { if (!loaded) load(true) }
-    LaunchedEffect(DockState.scrollTopTicket) {
-        if (DockState.scrollTopTicket > 0) {
-            if (cardView) cardState.animateScrollToItem(0) else listState.animateScrollToItem(0)
-        }
-    }
 
     // 用「可见下标」当 key：滚到末尾后条件仍成立时也能继续取下一页
     // （旧写法 LaunchedEffect(shouldLoadMore) 在值一直是 true 时不会再次触发，导致停在第一页之后）
@@ -265,6 +266,8 @@ fun HistoryScreen(
     val cardBg = WebColors.panel(nav, appearance.panelAlpha)
     val genreBg = WebColors.tagBg(appearance.tagColor, appearance.genreTagAlpha)
     val actorBg = WebColors.tagBg(appearance.actorColor, appearance.actorTagAlpha)
+    // 底部导航压在内容之上（亚克力），列表末尾要让出这一段
+    val barInset = LocalTabBarInset.current
 
     Column(modifier = modifier.fillMaxSize()) {
         WebTopBar(onOpenDrawer = onOpenDrawer)
@@ -284,7 +287,9 @@ fun HistoryScreen(
                 LazyVerticalStaggeredGrid(
                     columns = StaggeredGridCells.Fixed(2),
                     state = cardState,
-                    contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 14.dp, bottom = 24.dp),
+                    contentPadding = PaddingValues(
+                        start = 20.dp, end = 20.dp, top = 14.dp, bottom = 24.dp + barInset,
+                    ),
                     horizontalArrangement = Arrangement.spacedBy(16.dp),
                     verticalItemSpacing = 16.dp,
                     modifier = Modifier.fillMaxSize(),
@@ -330,7 +335,9 @@ fun HistoryScreen(
         } else {
             LazyColumn(
                 state = listState,
-                contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 14.dp, bottom = 24.dp),
+                contentPadding = PaddingValues(
+                    start = 20.dp, end = 20.dp, top = 14.dp, bottom = 24.dp + barInset,
+                ),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
                 modifier = Modifier.weight(1f),
             ) {

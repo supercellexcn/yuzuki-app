@@ -51,9 +51,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -109,6 +111,8 @@ fun LibraryScreen(
             LibraryState.sort,
             LibraryState.order,
             LibraryState.randomMode.toString(),
+            // 随机批次号：「已随机」时再拉一次要换一批，条件没变也得重新请求
+            LibraryState.randomEpoch.toString(),
         ) + LibraryState.conds.map { "${it.type}:${it.value}" },
     )
     val currentFingerprint by rememberUpdatedState(fingerprint)
@@ -116,7 +120,6 @@ fun LibraryScreen(
     // 记录「进入页面时」的票值：只响应进入之后的变化，首次组合不再误置顶
     val resetEpochAtEnter = remember { vm.resetEpoch }
     val libraryTopAtEnter = remember { LibraryState.scrollTopTicket }
-    val dockTopAtEnter = remember { DockState.scrollTopTicket }
     val viewAtEnter = remember { LibraryState.view }
 
     // 启动恢复 / 其它入口改了查询词时，输入框跟随（否则会出现「搜索词生效但框里空白」）
@@ -174,13 +177,6 @@ fun LibraryScreen(
         if (ScrollRestore.shouldConsumeTicket(LibraryState.scrollTopTicket, libraryTopAtEnter)) {
             gridState.requestScrollToItem(0)
             listState.requestScrollToItem(0)
-        }
-    }
-    // 悬浮控件的「回到顶部」
-    LaunchedEffect(DockState.scrollTopTicket) {
-        if (ScrollRestore.shouldConsumeTicket(DockState.scrollTopTicket, dockTopAtEnter)) {
-            gridState.animateScrollToItem(0)
-            listState.animateScrollToItem(0)
         }
     }
     LaunchedEffect(Unit) { FavoritesState.refresh() }
@@ -250,6 +246,44 @@ fun LibraryScreen(
 
     val hasFilter = searchText.isNotBlank() || LibraryState.conds.isNotEmpty()
 
+    // 底部导航压在内容之上（亚克力），列表末尾要让出这一段，否则最后一行被栏挡住
+    val barInset = LocalTabBarInset.current
+    val haptic = LocalHapticFeedback.current
+
+    /**
+     * 信息流顶端下拉：左半屏循环切换「列表 → 卡片详情 → 封面模式」，右半屏换随机推荐。
+     * 只在列表停在顶部时响应，其余时候这段下拉本来就是无效空白。
+     */
+    val feedPull = Modifier.feedPullAtTop(
+        atTop = {
+            if (LibraryState.view == LibraryView.List) {
+                listState.firstVisibleItemIndex == 0 && listState.firstVisibleItemScrollOffset == 0
+            } else {
+                gridState.firstVisibleItemIndex == 0 && gridState.firstVisibleItemScrollOffset == 0
+            }
+        },
+        onPull = { side ->
+            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+            when (side) {
+                FeedPullSide.Left -> {
+                    LibraryState.cycleView()
+                    AppToast.show(
+                        when (LibraryState.view) {
+                            LibraryView.Detail -> "卡片详情"
+                            LibraryView.Image -> "封面模式"
+                            LibraryView.List -> "列表模式"
+                        },
+                    )
+                }
+                FeedPullSide.Right -> {
+                    val entered = LibraryState.pullRandom()
+                    AppToast.show(if (entered) "随机推荐" else "换一批随机推荐")
+                }
+                FeedPullSide.NONE -> Unit
+            }
+        },
+    )
+
     Column(modifier = modifier.fillMaxSize()) {
         LibraryTopBar(
             searchText = searchText,
@@ -288,13 +322,14 @@ fun LibraryScreen(
                 modifier = Modifier
                     .weight(1f)
                     .padding(horizontal = PAGE_PAD_H.dp)
-                    .clip(RoundedCornerShape(14.dp)),
+                    .clip(RoundedCornerShape(14.dp))
+                    .then(feedPull),
             ) {
                 LazyColumn(
                     state = listState,
                     contentPadding = PaddingValues(
                         top = if (hasFilter) 12.dp else PAGE_PAD_TOP.dp,
-                        bottom = PAGE_PAD_BOTTOM.dp,
+                        bottom = PAGE_PAD_BOTTOM.dp + barInset,
                     ),
                     modifier = Modifier.fillMaxSize(),
                 ) {
@@ -320,7 +355,7 @@ fun LibraryScreen(
                     }
                 }
             }
-            else -> BoxWithConstraints(modifier = Modifier.weight(1f)) {
+            else -> BoxWithConstraints(modifier = Modifier.weight(1f).then(feedPull)) {
                 // 图片模式：卡片全是正方形，高度跟列宽走。但 Fixed 列宽会把除不尽的余数补给前几列
                 // （实测 1280px 屏左列 557 / 右列 556），而瀑布流两列各自累加 y，1px 落差会一路放大。
                 // 这里按整数列宽算一个统一封面高度，两列严格等高。
@@ -340,7 +375,7 @@ fun LibraryScreen(
                         start = PAGE_PAD_H.dp,
                         end = PAGE_PAD_H.dp,
                         top = if (hasFilter) 12.dp else PAGE_PAD_TOP.dp,
-                        bottom = PAGE_PAD_BOTTOM.dp,
+                        bottom = PAGE_PAD_BOTTOM.dp + barInset,
                     ),
                     horizontalArrangement = Arrangement.spacedBy(GRID_GAP.dp),
                     verticalItemSpacing = GRID_GAP.dp,
