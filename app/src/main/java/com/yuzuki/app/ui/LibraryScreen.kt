@@ -254,8 +254,6 @@ fun LibraryScreen(
 
     val hasFilter = searchText.isNotBlank() || LibraryState.conds.isNotEmpty()
 
-    // 底部导航压在内容之上（亚克力），列表末尾要让出这一段，否则最后一行被栏挡住
-    val barInset = LocalTabBarInset.current
     val haptic = LocalHapticFeedback.current
     val scope = rememberCoroutineScope()
     val density = LocalDensity.current
@@ -372,7 +370,7 @@ fun LibraryScreen(
                             state = listState,
                             contentPadding = PaddingValues(
                                 top = if (hasFilter) 12.dp else PAGE_PAD_TOP.dp,
-                                bottom = PAGE_PAD_BOTTOM.dp + barInset,
+                                bottom = PAGE_PAD_BOTTOM.dp,
                             ),
                             modifier = Modifier.fillMaxSize(),
                         ) {
@@ -418,7 +416,7 @@ fun LibraryScreen(
                                 start = PAGE_PAD_H.dp,
                                 end = PAGE_PAD_H.dp,
                                 top = if (hasFilter) 12.dp else PAGE_PAD_TOP.dp,
-                                bottom = PAGE_PAD_BOTTOM.dp + barInset,
+                                bottom = PAGE_PAD_BOTTOM.dp,
                             ),
                             horizontalArrangement = Arrangement.spacedBy(GRID_GAP.dp),
                             verticalItemSpacing = GRID_GAP.dp,

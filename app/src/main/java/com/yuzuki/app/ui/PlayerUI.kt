@@ -327,13 +327,7 @@ fun FullscreenPlayer(
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        // 底部再让出压在内容之上的导航栏
-                        .padding(
-                            start = 20.dp,
-                            end = 20.dp,
-                            top = 8.dp,
-                            bottom = 14.dp + LocalTabBarInset.current,
-                        ),
+                        .padding(start = 20.dp, end = 20.dp, top = 8.dp, bottom = 14.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
                     // ① 图标行：收藏星 / 详情 / 播放列表 …… 顺序随机 / 循环

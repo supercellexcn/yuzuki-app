@@ -92,13 +92,7 @@ fun FavoritesScreen(
     }
     LaunchedEffect(Unit) { reload() }
 
-    Column(
-        modifier = modifier
-            .fillMaxSize()
-            // 底部让出导航栏（它压在内容之上）
-            .padding(start = 12.dp, end = 12.dp, top = 12.dp, bottom = 12.dp + LocalTabBarInset.current),
-        verticalArrangement = Arrangement.spacedBy(10.dp),
-    ) {
+    Column(modifier = modifier.fillMaxSize().padding(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Text("我的收藏", style = MaterialTheme.typography.titleMedium)
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             listOf("作品", "标签", "社团", "声优").forEachIndexed { index, label ->
@@ -266,8 +260,6 @@ fun HistoryScreen(
     val cardBg = WebColors.panel(nav, appearance.panelAlpha)
     val genreBg = WebColors.tagBg(appearance.tagColor, appearance.genreTagAlpha)
     val actorBg = WebColors.tagBg(appearance.actorColor, appearance.actorTagAlpha)
-    // 底部导航压在内容之上（亚克力），列表末尾要让出这一段
-    val barInset = LocalTabBarInset.current
 
     Column(modifier = modifier.fillMaxSize()) {
         WebTopBar(onOpenDrawer = onOpenDrawer)
@@ -288,7 +280,7 @@ fun HistoryScreen(
                     columns = StaggeredGridCells.Fixed(2),
                     state = cardState,
                     contentPadding = PaddingValues(
-                        start = 20.dp, end = 20.dp, top = 14.dp, bottom = 24.dp + barInset,
+                        start = 20.dp, end = 20.dp, top = 14.dp, bottom = 24.dp,
                     ),
                     horizontalArrangement = Arrangement.spacedBy(16.dp),
                     verticalItemSpacing = 16.dp,
@@ -336,7 +328,7 @@ fun HistoryScreen(
             LazyColumn(
                 state = listState,
                 contentPadding = PaddingValues(
-                    start = 20.dp, end = 20.dp, top = 14.dp, bottom = 24.dp + barInset,
+                    start = 20.dp, end = 20.dp, top = 14.dp, bottom = 24.dp,
                 ),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
                 modifier = Modifier.weight(1f),

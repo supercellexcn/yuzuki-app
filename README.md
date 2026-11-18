@@ -14,17 +14,17 @@
 - 播放走原生 Media3，支持锁屏 / 后台续播 / 通知栏换曲不消失
 - 首版交付 web 移动版全部功能（图片查看器、离线缓存等）；App 设置页只管本机缓存，服务端设置项由网页端承担
 - 界面采用 Material 3 风格：不透明容器、高对比文字，不使用模糊 / 半透明叠层 / 壁纸背景
-  （**唯一例外**：底部导航栏是亚克力毛玻璃，见「底部导航」一节 —— 用户明确要求信息流从栏后穿过）
+  （底部导航栏 2026-11-18 曾改为亚克力毛玻璃，实测无法稳定取样，已回退为纯黑，见「交互改版」）
 - 全工程不使用 WebView；所有框体一律圆角（`ui/theme/Radius.kt`）
 - 验证只用编译 / 单测 / 接口断言 / Logcat，不截图
 
 ## 架构
 
 ```
-ui/          单 Activity + AppNav 返回栈 + RootScreen（叠加式：内容铺满 + 底部 3 Tab 压在内容之上）
+ui/          单 Activity + AppNav 返回栈 + RootScreen（Column：内容 weight + 底部 3 Tab 在下面）
              LibraryScreen · WorkDetailScreen · CollectionsScreen · SettingsScreen（本机缓存管理）· PlayerUI
              LibraryListViewModel（库页数据 / 分页 / 滚动快照；两个 Lazy 滚动 state 由 RootScreen 持有）
-             Acrylic（导航栏亚克力取样层）· FeedPull（信息流顶部下拉手势 + 纯判定）
+             FeedPull（信息流顶部下拉手势 + 纯判定）
 ui/theme/    Material 3 配色 + Surface 组件封装（Glass* 为兼容层）· GlassSpec 纯函数 · 圆角 / 动画令牌
 data/        Models（DTO + org.json 解析）· YuzukiApi（全量 REST）· AppContainer（服务定位）
              SettingsRepository · PrefsRepository · LibraryRepository（在线优先 + 离线兜底）
@@ -140,7 +140,7 @@ ADB=.toolchain/sdk/platform-tools/adb.exe
 2. 用与网页端相同的账号登录；token 存于 Android Keystore 加密的 DataStore。
 3. 首次登录强制改密由**原生** `ChangePasswordScreen` 完成（不再依赖 web 端路由）。
 4. 底部 Tab 切换媒体库 / 播放器 / 历史；侧栏抽屉进入设置 / 收藏管理 / 修改密码 / 服务地址 / 退出登录。
-   底部导航是**亚克力毛玻璃**（半透明 + 对栏身后那一条做模糊），库页 / 历史页的信息流从栏后滚过去；
+   底部导航是纯黑 + 顶部 1px 分割线（亚克力毛玻璃试过四版都失败，已回退）；
    右侧原来的悬浮竖条（MobileDock：主页 / 回顶 / 切视图 / 随机）已移除，功能由「库 Tab 重复点回顶」
    与下面两条下拉手势承担。详见「交互改版」一节。
    三个板块是横向 Pager，翻页与手指位移跟手：库页向左拖 → 播放器 → 历史，历史页向右拖 → 播放器 → 库；
@@ -167,25 +167,15 @@ ADB=.toolchain/sdk/platform-tools/adb.exe
 
 ## 交互改版（2026-11-18）
 
-**底部导航亚克力毛玻璃**（`ui/Acrylic.kt` + `ui/BottomTabs.kt`）
+**底部导航：回退为纯黑**（`ui/BottomTabs.kt`）
 
-- 根布局从 `Column`（内容 weight + 栏在下面）改成 `Box`：Pager 与覆盖层铺满整屏，
-  `MainNavigationBar` 用 `align(BottomCenter)` 压在内容之上，所以信息流是**从栏后穿过**的。
-- 内容根容器挂 `Modifier.acrylicSource(backdrop, TabBarHeight)`：在**同一次绘制里录两份** ——
-  正常画面直接 `drawContent()`（不走中间层），栏身条再画一遍 `drawContent()`，缩到 1/8、
-  只留「导航栏身后那一段」录进小层；导航栏把这份小层放大 8 倍画出来（双线性插值 = 磨砂），
-  有 RenderEffect 的机器再叠一层 14dp `BlurEffect`。最后压 `#0A0A12 / 55%` 深色 + 顶部 1px 高光。
-- **为什么必须录两份、不能复用同一份层**：`GraphicsLayer` 背后是 `RenderNode`，同一个 node
-  在本帧被第二个目标再次 `drawLayer` 时拿不到像素（第一次绘制已占用它），取样层因此是空的 ——
-  这正是 0.1.29 / 0.1.30 / 0.1.31 三版「有透明、没磨砂」的原因（第三次连马赛克都没有，才定位到
-  「取样层没内容」而不是「模糊没生效」）。现在每个层只被画一次。
-- `Modifier.blur` 与层属性 `renderEffect` 都没用作主路径：前者受修饰符顺序 / 父层裁剪影响，
-  后者在本机（Android 17 / 荣耀）实测不生效，且都无法从代码侧判定。
-- 降采样不依赖任何平台特性，Android 8 起都有磨砂；`RenderEffect` 只是可选的加强。
-  播放器页自带整屏模糊背景，那一页跳过取样。
-- 叠加式布局会让内容落进栏所占的 65dp：新增 `LocalTabBarInset`（= `TabBarHeight`），
-  库页 / 历史页的 `contentPadding.bottom`、播放器控件区、详情 / 收藏 / 设置底部各让出这一段，
-  所以滚到底时最后一项仍完整可见。
+- 曾尝试 4 种亚克力毛玻璃实现（`Modifier.blur`、`GraphicsLayer.renderEffect`、1/8 降采样放大、
+  「一次绘制录两份」），真机全部失败：取样层永远是空的，栏身只剩半透明底色。
+  判定依据是本地解码的栏区像素统计 —— 栏区 / 栏上方的「1px 相邻差 ÷ 8px 相邻差」比值
+  4.3 : 4.5，说明栏后是**未经任何缩放的锐利原图**，连马赛克都没有（`PixelCopy` 取真实屏幕像素）。
+- 用户决定不要半透明效果，已回退：`Box` 叠加式布局改回 `Column`（内容 weight + 栏在下面），
+  导航栏恢复纯黑 `#000000` + 顶部 1px 分割线，`LocalTabBarInset` 与各页让位内距全部撤掉，
+  `ui/Acrylic.kt` / `ui/AcrylicSelfCheck.kt` 删除。
 
 **信息流顶部下拉手势**（`ui/FeedPull.kt`）
 
@@ -499,6 +489,28 @@ ADB=.toolchain/sdk/platform-tools/adb.exe
   与本地 `app-release.apk` 三方 sha256 一致 `e79f1cf8…0ec93b4`；`versionCode=1030`。
   已装到 `192.168.5.16:37557`（`versionName=0.1.30`），测试由用户自测。
 
+**本次增量验证（2026-11-18 三改，放弃亚克力、导航栏回退纯黑 · Release `0.1.37`）**：
+
+- 亚克力毛玻璃一共试了 4 版，全部失败，最终确认**取不到内容层像素**：
+  1. `Modifier.blur` 包住「已录制的层」；
+  2. 栏身自建层 + `renderEffect = BlurEffect`；
+  3. 降采样 1/8 放大（不依赖任何平台特性，理论上必然出现马赛克）；
+  4. 一次绘制录两份（正常画面直接画、栏身条第二次 `drawContent()`）。
+- 判定手段（不截图）：`PixelCopy` 取真实屏幕像素 → 导出栏区 / 栏上方两张 PNG →
+  本地解码统计「1px 相邻差 / 8px 相邻差」：栏区 2.24 / 9.69，栏上方 5.79 / 26.07，
+  比值 4.3 与 4.5 基本相同 —— 说明栏后是**未经缩放的锐利原图**，连 8 倍马赛克都没有。
+  `toImageBitmap()` 读回取样层是全 0（该方法走软件画布回放 `RenderNode`，不可作为判据）。
+- 用户决定不要半透明，直接回退：
+  - 删 `ui/Acrylic.kt` / `ui/AcrylicSelfCheck.kt`；
+  - `RootScreen` 从叠加式 `Box`（内容铺满 + 栏压在上面）改回 `Column`（内容 weight + 栏在下面），
+    `LocalTabBarInset` 及其在库页 / 历史页 / 播放器 / 详情 / 收藏 / 设置里的 6 处让位内距全部撤掉；
+  - `ui/BottomTabs.kt` 恢复纯黑 `#000000` + 顶部 1px 分割线（`TabBarBackground` / `TabBarDivider`）；
+  - 手机侧临时诊断文件（`acrylic.log` / `bar.png` / `above.png`）已从应用目录删除。
+- 保留：信息流顶部下拉手势（`ui/FeedPull.kt`，露出提示条 + 松手生效）、悬浮控件已移除。
+- `assembleRelease` 通过；`testDebugUnitTest` **98 例全过、0 失败 0 错误**。未截图验证。
+- Release `0.1.37` 已发布共享 `yuzuki-0.1.37-1118-2020.apk` + `yuzuki-latest.apk`，
+  已装到 `192.168.5.16:37557`（`versionName=0.1.37`）。
+
 **仍待验证**：A1–A5 接口同源断言、锁屏 metadata 与 `artworkData`、连续 `next()` 3 次通知不消失、
 息屏 5 分钟进度增长、蓝牙耳机按键、通知点击直达播放页、flac/mkv 解码、base64 图片上传返回码、
 断网离线回放与补报去重。
@@ -520,12 +532,11 @@ ADB=.toolchain/sdk/platform-tools/adb.exe
 
 - 仅家中 WiFi 可用；离开 WiFi 只能看离线缓存内容；明文 HTTP 的 token 在局域网可被嗅探。
 - 冷门格式（wma 等）需后续接入 `media3-decoder-ffmpeg`；flac/mkv/mp4/wav/m4a 由 Media3 默认解码器覆盖。
-- 界面采用 Material 3 风格：不再渲染液态玻璃 / 壁纸 / 模糊 / 半透明叠层
-  （**唯一例外**：底部导航栏的亚克力毛玻璃；其余框体仍是不透明容器）；
+- 界面采用 Material 3 风格：不再渲染液态玻璃 / 壁纸 / 模糊 / 半透明叠层（所有框体都是不透明容器）；
   服务端的外观设置（模糊、透明度、壁纸启停）由网页端管理，App 设置页不提供入口，也不参与本机渲染
   （作品详情页的「设为壁纸」仍会上传图片到服务端，属于独立功能）。
-- 底部导航的磨砂靠「降采样 + 双线性放大」实现，全版本可用；不透明度过高时磨砂会看不出来
-  （`BottomTabs.kt` 的 `TabBarTint`，当前 55%）。
+- 底部导航不做背景模糊（见「交互改版」）：Compose 1.7.4 在这台机器上取不到内容层像素，
+  四版自研实现均无效，最终回退纯黑。
 - 管理后台 `/admin` 未实现（web 移动端亦由路由守卫跳回媒体库）。
 - web 端后续新增功能不会自动同步到 App，两端独立发版。
 

@@ -239,10 +239,8 @@ fun WorkDetailScreen(
         LazyColumn(
             state = listState,
             modifier = Modifier.weight(1f).fillMaxWidth(),
-            // .content padding: 14px 20px 24px；底部再让出压在内容之上的导航栏
-            contentPadding = PaddingValues(
-                start = 20.dp, end = 20.dp, top = 14.dp, bottom = 24.dp + LocalTabBarInset.current,
-            ),
+            // .content padding: 14px 20px 24px；.player-view gap: 16
+            contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 14.dp, bottom = 24.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
             item(key = "back") {

@@ -97,8 +97,7 @@ fun SettingsScreen(onBack: () -> Unit, modifier: Modifier = Modifier) {
             modifier = Modifier
                 .fillMaxSize()
                 .verticalScroll(rememberScrollState())
-                // 底部让出压在内容之上的导航栏
-                .padding(start = 16.dp, top = 16.dp, end = 16.dp, bottom = 16.dp + LocalTabBarInset.current),
+                .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
             GlassSurface(modifier = Modifier.fillMaxWidth(), shape = ShapeCard) {
