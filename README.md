@@ -192,7 +192,7 @@ ADB=.toolchain/sdk/platform-tools/adb.exe
   导航栏恢复纯黑 `#000000` + 顶部 1px 分割线，`LocalTabBarInset` 与各页让位内距全部撤掉，
   `ui/Acrylic.kt` / `ui/AcrylicSelfCheck.kt` 删除。
 
-**侧栏取消，改为浮动圆控件**（`ui/SideDrawer.kt`，分支 `feat/drawer-orbs`，0.1.50）
+**侧栏取消，改为浮动圆控件**（`ui/SideDrawer.kt`，2026-11-18 已合并进 main，0.1.50）
 
 - **不再有侧栏面板**：没有面板底色、没有右边框线、没有遮罩遮住内容，也没有顶部品牌区。
   在库页右滑超过门槛后，只是一组圆控件浮到内容之上（整体随手指水平位移从左浮入）。
