@@ -6,7 +6,8 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * 信息流顶端下拉的纯判定：阻尼露出高度、松手门槛、横向取消、左右半屏落点。
+ * 信息流顶端下拉的纯判定：阻尼露出高度、松手门槛、横向取消、左右半屏落点，
+ * 以及随机模式的出口（右半屏越过门槛悬停 3 秒退出）。
  * 手势本体与动画不参与单测，这里只钉住「露出多少」「算不算到位」这些数值规则。
  */
 class FeedPullTest {
@@ -63,5 +64,41 @@ class FeedPullTest {
         assertFalse("已在随机模式时不算新进入", second)
         assertTrue(LibraryState.randomMode)
         assertEquals(before + 2, LibraryState.randomEpoch)
+    }
+
+    @Test
+    fun `只有右半屏越过门槛且在随机模式才进入悬停计时`() {
+        assertTrue(FeedPull.holdEligible(FeedPullSide.Right, dragging = true, armed = true, enabled = true))
+        // 左半屏是切展示形态，没有退出语义
+        assertFalse(FeedPull.holdEligible(FeedPullSide.Left, dragging = true, armed = true, enabled = true))
+        // 还没拖到门槛 / 还没开始拖
+        assertFalse(FeedPull.holdEligible(FeedPullSide.Right, dragging = true, armed = false, enabled = true))
+        assertFalse(FeedPull.holdEligible(FeedPullSide.Right, dragging = false, armed = true, enabled = true))
+        // 常规列表里右半屏下拉是「进入随机」，不该被当成退出
+        assertFalse(FeedPull.holdEligible(FeedPullSide.Right, dragging = true, armed = true, enabled = false))
+        assertFalse(FeedPull.holdEligible(FeedPullSide.NONE, dragging = true, armed = true, enabled = true))
+    }
+
+    @Test
+    fun `悬停满 3 秒才触发`() {
+        assertEquals(3_000L, FeedPull.holdRemainingMs(elapsedMs = 0L))
+        assertEquals(1L, FeedPull.holdRemainingMs(elapsedMs = 2_999L))
+        assertEquals(0L, FeedPull.holdRemainingMs(elapsedMs = 3_000L))
+        // 表停了也不会变成负数（不会让 withTimeout 立刻误触发）
+        assertEquals(0L, FeedPull.holdRemainingMs(elapsedMs = 5_000L))
+        // 自定义门槛同样按剩余时间算
+        assertEquals(500L, FeedPull.holdRemainingMs(elapsedMs = 1_500L, holdMs = 2_000L))
+    }
+
+    @Test
+    fun `退出随机只生效一次`() {
+        LibraryState.exitRandom()
+        LibraryState.pullRandom()
+        assertTrue(LibraryState.randomMode)
+
+        assertTrue("在随机模式里退出成功", LibraryState.exitRandom())
+        assertFalse(LibraryState.randomMode)
+        // 已在常规列表：再次退出不生效，避免重复提示
+        assertFalse(LibraryState.exitRandom())
     }
 }

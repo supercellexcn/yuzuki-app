@@ -92,6 +92,16 @@ object LibraryState {
         return entered
     }
 
+    /**
+     * 退出随机：回到当前搜索 / 筛选 / 排序对应的常规列表（条件本身不变）。
+     * 返回 false 表示本来就不在随机模式，调用方据此决定要不要弹提示。
+     */
+    fun exitRandom(): Boolean {
+        if (!randomMode) return false
+        randomMode = false
+        return true
+    }
+
     fun scrollToTop() { scrollTopTicket++ }
     fun home() {
         query = ""

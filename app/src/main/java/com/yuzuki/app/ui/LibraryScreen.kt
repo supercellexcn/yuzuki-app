@@ -311,6 +311,15 @@ fun LibraryScreen(
             settlePull()
         },
         onCancel = ::settlePull,
+        // 随机模式没有别的出口：右半屏下拉越过门槛后停住 3 秒退出（松手不再「换一批」）
+        holdEnabled = { LibraryState.randomMode },
+        onHold = {
+            if (LibraryState.exitRandom()) {
+                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                AppToast.show("已退出随机推荐")
+            }
+            settlePull()
+        },
     )
 
     Column(modifier = modifier.fillMaxSize()) {
@@ -346,6 +355,7 @@ fun LibraryScreen(
                 side = pullSide,
                 reveal = { pullReveal },
                 thresholdPx = triggerPx,
+                exitRandomHint = LibraryState.randomMode,
                 modifier = Modifier.align(Alignment.TopCenter),
             )
             Box(

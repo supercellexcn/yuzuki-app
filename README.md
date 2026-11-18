@@ -197,6 +197,10 @@ ADB=.toolchain/sdk/platform-tools/adb.exe
 - 左半屏松手：列表 → 卡片详情 → 封面模式 循环切换（等价于原悬浮控件的 M 键）；
   右半屏松手：未在随机 → 进入随机推荐；已在随机 → `LibraryState.randomEpoch++` 换一批
   （批次号参与列表条件指纹，条件没变也会重新请求）。生效时轻震一下 + AppToast 提示。
+- **随机模式出口**：右半屏下拉越过 64dp 门槛后**停住不动 3 秒**即退出随机（`FeedPull.HOLD_MS`），
+  回到当前搜索 / 筛选 / 排序对应的常规列表。悬停计时与「手指移动 / 抬起」赛跑，手指移动超过 4dp
+  就重新计时（不会边拖边读秒）；触发后本次手势不再执行「换一批」，提示条自动回落。
+  已处于随机模式时右半屏文案变成「松开换一批 · 按住 3 秒退出随机」，这是移动端唯一的退出入口。
 
 ## 分阶段状态
 
@@ -564,6 +568,29 @@ ADB=.toolchain/sdk/platform-tools/adb.exe
 - Release `0.1.39` 已发布共享：`yuzuki-0.1.39-1118-2157.apk` + `yuzuki-latest.apk`；
   已装到 `192.168.5.16:37557`（`versionCode=1039`、`versionName=0.1.39`），未启动、测试由用户自测。
 
+
+**本次增量验证（2026-11-18 六改，随机模式出口：右半屏下拉悬停 3 秒退出 · 分支 `feat/pull-exit-random`）**：
+
+- 需求：移动端要有一个退出随机模式的方式 —— 右半屏下拉、悬停 3 秒退出随机。
+- 改动：
+  - `ui/FeedPull.kt`：新增 `HOLD_MS = 3000`、`holdEligible(side, dragging, armed, enabled)`
+    （只认右半屏 + 已过门槛 + 当前确实在随机模式）与 `holdRemainingMs(elapsed)`（已满返回 0）；
+    `feedPullGesture` 增加 `holdEnabled / holdMs / onHold` 三个参数，循环里用
+    `withTimeoutOrNull(剩余时间) { awaitPointerEvent() }` 让「悬停计时」与「手指移动 / 抬起」赛跑；
+    手指单次移动 > 4dp 就重置计时；触发后本次手势**不执行** `onRelease`（不会顺带换一批），
+    但位移继续被吃掉直到抬手。
+  - `ui/FeedPull.kt`：`FeedPullHint` 增加 `exitRandomHint`，随机模式下右半屏文案改为
+    「松开换一批 · 按住 3 秒退出随机」，让出口可发现。
+  - `ui/AppStates.kt`：新增 `LibraryState.exitRandom()`（不在随机时返回 false，避免重复提示）；
+    `randomMode` 参与条件指纹，退出后列表自动回到当前搜索 / 筛选 / 排序的常规第一页。
+  - `ui/LibraryScreen.kt`：接线 `holdEnabled = { LibraryState.randomMode }`，
+    `onHold` 退出 + 轻震 + AppToast「已退出随机推荐」+ 提示条回落。
+- `assembleRelease` 通过；`testDebugUnitTest` **112 例全过、0 失败 0 错误**
+  （新增 3 例：悬停资格判定、3 秒剩余时间边界、`exitRandom` 只生效一次）。
+- Release `0.1.40` 已发布共享（`yuzuki-0.1.40-1118-2206.apk` + `yuzuki-latest.apk`，三方 sha256 一致
+  `f85368cb…b22161e`）；
+  已装到 `192.168.5.16:37557`（`versionCode=1040`、`versionName=0.1.40`）。首次 `install -r` 返回
+  `INSTALL_FAILED_ABORTED: User rejected permissions`（设备端确认弹窗），原样重试后 Success。
 
 **仍待验证**：A1–A5 接口同源断言、锁屏 metadata 与 `artworkData`、连续 `next()` 3 次通知不消失、
 息屏 5 分钟进度增长、蓝牙耳机按键、通知点击直达播放页、flac/mkv 解码、base64 图片上传返回码、

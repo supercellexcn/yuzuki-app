@@ -1,5 +1,6 @@
 package com.yuzuki.app.ui
 
+import android.os.SystemClock
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
@@ -27,6 +28,7 @@ import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.yuzuki.app.ui.theme.WebColors
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.math.abs
 import kotlin.math.roundToInt
 
@@ -36,6 +38,9 @@ import kotlin.math.roundToInt
  * 交互是「下拉出提示条 → 松手才生效」：拖动时信息流整体下移、顶端露出一条空白区，
  * 里面是「箭头 + 松开以…」的提示；越过门槛箭头翻转朝上，此时松手才真正执行。
  * 没到门槛就松手会弹回去，所以不会出现「拖到一半突然换了一屏」的突兀感。
+ *
+ * 随机模式没有别的出口，所以在**右半屏下拉越过门槛后停住不动 3 秒**即退出随机
+ * （[HOLD_MS]）；停留期间手指一移动就重新计时，避免「边拖边读秒」误触。
  */
 enum class FeedPullSide { NONE, Left, Right }
 
@@ -52,6 +57,9 @@ object FeedPull {
 
     /** 露出高度上限，再多拉也不会把信息流推出屏幕（≈132dp）。 */
     const val MAX_DP = 132f
+
+    /** 右半屏越过门槛后悬停多久退出随机（毫秒）。 */
+    const val HOLD_MS = 3000L
 
     /** 当前露出高度（px）：跟手 + 阻尼 + 封顶，反向拉回 0。 */
     fun offsetPx(sumY: Float, maxPx: Float, damping: Float = DAMPING): Float =
@@ -71,25 +79,48 @@ object FeedPull {
         downX < widthPx / 2f -> FeedPullSide.Left
         else -> FeedPullSide.Right
     }
+
+    /**
+     * 是否该开始「悬停 3 秒」计时：
+     * 只有右半屏、已经拖过门槛、且当前确实处在随机模式（[enabled]）才算，
+     * 否则左半屏切形态与「进入随机」都会被误判成退出。
+     */
+    fun holdEligible(side: FeedPullSide, dragging: Boolean, armed: Boolean, enabled: Boolean): Boolean =
+        dragging && armed && enabled && side == FeedPullSide.Right
+
+    /** 距离触发还差多少毫秒：已满（或超时）返回 0，调用方据此决定立即触发。 */
+    fun holdRemainingMs(elapsedMs: Long, holdMs: Long = HOLD_MS): Long =
+        (holdMs - elapsedMs).coerceAtLeast(0L)
 }
 
 /**
  * 挂在信息流容器上：拖出提示条期间**消费**位移（信息流不再滚动、也不做系统的 overscroll 拉伸），
  * 只在列表停在顶部时起手；其余情况下完全放行，不影响正常滑动与横滑翻页。
  *
- * @param atTop     列表是否停在顶部；不满足时整段手势都不参与
- * @param onDrag    拖动中回调（露出高度 px、落点侧），用于实时驱动提示条
- * @param onRelease 松手回调，由调用方按自己的门槛判定是否执行
- * @param onCancel  手势被判定为横滑而放弃
+ * 右半屏越过门槛后手指停住 [holdMs] 毫秒触发 [onHold]（退出随机），此后本次手势不再执行
+ * [onRelease]（不会顺带「换一批」），但位移继续被吃掉，直到手指抬起。
+ *
+ * @param atTop       列表是否停在顶部；不满足时整段手势都不参与
+ * @param onDrag      拖动中回调（露出高度 px、落点侧），用于实时驱动提示条
+ * @param onRelease   松手回调，由调用方按自己的门槛判定是否执行
+ * @param onCancel    手势被判定为横滑而放弃
+ * @param holdEnabled 是否允许长按退出（当前处于随机模式才允许）
+ * @param holdMs      悬停多久触发，默认 3 秒
+ * @param onHold      悬停到位回调
  */
 fun Modifier.feedPullGesture(
     atTop: () -> Boolean,
     onDrag: (revealedPx: Float, side: FeedPullSide) -> Unit,
     onRelease: (revealedPx: Float, side: FeedPullSide) -> Unit,
     onCancel: () -> Unit,
+    holdEnabled: () -> Boolean = { false },
+    holdMs: Long = FeedPull.HOLD_MS,
+    onHold: () -> Unit = {},
 ): Modifier = pointerInput(Unit) {
     val startSlop = 6.dp.toPx()
+    val holdSlop = 4.dp.toPx()
     val maxPx = FeedPull.MAX_DP.dp.toPx()
+    val triggerPx = FeedPull.TRIGGER_DP.dp.toPx()
     awaitEachGesture {
         val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
         if (!atTop()) return@awaitEachGesture
@@ -102,9 +133,44 @@ fun Modifier.feedPullGesture(
         var absX = 0f
         var dragging = false
         var cancelled = false
+        var holdFired = false
+        // 0 表示「当前没有在计时」；非 0 是本轮悬停的起点
+        var holdStart = 0L
 
         while (true) {
-            val event = awaitPointerEvent(PointerEventPass.Initial)
+            val waiting = !holdFired && FeedPull.holdEligible(
+                side = side,
+                dragging = dragging,
+                armed = FeedPull.armed(FeedPull.offsetPx(sumY, maxPx), triggerPx),
+                enabled = holdEnabled(),
+            )
+            if (!waiting) {
+                holdStart = 0L
+            } else if (holdStart == 0L) {
+                holdStart = SystemClock.uptimeMillis()
+            }
+            val remaining = if (waiting) {
+                FeedPull.holdRemainingMs(SystemClock.uptimeMillis() - holdStart, holdMs)
+            } else {
+                -1L
+            }
+
+            // 悬停计时与「手指移动 / 抬起」赛跑，先到者生效
+            val event = if (remaining >= 0L) {
+                withTimeoutOrNull(remaining.coerceAtLeast(1L)) {
+                    awaitPointerEvent(PointerEventPass.Initial)
+                }
+            } else {
+                awaitPointerEvent(PointerEventPass.Initial)
+            }
+
+            if (event == null) {
+                holdFired = true
+                holdStart = 0L
+                onHold()
+                continue
+            }
+
             val change = event.changes.firstOrNull { it.id == down.id } ?: break
             if (!change.pressed) break
             val dy = change.position.y - lastY
@@ -125,12 +191,16 @@ fun Modifier.feedPullGesture(
                 }
                 // 吃掉位移：信息流不再跟着滚，也不会出现系统的 overscroll 拉伸
                 change.consume()
-                onDrag(FeedPull.offsetPx(sumY, maxPx), side)
+                // 手指有明显移动就重新计时，避免「边拖边读秒」
+                if (abs(dy) + abs(dx) > holdSlop) holdStart = 0L
+                if (!holdFired) onDrag(FeedPull.offsetPx(sumY, maxPx), side)
             }
         }
 
         when {
             cancelled -> onCancel()
+            // 已经退出随机：本次手势不再二次执行「换一批」，提示条的回落由 onHold 负责
+            holdFired -> Unit
             dragging -> onRelease(FeedPull.offsetPx(sumY, maxPx), side)
         }
     }
@@ -140,6 +210,7 @@ fun Modifier.feedPullGesture(
  * 顶端露出的提示条：一条空白区 + 居中的「箭头 + 松开以…」。
  *
  * 箭头默认朝下（继续拉），越过门槛弹簧翻成朝上（可以松手）；文字随露出高度淡入。
+ * 已处于随机模式时，右半屏的文案会带上出口提示「按住 3 秒退出随机」。
  *
  * `reveal` 用 lambda 传进来是刻意的：高度在**布局阶段**读、透明度在**绘制阶段**读，
  * 拖动时不会每帧重组整个信息流，只有「是否越过门槛」这一件事会触发重组。
@@ -149,10 +220,12 @@ fun FeedPullHint(
     side: FeedPullSide,
     reveal: () -> Float,
     thresholdPx: Float,
+    exitRandomHint: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
-    val text = when (side) {
-        FeedPullSide.Right -> "松开以获取随机推荐"
+    val text = when {
+        side == FeedPullSide.Right && exitRandomHint -> "松开换一批 · 按住 ${FeedPull.HOLD_MS / 1000} 秒退出随机"
+        side == FeedPullSide.Right -> "松开以获取随机推荐"
         else -> "松开以切换展示模式"
     }
     val armed by remember { derivedStateOf { FeedPull.armed(reveal(), thresholdPx) } }
