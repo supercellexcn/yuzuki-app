@@ -552,7 +552,7 @@ ADB=.toolchain/sdk/platform-tools/adb.exe
   与本地 `app-release.apk` 三方 sha256 一致 `b966fb52…06c910a89a`；已装到 `192.168.5.16:37557`
   （`versionCode=1038`、`versionName=0.1.38`），未启动、测试由用户自测。
 
-**本次增量验证（2026-11-18 五改，App 外观改为本机设置 · 分支 `feat/local-appearance`）**：
+**本次增量验证（2026-11-18 五改，App 外观改为本机设置 · 分支 `feat/local-appearance`，已于 2026-11-18 快进合并进 `main`）**：
 
 - 需求：①App 界面颜色不再受网页版设置影响；②设置页新增 App 外观设置，数据存本地、不再从 yuzuki 同步。
 - 根因：`MainActivity` 直接把 `AppContainer.settings`（`GET /api/settings`）映射成 `Appearance`，
@@ -578,7 +578,7 @@ ADB=.toolchain/sdk/platform-tools/adb.exe
   已装到 `192.168.5.16:37557`（`versionCode=1039`、`versionName=0.1.39`），未启动、测试由用户自测。
 
 
-**本次增量验证（2026-11-18 六改，随机模式出口：右半屏下拉悬停 3 秒退出 · 分支 `feat/pull-exit-random`）**：
+**本次增量验证（2026-11-18 六改，随机模式出口：右半屏下拉悬停 3 秒退出 · 分支 `feat/pull-exit-random`，已于 2026-11-18 快进合并进 `main`）**：
 
 - 需求：移动端要有一个退出随机模式的方式 —— 右半屏下拉、悬停 3 秒退出随机。
 - 改动：
@@ -601,7 +601,7 @@ ADB=.toolchain/sdk/platform-tools/adb.exe
   已装到 `192.168.5.16:37557`（`versionCode=1040`、`versionName=0.1.40`）。首次 `install -r` 返回
   `INSTALL_FAILED_ABORTED: User rejected permissions`（设备端确认弹窗），原样重试后 Success。
 
-**本次增量验证（2026-11-18 七改，悬停读秒 · 分支 `feat/pull-exit-random` · Release `0.1.41`）**：
+**本次增量验证（2026-11-18 七改，悬停读秒 · 同上分支 · Release `0.1.41`）**：
 
 - 反馈：悬停时没有任何读秒，不知道还要按多久。
 - 改动：
@@ -616,7 +616,7 @@ ADB=.toolchain/sdk/platform-tools/adb.exe
 - Release `0.1.41` 已发布共享（`yuzuki-0.1.41-1118-2211.apk` + `yuzuki-latest.apk`，三方 sha256 一致
   `f2d3fc1d…2203c47`）；已装到 `192.168.5.16:37557`（`versionCode=1041`、`versionName=0.1.41`），未启动。
 
-**本次增量验证（2026-11-18 八改，退出随机的按住时长改为可配置 · 分支 `feat/pull-exit-random` · Release `0.1.42`）**：
+**本次增量验证（2026-11-18 八改，退出随机的按住时长改为可配置 · 同上分支 · Release `0.1.42`）**：
 
 - 需求：退出随机推荐的这个时长，要能在设置里配。
 - 改动：
@@ -632,7 +632,7 @@ ADB=.toolchain/sdk/platform-tools/adb.exe
 - Release `0.1.42` 已发布共享（`yuzuki-0.1.42-1118-2217.apk` + `yuzuki-latest.apk`，sha256 一致
   `2a94ae22…a3f20d`）；已装到 `192.168.5.16:37557`（`versionCode=1042`、`versionName=0.1.42`），未启动。
 
-**本次增量验证（2026-11-18 九改，覆盖层不识别侧栏手势 · 分支 `feat/pull-exit-random` · Release `0.1.43`）**：
+**本次增量验证（2026-11-18 九改，覆盖层不识别侧栏手势 · 同上分支 · Release `0.1.43`）**：
 
 - 反馈：设置页拖不透明度滑块时会被识别成右滑，直接把侧栏抽屉拉出来。
 - 根因：`RootScreen` 的侧栏手势用 `PointerEventPass.Initial`「旁路观察」右拖位移，刻意不消费事件，
