@@ -362,25 +362,23 @@ private fun Orb(
                 .clickable(onClick = onClick),
             contentAlignment = Alignment.Center,
         ) {
-            // 图标是主体：占圆径一半（SideIcon 的 24 视口自带留白，视觉上约 1/3 圆径），
-            // 再整体上移一点，给底部小字留位置，视觉重心仍在圆内
-            icon(
-                tint,
-                Modifier
-                    .size(size * 0.5f)
-                    .offset(y = -(size * 0.08f)),
-            )
-            Text(
-                label,
-                fontSize = 9.sp,
-                fontWeight = if (active) FontWeight.SemiBold else FontWeight.Medium,
-                color = tint,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .padding(bottom = size * 0.10f),
-            )
+            // 圆内是「图标 + 小字」一个整体，垂直居中：图标占圆径 42%（视觉图形约 28%），
+            // 字 10sp 在图标下方，上下留白均匀，不贴边也不挤在一起
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center,
+            ) {
+                icon(tint, Modifier.size(size * 0.42f))
+                Spacer(Modifier.height(size * 0.04f))
+                Text(
+                    label,
+                    fontSize = 10.sp,
+                    fontWeight = if (active) FontWeight.SemiBold else FontWeight.Medium,
+                    color = tint,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
         }
         if (badge > 0) {
             Box(
@@ -427,23 +425,26 @@ private fun AccountOrb(
                 .clickable { menuVisible = true },
             contentAlignment = Alignment.Center,
         ) {
-            Text(
-                initial,
-                fontSize = 20.sp,
-                fontWeight = FontWeight.Bold,
-                color = onAccent,
-                modifier = Modifier.offset(y = -(size * 0.06f)),
-            )
-            Text(
-                "账号",
-                fontSize = 9.sp,
-                fontWeight = FontWeight.Medium,
-                color = onAccent,
-                maxLines = 1,
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .padding(bottom = size * 0.10f),
-            )
+            // 与其它圆同一套对齐：首字母当图标、小字在下，整体在圆内居中
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center,
+            ) {
+                Text(
+                    initial,
+                    fontSize = 20.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = onAccent,
+                )
+                Spacer(Modifier.height(size * 0.04f))
+                Text(
+                    "账号",
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Medium,
+                    color = onAccent,
+                    maxLines = 1,
+                )
+            }
         }
         DropdownMenu(expanded = menuVisible, onDismissRequest = { menuVisible = false }) {
             DropdownMenuItem(
