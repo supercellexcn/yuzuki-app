@@ -74,11 +74,11 @@ fun RootScreen(
     // 点右上角菜单按钮打开时没有手势起点，沿用上一次的值。
     var drawerStartY by remember { mutableFloatStateOf(0.55f) }
     val scope = rememberCoroutineScope()
-    // 面板宽度随屏宽自适应（4 个圆要铺得开），手势位移换算与面板本身共用同一个值
-    val drawerWidth = DrawerGeometry.widthDp(
+    // 浮动圆控件的滑入基准宽度（没有面板了，只用来把手势位移换算成 0–1 的进度）
+    val drawerSwipe = DrawerGeometry.swipeDp(
         LocalConfiguration.current.screenWidthDp.toFloat(),
     ).dp
-    val drawerWidthPx = with(LocalDensity.current) { drawerWidth.toPx() }
+    val drawerSwipePx = with(LocalDensity.current) { drawerSwipe.toPx() }
 
     // 库页数据 / 滚动状态放在 Pager 之外：翻到播放器 / 历史再回来时位置与已翻页的数据都还在。
     val libraryVm: LibraryListViewModel = viewModel()
@@ -244,7 +244,7 @@ fun RootScreen(
                         drawerOpen = false
                         break
                     }
-                    drawerFraction = (drawerFraction + dx / drawerWidthPx).coerceIn(0f, 1f)
+                    drawerFraction = (drawerFraction + dx / drawerSwipePx).coerceIn(0f, 1f)
                     drawerOpen = drawerFraction > 0f
                 }
             }
@@ -366,7 +366,7 @@ fun RootScreen(
 
         SideDrawer(
             fraction = drawerFraction,
-            width = drawerWidth,
+            swipeWidth = drawerSwipe,
             startFraction = drawerStartY,
             onDragBy = { delta ->
                 drawerFraction = (drawerFraction + delta).coerceIn(0f, 1f)

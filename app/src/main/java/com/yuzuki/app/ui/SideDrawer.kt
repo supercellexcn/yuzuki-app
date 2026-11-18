@@ -4,6 +4,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -12,7 +13,6 @@ import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -41,11 +41,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.drawBehind
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -63,32 +62,41 @@ import com.yuzuki.app.ui.theme.WebColors
 import kotlin.math.roundToInt
 
 /**
- * 侧栏圆盘几何（纯数值，JVM 单测直接断言，不依赖 Compose 运行时）。
+ * 浮动圆控件的几何（纯数值，JVM 单测直接断言，不依赖 Compose 运行时）。
  *
- * 面板不再是 web 那种「品牌 + 文字列表」的抽屉，而是一块圆盘面板：
- * 上方 4 个筛选圆 + 1 个收藏圆（圆组高度跟随拉出侧栏时手指按下的高度），底部账号 / 设置两个圆。
+ * 这里**没有侧栏面板**：滑动只是把一组圆控件浮到内容之上，
+ * 圆按屏宽等分（4 列），整体随手指水平位移进出。
  */
 internal object DrawerGeometry {
-    /** 面板宽度占屏宽的比例：太窄 4 个圆挤成一堆，太宽会把信息流挡光。 */
-    const val WIDTH_RATIO = 0.82f
-    /** 面板宽度上限：大屏 / 平板不再变宽。 */
-    const val MAX_WIDTH_DP = 320f
-    /** 极窄屏的兜底下限。 */
-    const val MIN_WIDTH_DP = 240f
-    /** 圆的最小直径（≈ 48dp 触控区的下限）。 */
-    const val MIN_CIRCLE_DP = 44f
+    /** 滑入 / 收起时手指位移换算成「全开」的基准宽度（占屏宽比例）。 */
+    const val SWIPE_RATIO = 0.8f
+    /** 圆组左右内边距。 */
+    const val PAD_DP = 20f
+    /** 圆之间的水平间距。 */
+    const val GAP_DP = 12f
+    /** 圆直径上下限：太小点不准，太大在大屏上显得空。 */
+    const val MIN_CIRCLE_DP = 56f
+    const val MAX_CIRCLE_DP = 78f
 
-    fun widthDp(screenWidthDp: Float): Float =
-        (screenWidthDp * WIDTH_RATIO).coerceIn(MIN_WIDTH_DP, MAX_WIDTH_DP)
+    fun swipeDp(screenWidthDp: Float): Float = screenWidthDp.coerceAtLeast(240f) * SWIPE_RATIO
 
-    /** 一列圆的直径：可用宽度扣掉左右内边距与列间距后按列数等分。 */
-    fun circleDp(widthDp: Float, padDp: Float, gapDp: Float, columns: Int = 4): Float {
-        val usable = widthDp - padDp * 2 - gapDp * (columns - 1)
-        return (usable / columns).coerceAtLeast(MIN_CIRCLE_DP)
+    /** 一列圆的直径：屏宽扣掉左右内边距与列间距后按列数等分。 */
+    fun circleDp(
+        screenWidthDp: Float,
+        padDp: Float = PAD_DP,
+        gapDp: Float = GAP_DP,
+        columns: Int = 4,
+    ): Float {
+        val usable = screenWidthDp - padDp * 2 - gapDp * (columns - 1)
+        return (usable / columns).coerceIn(MIN_CIRCLE_DP, MAX_CIRCLE_DP)
     }
 
+    /** 圆组的整体宽度（4 列 + 3 个间距），用于让各行左对齐。 */
+    fun groupWidthDp(circleDp: Float, gapDp: Float = GAP_DP, columns: Int = 4): Float =
+        circleDp * columns + gapDp * (columns - 1)
+
     /**
-     * 圆组顶部位置：以「拉出侧栏时手指按下的高度」为中心算起，上下各留 [marginPx]。
+     * 圆组顶部位置：以「拉出时手指按下的高度」为中心算起，上下各留 [marginPx]。
      * 手指按在很靠上 / 很靠下的位置时圆组会被钳制回可用区间，不会跑出屏幕。
      */
     fun groupTopPx(startFraction: Float, availPx: Float, groupPx: Float, marginPx: Float): Float {
@@ -101,7 +109,7 @@ internal object DrawerGeometry {
 
 private data class SideEntry(val type: String, val label: String)
 
-/** 圆下小字去掉「全部」二字：社团 / 系列 / 声优 / 标签。 */
+/** 圆内小字去掉「全部」二字：社团 / 系列 / 声优 / 标签。 */
 private val SIDE_FILTERS = listOf(
     SideEntry("circle", "社团"),
     SideEntry("series", "系列"),
@@ -109,29 +117,30 @@ private val SIDE_FILTERS = listOf(
     SideEntry("tag", "标签"),
 )
 
-private val OrbPad = 18.dp
-private val OrbGap = 10.dp
-private val OrbLabelGap = 5.dp
-private val OrbLabelHeight = 16.dp
+/** 底部两个圆与底部导航栏之间留出的距离。 */
+private val BottomOrbGap = 18.dp
 private val OrbRowGap = 18.dp
 private val OrbGroupMargin = 12.dp
 
 /**
- * 圆盘侧边抽屉。
+ * 浮动圆控件层（取代原来的侧栏抽屉）。
  *
- * - 跟手位移：位置由 [fraction] 直接驱动，手指拖多少走多少（不是固定时长动画）；
- * - 圆组位置不固定：以 [startFraction]（拉出时手指按下的高度占可用高度的比例）为垂直中心；
- * - 4 个筛选圆点开仍是同一套 chips 底部弹层，收藏圆进收藏页，底部左圆是账号菜单、右圆是设置。
+ * 没有面板、没有遮罩：
+ * - 在库页右拖超过门槛后，这组圆随水平位移从左浮入（跟手，不是固定时长动画）；
+ * - 圆组垂直位置以 [startFraction]（起手高度占比）为中心，上下钳制；
+ * - 上排 4 个筛选圆（社团 / 系列 / 声优 / 标签）、下面 1 个收藏圆，底部账号 / 设置两个圆；
+ * - 点圆外的空白关闭，在控件层上向左拖也能收起（位移实时回传给 RootScreen）。
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SideDrawer(
     fraction: Float,
-    width: Dp,
+    /** 手势位移换算基准宽度：拖过这个宽度算「全开」。 */
+    swipeWidth: Dp,
     /** 起手高度占可用高度的比例（0–1）；点右上角菜单按钮打开时沿用上一次的值。 */
     startFraction: Float,
     onDragBy: (Float) -> Unit,
-    /** 松手回调，参数为整段拖动的水平位移（px，左负右正），用于区分"收起"与"回弹展开" */
+    /** 松手回调，参数为整段拖动的水平位移（px，左负右正），用于区分「收起」与「回弹展开」 */
     onDragEnd: (Float) -> Unit,
     userName: String,
     onDismiss: () -> Unit,
@@ -144,7 +153,7 @@ fun SideDrawer(
     onAfterNavigate: () -> Unit,
 ) {
     val appearance = LocalAppearance.current
-    // 抽屉盖在页面上，用不透明面板色（web: rgb(var(--panel-rgb))）
+    // 底部弹层仍用不透明面板色：它是完整的 Sheet，不是浮动控件
     val panelSolid = WebColors.panel(appearance.navColor, 1f)
     val accent = MaterialTheme.colorScheme.primary
     val onAccent = MaterialTheme.colorScheme.onPrimary
@@ -153,13 +162,15 @@ fun SideDrawer(
     var openType by remember { mutableStateOf<String?>(null) }
     var counts by remember { mutableStateOf<Map<String, List<CountItem>>>(emptyMap()) }
 
-    val widthPx = with(LocalDensity.current) { width.toPx() }
-    val circle = DrawerGeometry.circleDp(
-        widthDp = width.value,
-        padDp = OrbPad.value,
-        gapDp = OrbGap.value,
-    ).dp
-    val groupHeight = (circle + OrbLabelGap + OrbLabelHeight) * 2 + OrbRowGap
+    val density = LocalDensity.current
+    val swipePx = with(density) { swipeWidth.toPx() }
+    val screenWidthDp = LocalConfiguration.current.screenWidthDp.toFloat()
+    val circle = DrawerGeometry.circleDp(screenWidthDp).dp
+    val groupWidth = DrawerGeometry.groupWidthDp(circle.value).dp
+    val gap = DrawerGeometry.GAP_DP.dp
+    val groupHeight = circle * 2 + OrbRowGap
+    // 底部两个圆占掉的竖向空间：登录圆 + 与导航栏的间距 + 导航栏本身
+    val bottomReserve = circle + BottomOrbGap + TabBarHeight
 
     LaunchedEffect(fraction > 0f) {
         if (fraction <= 0f) return@LaunchedEffect
@@ -172,56 +183,39 @@ fun SideDrawer(
         )
     }
 
-    Box(modifier = Modifier.fillMaxSize()) {
-        // 遮罩跟随拖拽渐变；只有完全打开时才接管点击（拖拽中点击要穿透给下层）
-        if (fraction > 0f) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(Color.Black.copy(alpha = 0.5f * fraction))
-                    .then(if (fraction > 0.99f) Modifier.clickable(onClick = onDismiss) else Modifier),
-            )
-        }
+    if (fraction <= 0f) return
 
-        // 面板：位置由 fraction 直接驱动，手指拖多少走多少（跟手，不是固定时长动画）
-        Column(
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            // 向左拖即收起，位移实时回传给 RootScreen
+            .pointerInput(swipePx) {
+                var total = 0f
+                detectHorizontalDragGestures(
+                    onDragStart = { total = 0f },
+                    onHorizontalDrag = { _, dragAmount ->
+                        total += dragAmount
+                        onDragBy(dragAmount / swipePx)
+                    },
+                    onDragEnd = { onDragEnd(total) },
+                    onDragCancel = { onDragEnd(total) },
+                )
+            }
+            // 点圆外的空白关闭。圆自身的 clickable 会消费事件，tap 不会跟着触发；
+            // 这一层同时挡掉了下层底部 Tab 的点击
+            .pointerInput(Unit) {
+                detectTapGestures { onDismiss() }
+            },
+    ) {
+        // 内容层：跟手水平位移，圆组整体从屏幕左侧浮入
+        Box(
             modifier = Modifier
-                .width(width)
-                .fillMaxHeight()
-                .offset { IntOffset((-widthPx * (1f - fraction)).roundToInt(), 0) }
-                .background(panelSolid)
-                // 向左拖即收起，位移实时回传给 RootScreen
-                .pointerInput(widthPx) {
-                    var total = 0f
-                    detectHorizontalDragGestures(
-                        onDragStart = { total = 0f },
-                        onHorizontalDrag = { _, dragAmount ->
-                            total += dragAmount
-                            onDragBy(dragAmount / widthPx)
-                        },
-                        onDragEnd = { onDragEnd(total) },
-                        onDragCancel = { onDragEnd(total) },
-                    )
-                }
-                // web 只有 border-right，这里只画右边一条线
-                .drawBehind {
-                    val w = 1.dp.toPx()
-                    drawLine(
-                        color = WebColors.Border,
-                        start = Offset(size.width - w / 2f, 0f),
-                        end = Offset(size.width - w / 2f, size.height),
-                        strokeWidth = w,
-                    )
-                },
+                .fillMaxSize()
+                .offset { IntOffset((-swipePx * (1f - fraction)).roundToInt(), 0) },
         ) {
-            // 上方圆组：垂直中心跟随起手高度，整体在可用区间内钳制
-            BoxWithConstraints(
-                modifier = Modifier
-                    .weight(1f)
-                    .fillMaxWidth(),
-            ) {
-                val density = LocalDensity.current
-                val availPx = with(density) { maxHeight.toPx() }
+            // ---- 上方圆组：4 个筛选圆 + 1 个收藏圆 ----
+            BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+                val availPx = with(density) { (maxHeight - bottomReserve).toPx() }
                 val groupPx = with(density) { groupHeight.toPx() }
                 val marginPx = with(density) { OrbGroupMargin.toPx() }
                 val topPx = DrawerGeometry.groupTopPx(
@@ -234,64 +228,77 @@ fun SideDrawer(
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .offset { IntOffset(0, topPx.roundToInt()) }
-                        .padding(horizontal = OrbPad),
+                        .offset { IntOffset(0, topPx.roundToInt()) },
+                    horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.spacedBy(OrbRowGap),
                 ) {
-                    // 第 1 行：4 个筛选圆（社团 / 系列 / 声优 / 标签）
-                    Row(horizontalArrangement = Arrangement.spacedBy(OrbGap)) {
-                        SIDE_FILTERS.forEach { entry ->
-                            val active = counts[entry.type].orEmpty().count {
-                                LibraryState.conds.any { c -> c.type == entry.type && c.value == it.name }
+                    Column(
+                        modifier = Modifier.width(groupWidth),
+                        verticalArrangement = Arrangement.spacedBy(OrbRowGap),
+                    ) {
+                        // 第 1 行：4 个筛选圆
+                        Row(horizontalArrangement = Arrangement.spacedBy(gap)) {
+                            SIDE_FILTERS.forEach { entry ->
+                                val active = counts[entry.type].orEmpty().count {
+                                    LibraryState.conds.any { c -> c.type == entry.type && c.value == it.name }
+                                }
+                                Orb(
+                                    label = entry.label,
+                                    size = circle,
+                                    active = active > 0,
+                                    badge = active,
+                                    accent = accent,
+                                    onAccent = onAccent,
+                                    onClick = { openType = entry.type },
+                                ) { tint, modifier -> SideIcon(entry.type, tint, modifier) }
                             }
+                        }
+
+                        // 第 2 行：收藏圆（与第 1 列对齐）
+                        Row(horizontalArrangement = Arrangement.spacedBy(gap)) {
                             Orb(
-                                label = entry.label,
+                                label = "收藏",
                                 size = circle,
-                                active = active > 0,
-                                badge = active,
                                 accent = accent,
                                 onAccent = onAccent,
-                                onClick = { openType = entry.type },
-                            ) { tint, modifier -> SideIcon(entry.type, tint, modifier) }
+                                onClick = { onAfterNavigate(); onOpenFavorites() },
+                            ) { tint, modifier -> SolidStarIcon(tint, modifier) }
+                            Spacer(Modifier.weight(1f))
                         }
-                    }
-
-                    // 第 2 行：收藏圆（与第 1 列左对齐）
-                    Row(horizontalArrangement = Arrangement.spacedBy(OrbGap)) {
-                        Orb(
-                            label = "收藏",
-                            size = circle,
-                            accent = accent,
-                            onAccent = onAccent,
-                            onClick = { onAfterNavigate(); onOpenFavorites() },
-                        ) { tint, modifier -> SolidStarIcon(tint, modifier) }
                     }
                 }
             }
 
-            // 底部两个圆：左账号（改密 / 服务地址 / 退出登录），右设置
-            Row(
+            // ---- 底部两个圆：左账号（改密 / 服务地址 / 退出登录），右设置 ----
+            Box(
                 modifier = Modifier
+                    .align(Alignment.BottomCenter)
                     .fillMaxWidth()
-                    .padding(start = OrbPad, end = OrbPad, bottom = 26.dp),
-                horizontalArrangement = Arrangement.spacedBy(OrbGap),
+                    .padding(bottom = TabBarHeight + BottomOrbGap),
+                contentAlignment = Alignment.Center,
             ) {
-                AccountOrb(
-                    size = circle,
-                    initial = (userName.ifBlank { "U" }).take(1).uppercase(),
-                    accent = accent,
-                    onAccent = onAccent,
-                    onOpenChangePassword = { onAfterNavigate(); onOpenChangePassword() },
-                    onChangeServer = { onAfterNavigate(); onChangeServer() },
-                    onLogout = { onAfterNavigate(); onLogout() },
-                )
-                Orb(
-                    label = "设置",
-                    size = circle,
-                    accent = accent,
-                    onAccent = onAccent,
-                    onClick = { onAfterNavigate(); onOpenSettings() },
-                ) { tint, modifier -> SideIcon("settings", tint, modifier) }
+                Row(
+                    modifier = Modifier.width(groupWidth),
+                    horizontalArrangement = Arrangement.spacedBy(gap),
+                ) {
+                    AccountOrb(
+                        size = circle,
+                        initial = (userName.ifBlank { "U" }).take(1).uppercase(),
+                        accent = accent,
+                        onAccent = onAccent,
+                        onOpenChangePassword = { onAfterNavigate(); onOpenChangePassword() },
+                        onChangeServer = { onAfterNavigate(); onChangeServer() },
+                        onLogout = { onAfterNavigate(); onLogout() },
+                    )
+                    Orb(
+                        label = "设置",
+                        size = circle,
+                        accent = accent,
+                        onAccent = onAccent,
+                        onClick = { onAfterNavigate(); onOpenSettings() },
+                    ) { tint, modifier -> SideIcon("settings", tint, modifier) }
+                    Spacer(Modifier.weight(1f))
+                }
             }
         }
     }
@@ -324,8 +331,8 @@ fun SideDrawer(
 }
 
 /**
- * 圆盘按钮：圆形底 + 圆内图标 + 圆下 11sp 小字。
- * 筛选生效时圆描边换成强调色、右上角显示已选数量（数量角标画在裁剪层之外，不会被圆裁掉）。
+ * 圆控件：圆内竖排 **图标 + 小字**（字在圆里，不在圆下面）。
+ * 筛选生效时圆描边换成强调色、右上角显示已选数量（角标画在裁剪层之外，不会被圆裁掉）。
  */
 @Composable
 private fun Orb(
@@ -338,55 +345,56 @@ private fun Orb(
     badge: Int = 0,
     icon: @Composable (Color, Modifier) -> Unit,
 ) {
-    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        Box(modifier = Modifier.size(size)) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .clip(CircleShape)
-                    .background(WebColors.control(1f))
-                    .border(
-                        width = if (active) 1.5.dp else 1.dp,
-                        color = if (active) accent else WebColors.Border,
-                        shape = CircleShape,
-                    )
-                    .clickable(onClick = onClick),
-                contentAlignment = Alignment.Center,
-            ) {
-                icon(if (active) accent else WebColors.Text, Modifier.size(size * 0.4f))
-            }
-            if (badge > 0) {
-                Box(
-                    modifier = Modifier
-                        .align(Alignment.TopEnd)
-                        .offset(x = 3.dp, y = (-3).dp)
-                        .height(16.dp)
-                        .background(accent, ShapePill)
-                        .padding(horizontal = 5.dp),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Text(
-                        badge.toString(),
-                        fontSize = 10.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        color = onAccent,
-                    )
-                }
+    val tint = if (active) accent else WebColors.Text
+    Box(modifier = Modifier.size(size)) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .clip(CircleShape)
+                .background(WebColors.control(1f))
+                .border(
+                    width = if (active) 1.5.dp else 1.dp,
+                    color = if (active) accent else WebColors.Border,
+                    shape = CircleShape,
+                )
+                .clickable(onClick = onClick),
+            contentAlignment = Alignment.Center,
+        ) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                icon(tint, Modifier.size(size * 0.3f))
+                Spacer(Modifier.height(size * 0.05f))
+                Text(
+                    label,
+                    fontSize = 11.sp,
+                    fontWeight = if (active) FontWeight.SemiBold else FontWeight.Medium,
+                    color = tint,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
             }
         }
-        Spacer(Modifier.height(OrbLabelGap))
-        Text(
-            label,
-            fontSize = 11.sp,
-            fontWeight = if (active) FontWeight.SemiBold else FontWeight.Medium,
-            color = if (active) accent else WebColors.Muted,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-        )
+        if (badge > 0) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .offset(x = 3.dp, y = (-3).dp)
+                    .height(16.dp)
+                    .background(accent, ShapePill)
+                    .padding(horizontal = 5.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    badge.toString(),
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = onAccent,
+                )
+            }
+        }
     }
 }
 
-/** 左下角账号圆：圆内是用户名首字母，点开仍是改密 / 服务地址 / 退出登录。 */
+/** 左下角账号圆：圆内首字母 + 「账号」，点开仍是改密 / 服务地址 / 退出登录。 */
 @Composable
 private fun AccountOrb(
     size: Dp,
@@ -398,55 +406,55 @@ private fun AccountOrb(
     onLogout: () -> Unit,
 ) {
     var menuVisible by remember { mutableStateOf(false) }
-    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        Box {
-            Box(
-                modifier = Modifier
-                    .size(size)
-                    .clip(CircleShape)
-                    .background(accent)
-                    .clickable { menuVisible = true },
-                contentAlignment = Alignment.Center,
-            ) {
+    Box {
+        Box(
+            modifier = Modifier
+                .size(size)
+                .clip(CircleShape)
+                .background(accent)
+                .clickable { menuVisible = true },
+            contentAlignment = Alignment.Center,
+        ) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 Text(
                     initial,
-                    fontSize = 18.sp,
+                    fontSize = 16.sp,
                     fontWeight = FontWeight.Bold,
                     color = onAccent,
                 )
-            }
-            DropdownMenu(expanded = menuVisible, onDismissRequest = { menuVisible = false }) {
-                DropdownMenuItem(
-                    text = { Text("修改密码") },
-                    onClick = {
-                        menuVisible = false
-                        onOpenChangePassword()
-                    },
-                )
-                DropdownMenuItem(
-                    text = { Text("服务地址") },
-                    onClick = {
-                        menuVisible = false
-                        onChangeServer()
-                    },
-                )
-                DropdownMenuItem(
-                    text = { Text("退出登录") },
-                    onClick = {
-                        menuVisible = false
-                        onLogout()
-                    },
+                Spacer(Modifier.height(size * 0.05f))
+                Text(
+                    "账号",
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Medium,
+                    color = onAccent,
+                    maxLines = 1,
                 )
             }
         }
-        Spacer(Modifier.height(OrbLabelGap))
-        Text(
-            "账号",
-            fontSize = 11.sp,
-            fontWeight = FontWeight.Medium,
-            color = WebColors.Muted,
-            maxLines = 1,
-        )
+        DropdownMenu(expanded = menuVisible, onDismissRequest = { menuVisible = false }) {
+            DropdownMenuItem(
+                text = { Text("修改密码") },
+                onClick = {
+                    menuVisible = false
+                    onOpenChangePassword()
+                },
+            )
+            DropdownMenuItem(
+                text = { Text("服务地址") },
+                onClick = {
+                    menuVisible = false
+                    onChangeServer()
+                },
+            )
+            DropdownMenuItem(
+                text = { Text("退出登录") },
+                onClick = {
+                    menuVisible = false
+                    onLogout()
+                },
+            )
+        }
     }
 }
 
