@@ -171,14 +171,16 @@ ADB=.toolchain/sdk/platform-tools/adb.exe
 
 - 根布局从 `Column`（内容 weight + 栏在下面）改成 `Box`：Pager 与覆盖层铺满整屏，
   `MainNavigationBar` 用 `align(BottomCenter)` 压在内容之上，所以信息流是**从栏后穿过**的。
-- 内容根容器挂 `Modifier.acrylicSource(backdrop)`：把本帧内容录进一个 `GraphicsLayer` 再画出来
-  （画面与不用它时逐像素一致）。栏身再建一个层，把「自己身后那一条」**缩到 1/8 分辨率**录进去，
-  再放大 8 倍画回栏身 —— 放大时的双线性插值就是磨砂，等价于一次强盒式模糊；有 RenderEffect 的机器
-  再叠一层 14dp `BlurEffect` 让糊得更均匀。最后压 `#0A0A12 / 55%` 深色 + 顶部 1px 高光。
-  栏高只有 65dp，取样成本与整屏模糊不是一个量级。
-- **为什么不用 `Modifier.blur` / `RenderEffect` 作主路径**：它们在真机上会静默失效
-  （层属性、修饰符顺序、父层裁剪任一不对就毫无效果，代码侧也无法判定），实测两次都没糊。
-  降采样是纯 2D 变换，全版本一致 —— 顺带把「只有 Android 12+ 才有磨砂」的限制也去掉了。
+- 内容根容器挂 `Modifier.acrylicSource(backdrop, TabBarHeight)`：在**同一次绘制里录两份** ——
+  正常画面直接 `drawContent()`（不走中间层），栏身条再画一遍 `drawContent()`，缩到 1/8、
+  只留「导航栏身后那一段」录进小层；导航栏把这份小层放大 8 倍画出来（双线性插值 = 磨砂），
+  有 RenderEffect 的机器再叠一层 14dp `BlurEffect`。最后压 `#0A0A12 / 55%` 深色 + 顶部 1px 高光。
+- **为什么必须录两份、不能复用同一份层**：`GraphicsLayer` 背后是 `RenderNode`，同一个 node
+  在本帧被第二个目标再次 `drawLayer` 时拿不到像素（第一次绘制已占用它），取样层因此是空的 ——
+  这正是 0.1.29 / 0.1.30 / 0.1.31 三版「有透明、没磨砂」的原因（第三次连马赛克都没有，才定位到
+  「取样层没内容」而不是「模糊没生效」）。现在每个层只被画一次。
+- `Modifier.blur` 与层属性 `renderEffect` 都没用作主路径：前者受修饰符顺序 / 父层裁剪影响，
+  后者在本机（Android 17 / 荣耀）实测不生效，且都无法从代码侧判定。
 - 降采样不依赖任何平台特性，Android 8 起都有磨砂；`RenderEffect` 只是可选的加强。
   播放器页自带整屏模糊背景，那一页跳过取样。
 - 叠加式布局会让内容落进栏所占的 65dp：新增 `LocalTabBarInset`（= `TabBarHeight`），

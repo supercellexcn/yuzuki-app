@@ -254,7 +254,7 @@ fun RootScreen(
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .acrylicSource(backdrop)
+                    .acrylicSource(backdrop, TabBarHeight)
                     .then(drawerObserve),
             ) {
                 HorizontalPager(
