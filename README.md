@@ -26,6 +26,7 @@
 ```
 ui/          单 Activity + AppNav 返回栈 + RootScreen（Column：内容 weight + 底部 3 Tab 在下面）
              LibraryScreen · WorkDetailScreen · CollectionsScreen · SettingsScreen（外观 + 本机缓存）· PlayerUI
+             SideDrawer（圆盘侧栏：4 筛选圆 + 收藏圆 + 账号 / 设置圆，DrawerGeometry 为纯数值几何）
              LibraryListViewModel（库页数据 / 分页 / 滚动快照；两个 Lazy 滚动 state 由 RootScreen 持有）
              FeedPull（信息流顶部下拉手势 + 纯判定）
 ui/theme/    Material 3 配色 + Surface 组件封装（Glass* 为兼容层）· GlassSpec 纯函数 · 圆角 / 动画令牌
@@ -144,7 +145,8 @@ ADB=.toolchain/sdk/platform-tools/adb.exe
    `192.168.*` / `10.*` / `172.16–31.*` / `127.0.0.1`；公网地址与域名一律拒绝。
 2. 用与网页端相同的账号登录；token 存于 Android Keystore 加密的 DataStore。
 3. 首次登录强制改密由**原生** `ChangePasswordScreen` 完成（不再依赖 web 端路由）。
-4. 底部 Tab 切换媒体库 / 播放器 / 历史；侧栏抽屉进入设置 / 收藏管理 / 修改密码 / 服务地址 / 退出登录。
+4. 底部 Tab 切换媒体库 / 播放器 / 历史；侧栏抽屉是**圆盘布局**：上方 4 个筛选圆（社团 / 系列 / 声优 / 标签）
+   + 1 个收藏圆，底部左圆是账号菜单（改密 / 服务地址 / 退出登录）、右圆是设置。
    底部导航是纯黑 + 顶部 1px 分割线（亚克力毛玻璃试过四版都失败，已回退）；
    右侧原来的悬浮竖条（MobileDock：主页 / 回顶 / 切视图 / 随机）已移除，功能由「库 Tab 重复点回顶」
    与下面两条下拉手势承担。详见「交互改版」一节。
@@ -186,6 +188,23 @@ ADB=.toolchain/sdk/platform-tools/adb.exe
 - 用户决定不要半透明效果，已回退：`Box` 叠加式布局改回 `Column`（内容 weight + 栏在下面），
   导航栏恢复纯黑 `#000000` + 顶部 1px 分割线，`LocalTabBarInset` 与各页让位内距全部撤掉，
   `ui/Acrylic.kt` / `ui/AcrylicSelfCheck.kt` 删除。
+
+**侧栏圆盘**（`ui/SideDrawer.kt`，分支 `feat/drawer-orbs`，0.1.44）
+
+- 抽屉从「品牌 + 文字列表」改为**圆盘**：去掉了顶部 Yuzuki 品牌区和 4 条 `DrawerItem` 文字行。
+- 排布：第 1 行 4 个筛选圆（**社团 / 系列 / 声优 / 标签**，圆下小字，去掉了「全部」二字）、
+  第 2 行第 1 列 1 个收藏圆；圆内是 `SideIcon` / `SolidStarIcon`，圆下 11sp 小字。
+  筛选生效的圆描边换强调色、右上角显示已选数量（角标画在裁剪层之外，不会被圆裁掉）。
+- 底部固定 2 个圆：左**账号**（圆内用户名首字母，点开仍是改密 / 服务地址 / 退出登录下拉菜单）、
+  右**设置**。遮罩、跟手位移、左拖收起、筛选 chips 底部弹层的逻辑全部沿用。
+- **圆组位置不固定**：以「拉出侧栏时手指按下的高度」为垂直中心（`RootScreen` 在起手判定成功那一帧
+  记录 `down.position.y / 可用高度`，点菜单按钮打开时沿用上一次的值）。
+  `DrawerGeometry.groupTopPx` 把圆组钳制在上下留白之内，手指按在屏幕最上 / 最下沿也不会跑出屏幕。
+- 面板宽度改为**随屏宽自适应**：`min(屏宽 × 0.82, 320dp)`，下限 240dp；4 个圆的直径按
+  「(面板宽 − 左右 18dp − 3 段 10dp) ÷ 4」等分，最小 44dp（保证点得准）。
+  手势位移换算（`dx / drawerWidthPx`）与面板本身共用同一个宽度值。
+- 这套数值规则抽成 `DrawerGeometry`（纯 Kotlin，不依赖 Compose 运行时），
+  由 `DrawerGeometryTest` 钉住：宽度比例与封顶、圆直径等分与下限、起手高度居中与越界钳制。
 
 **信息流顶部下拉手势**（`ui/FeedPull.kt`）
 

@@ -6,6 +6,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
@@ -21,7 +22,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.DropdownMenu
@@ -42,7 +43,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.input.pointer.pointerInput
@@ -50,6 +50,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -62,27 +63,73 @@ import com.yuzuki.app.ui.theme.WebColors
 import kotlin.math.roundToInt
 
 /**
- * web 移动端的侧边抽屉（AppSidebar.vue @media max-width 760）：
- * 宽 260px、固定左侧滑出、不透明面板色底、左侧 1px 边框、半透明黑遮罩。
+ * 侧栏圆盘几何（纯数值，JVM 单测直接断言，不依赖 Compose 运行时）。
  *
- * 结构照抄：品牌 → 四个分类筛选项 → 分隔线 → 我的收藏 → 用户 / 设置。
- * 「最近播放」与「视图与排序」入口已移除（历史走底部 Tab，视图 / 随机由悬浮控件承载）。
+ * 面板不再是 web 那种「品牌 + 文字列表」的抽屉，而是一块圆盘面板：
+ * 上方 4 个筛选圆 + 1 个收藏圆（圆组高度跟随拉出侧栏时手指按下的高度），底部账号 / 设置两个圆。
  */
-internal val DrawerWidth = 260.dp
+internal object DrawerGeometry {
+    /** 面板宽度占屏宽的比例：太窄 4 个圆挤成一堆，太宽会把信息流挡光。 */
+    const val WIDTH_RATIO = 0.82f
+    /** 面板宽度上限：大屏 / 平板不再变宽。 */
+    const val MAX_WIDTH_DP = 320f
+    /** 极窄屏的兜底下限。 */
+    const val MIN_WIDTH_DP = 240f
+    /** 圆的最小直径（≈ 48dp 触控区的下限）。 */
+    const val MIN_CIRCLE_DP = 44f
+
+    fun widthDp(screenWidthDp: Float): Float =
+        (screenWidthDp * WIDTH_RATIO).coerceIn(MIN_WIDTH_DP, MAX_WIDTH_DP)
+
+    /** 一列圆的直径：可用宽度扣掉左右内边距与列间距后按列数等分。 */
+    fun circleDp(widthDp: Float, padDp: Float, gapDp: Float, columns: Int = 4): Float {
+        val usable = widthDp - padDp * 2 - gapDp * (columns - 1)
+        return (usable / columns).coerceAtLeast(MIN_CIRCLE_DP)
+    }
+
+    /**
+     * 圆组顶部位置：以「拉出侧栏时手指按下的高度」为中心算起，上下各留 [marginPx]。
+     * 手指按在很靠上 / 很靠下的位置时圆组会被钳制回可用区间，不会跑出屏幕。
+     */
+    fun groupTopPx(startFraction: Float, availPx: Float, groupPx: Float, marginPx: Float): Float {
+        val usable = availPx - groupPx - marginPx * 2
+        if (usable <= 0f) return marginPx
+        val centered = startFraction.coerceIn(0f, 1f) * availPx - groupPx / 2f
+        return centered.coerceIn(marginPx, marginPx + usable)
+    }
+}
 
 private data class SideEntry(val type: String, val label: String)
 
+/** 圆下小字去掉「全部」二字：社团 / 系列 / 声优 / 标签。 */
 private val SIDE_FILTERS = listOf(
-    SideEntry("circle", "全部社团"),
-    SideEntry("series", "全部系列"),
-    SideEntry("actor", "全部声优"),
-    SideEntry("tag", "全部标签"),
+    SideEntry("circle", "社团"),
+    SideEntry("series", "系列"),
+    SideEntry("actor", "声优"),
+    SideEntry("tag", "标签"),
 )
 
+private val OrbPad = 18.dp
+private val OrbGap = 10.dp
+private val OrbLabelGap = 5.dp
+private val OrbLabelHeight = 16.dp
+private val OrbRowGap = 18.dp
+private val OrbGroupMargin = 12.dp
+
+/**
+ * 圆盘侧边抽屉。
+ *
+ * - 跟手位移：位置由 [fraction] 直接驱动，手指拖多少走多少（不是固定时长动画）；
+ * - 圆组位置不固定：以 [startFraction]（拉出时手指按下的高度占可用高度的比例）为垂直中心；
+ * - 4 个筛选圆点开仍是同一套 chips 底部弹层，收藏圆进收藏页，底部左圆是账号菜单、右圆是设置。
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SideDrawer(
     fraction: Float,
+    width: Dp,
+    /** 起手高度占可用高度的比例（0–1）；点右上角菜单按钮打开时沿用上一次的值。 */
+    startFraction: Float,
     onDragBy: (Float) -> Unit,
     /** 松手回调，参数为整段拖动的水平位移（px，左负右正），用于区分"收起"与"回弹展开" */
     onDragEnd: (Float) -> Unit,
@@ -99,15 +146,20 @@ fun SideDrawer(
     val appearance = LocalAppearance.current
     // 抽屉盖在页面上，用不透明面板色（web: rgb(var(--panel-rgb))）
     val panelSolid = WebColors.panel(appearance.navColor, 1f)
-    val controlBg = WebColors.control(appearance.controlAlpha)
     val accent = MaterialTheme.colorScheme.primary
+    val onAccent = MaterialTheme.colorScheme.onPrimary
     val accentSoft = accent.copy(alpha = 0.2f)
 
     var openType by remember { mutableStateOf<String?>(null) }
-    var menuVisible by remember { mutableStateOf(false) }
     var counts by remember { mutableStateOf<Map<String, List<CountItem>>>(emptyMap()) }
 
-    val widthPx = with(LocalDensity.current) { DrawerWidth.toPx() }
+    val widthPx = with(LocalDensity.current) { width.toPx() }
+    val circle = DrawerGeometry.circleDp(
+        widthDp = width.value,
+        padDp = OrbPad.value,
+        gapDp = OrbGap.value,
+    ).dp
+    val groupHeight = (circle + OrbLabelGap + OrbLabelHeight) * 2 + OrbRowGap
 
     LaunchedEffect(fraction > 0f) {
         if (fraction <= 0f) return@LaunchedEffect
@@ -134,7 +186,7 @@ fun SideDrawer(
         // 面板：位置由 fraction 直接驱动，手指拖多少走多少（跟手，不是固定时长动画）
         Column(
             modifier = Modifier
-                .width(DrawerWidth)
+                .width(width)
                 .fillMaxHeight()
                 .offset { IntOffset((-widthPx * (1f - fraction)).roundToInt(), 0) }
                 .background(panelSolid)
@@ -162,127 +214,86 @@ fun SideDrawer(
                     )
                 },
         ) {
-                // 品牌区：padding 12 15 6
-                Row(
-                    modifier = Modifier.padding(start = 15.dp, end = 15.dp, top = 12.dp, bottom = 6.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                ) {
-                    BrandMark()
-                    Text(
-                        "Yuzuki",
-                        fontSize = 18.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = accent,
-                    )
-                }
+            // 上方圆组：垂直中心跟随起手高度，整体在可用区间内钳制
+            BoxWithConstraints(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth(),
+            ) {
+                val density = LocalDensity.current
+                val availPx = with(density) { maxHeight.toPx() }
+                val groupPx = with(density) { groupHeight.toPx() }
+                val marginPx = with(density) { OrbGroupMargin.toPx() }
+                val topPx = DrawerGeometry.groupTopPx(
+                    startFraction = startFraction,
+                    availPx = availPx,
+                    groupPx = groupPx,
+                    marginPx = marginPx,
+                )
 
                 Column(
                     modifier = Modifier
-                        .weight(1f)
-                        .verticalScroll(rememberScrollState())
-                        .padding(horizontal = 10.dp, vertical = 14.dp),
-                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                        .fillMaxWidth()
+                        .offset { IntOffset(0, topPx.roundToInt()) }
+                        .padding(horizontal = OrbPad),
+                    verticalArrangement = Arrangement.spacedBy(OrbRowGap),
                 ) {
-                    SIDE_FILTERS.forEach { entry ->
-                        val active = counts[entry.type].orEmpty().count {
-                            LibraryState.conds.any { c -> c.type == entry.type && c.value == it.name }
-                        }
-                        DrawerItem(
-                            label = entry.label,
-                            icon = entry.type,
-                            badge = active,
-                            caret = true,
-                            onClick = { openType = entry.type },
-                        )
-                    }
-
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 6.dp, vertical = 8.dp)
-                            .height(1.dp)
-                            .background(WebColors.Border),
-                    )
-
-                    DrawerItem(
-                        label = "我的收藏",
-                        icon = "star",
-                        onClick = { onAfterNavigate(); onOpenFavorites() },
-                    )
-                }
-
-                Column(
-                    modifier = Modifier.padding(10.dp),
-                    verticalArrangement = Arrangement.spacedBy(4.dp),
-                ) {
-                    Box {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .heightIn(min = 40.dp)
-                                .clip(RoundedCornerShape(8.dp))
-                                .clickable { menuVisible = true }
-                                .padding(horizontal = 12.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(10.dp),
-                        ) {
-                            Box(
-                                modifier = Modifier.size(24.dp).background(accent, ShapePill),
-                                contentAlignment = Alignment.Center,
-                            ) {
-                                Text(
-                                    (userName.ifBlank { "U" }).take(1).uppercase(),
-                                    fontSize = 13.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = MaterialTheme.colorScheme.onPrimary,
-                                )
+                    // 第 1 行：4 个筛选圆（社团 / 系列 / 声优 / 标签）
+                    Row(horizontalArrangement = Arrangement.spacedBy(OrbGap)) {
+                        SIDE_FILTERS.forEach { entry ->
+                            val active = counts[entry.type].orEmpty().count {
+                                LibraryState.conds.any { c -> c.type == entry.type && c.value == it.name }
                             }
-                            Text(
-                                userName.ifBlank { "未登录" },
-                                fontSize = 14.sp,
-                                fontWeight = FontWeight.Medium,
-                                color = WebColors.Text,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                                modifier = Modifier.weight(1f),
-                            )
-                            Text("▸", fontSize = 14.sp, color = WebColors.Muted, modifier = Modifier.rotate(90f))
-                        }
-                        DropdownMenu(expanded = menuVisible, onDismissRequest = { menuVisible = false }) {
-                            DropdownMenuItem(
-                                text = { Text("修改密码") },
-                                onClick = {
-                                    menuVisible = false
-                                    onAfterNavigate()
-                                    onOpenChangePassword()
-                                },
-                            )
-                            DropdownMenuItem(
-                                text = { Text("服务地址") },
-                                onClick = {
-                                    menuVisible = false
-                                    onAfterNavigate()
-                                    onChangeServer()
-                                },
-                            )
-                            DropdownMenuItem(
-                                text = { Text("退出登录") },
-                                onClick = {
-                                    menuVisible = false
-                                    onAfterNavigate()
-                                    onLogout()
-                                },
-                            )
+                            Orb(
+                                label = entry.label,
+                                size = circle,
+                                active = active > 0,
+                                badge = active,
+                                accent = accent,
+                                onAccent = onAccent,
+                                onClick = { openType = entry.type },
+                            ) { tint, modifier -> SideIcon(entry.type, tint, modifier) }
                         }
                     }
-                    DrawerItem(
-                        label = "设置",
-                        icon = "settings",
-                        onClick = { onAfterNavigate(); onOpenSettings() },
-                    )
+
+                    // 第 2 行：收藏圆（与第 1 列左对齐）
+                    Row(horizontalArrangement = Arrangement.spacedBy(OrbGap)) {
+                        Orb(
+                            label = "收藏",
+                            size = circle,
+                            accent = accent,
+                            onAccent = onAccent,
+                            onClick = { onAfterNavigate(); onOpenFavorites() },
+                        ) { tint, modifier -> SolidStarIcon(tint, modifier) }
+                    }
                 }
             }
+
+            // 底部两个圆：左账号（改密 / 服务地址 / 退出登录），右设置
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(start = OrbPad, end = OrbPad, bottom = 26.dp),
+                horizontalArrangement = Arrangement.spacedBy(OrbGap),
+            ) {
+                AccountOrb(
+                    size = circle,
+                    initial = (userName.ifBlank { "U" }).take(1).uppercase(),
+                    accent = accent,
+                    onAccent = onAccent,
+                    onOpenChangePassword = { onAfterNavigate(); onOpenChangePassword() },
+                    onChangeServer = { onAfterNavigate(); onChangeServer() },
+                    onLogout = { onAfterNavigate(); onLogout() },
+                )
+                Orb(
+                    label = "设置",
+                    size = circle,
+                    accent = accent,
+                    onAccent = onAccent,
+                    onClick = { onAfterNavigate(); onOpenSettings() },
+                ) { tint, modifier -> SideIcon("settings", tint, modifier) }
+            }
+        }
     }
 
     val type = openType
@@ -312,75 +323,130 @@ fun SideDrawer(
     }
 }
 
+/**
+ * 圆盘按钮：圆形底 + 圆内图标 + 圆下 11sp 小字。
+ * 筛选生效时圆描边换成强调色、右上角显示已选数量（数量角标画在裁剪层之外，不会被圆裁掉）。
+ */
 @Composable
-private fun BrandMark() {
-    Box(
-        modifier = Modifier
-            .size(34.dp)
-            .background(MaterialTheme.colorScheme.primary, RoundedCornerShape(9.dp)),
-        contentAlignment = Alignment.Center,
-    ) {
+private fun Orb(
+    label: String,
+    size: Dp,
+    accent: Color,
+    onAccent: Color,
+    onClick: () -> Unit,
+    active: Boolean = false,
+    badge: Int = 0,
+    icon: @Composable (Color, Modifier) -> Unit,
+) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        Box(modifier = Modifier.size(size)) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .clip(CircleShape)
+                    .background(WebColors.control(1f))
+                    .border(
+                        width = if (active) 1.5.dp else 1.dp,
+                        color = if (active) accent else WebColors.Border,
+                        shape = CircleShape,
+                    )
+                    .clickable(onClick = onClick),
+                contentAlignment = Alignment.Center,
+            ) {
+                icon(if (active) accent else WebColors.Text, Modifier.size(size * 0.4f))
+            }
+            if (badge > 0) {
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .offset(x = 3.dp, y = (-3).dp)
+                        .height(16.dp)
+                        .background(accent, ShapePill)
+                        .padding(horizontal = 5.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        badge.toString(),
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = onAccent,
+                    )
+                }
+            }
+        }
+        Spacer(Modifier.height(OrbLabelGap))
         Text(
-            "Y",
-            fontSize = 19.sp,
-            fontWeight = FontWeight.Bold,
-            color = MaterialTheme.colorScheme.onPrimary,
+            label,
+            fontSize = 11.sp,
+            fontWeight = if (active) FontWeight.SemiBold else FontWeight.Medium,
+            color = if (active) accent else WebColors.Muted,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
         )
     }
 }
 
-/** .sidebar-item：min-height 40 / padding 0 12 / gap 10 / radius 8 / 14px 500。 */
+/** 左下角账号圆：圆内是用户名首字母，点开仍是改密 / 服务地址 / 退出登录。 */
 @Composable
-private fun DrawerItem(
-    label: String,
-    icon: String,
-    badge: Int = 0,
-    caret: Boolean = false,
-    onClick: () -> Unit,
+private fun AccountOrb(
+    size: Dp,
+    initial: String,
+    accent: Color,
+    onAccent: Color,
+    onOpenChangePassword: () -> Unit,
+    onChangeServer: () -> Unit,
+    onLogout: () -> Unit,
 ) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .heightIn(min = 40.dp)
-            .clip(RoundedCornerShape(8.dp))
-            .clickable(onClick = onClick)
-            .padding(horizontal = 12.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
-    ) {
-        if (icon == "star") {
-            SolidStarIcon(WebColors.Text, Modifier.size(18.dp))
-        } else {
-            SideIcon(icon, WebColors.Text, Modifier.size(18.dp))
-        }
-        Text(
-            label,
-            fontSize = 14.sp,
-            fontWeight = FontWeight.Medium,
-            color = WebColors.Text,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.weight(1f),
-        )
-        if (badge > 0) {
+    var menuVisible by remember { mutableStateOf(false) }
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        Box {
             Box(
                 modifier = Modifier
-                    .height(18.dp)
-                    .background(MaterialTheme.colorScheme.primary, ShapePill)
-                    .padding(horizontal = 6.dp),
+                    .size(size)
+                    .clip(CircleShape)
+                    .background(accent)
+                    .clickable { menuVisible = true },
                 contentAlignment = Alignment.Center,
             ) {
                 Text(
-                    badge.toString(),
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    color = MaterialTheme.colorScheme.onPrimary,
+                    initial,
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = onAccent,
+                )
+            }
+            DropdownMenu(expanded = menuVisible, onDismissRequest = { menuVisible = false }) {
+                DropdownMenuItem(
+                    text = { Text("修改密码") },
+                    onClick = {
+                        menuVisible = false
+                        onOpenChangePassword()
+                    },
+                )
+                DropdownMenuItem(
+                    text = { Text("服务地址") },
+                    onClick = {
+                        menuVisible = false
+                        onChangeServer()
+                    },
+                )
+                DropdownMenuItem(
+                    text = { Text("退出登录") },
+                    onClick = {
+                        menuVisible = false
+                        onLogout()
+                    },
                 )
             }
         }
-        if (caret) {
-            Text("▸", fontSize = 14.sp, color = WebColors.Muted)
-        }
+        Spacer(Modifier.height(OrbLabelGap))
+        Text(
+            "账号",
+            fontSize = 11.sp,
+            fontWeight = FontWeight.Medium,
+            color = WebColors.Muted,
+            maxLines = 1,
+        )
     }
 }
 

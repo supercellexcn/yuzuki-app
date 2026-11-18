@@ -31,6 +31,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
@@ -69,8 +70,15 @@ fun RootScreen(
     var lastBackAt by remember { mutableLongStateOf(0L) }
     var drawerFraction by remember { mutableFloatStateOf(0f) }
     var drawerOpen by remember { mutableStateOf(false) }
+    // 拉出侧栏时手指按下的高度（占可用高度的比例）：圆盘里 5 个圆的垂直位置从这里起算。
+    // 点右上角菜单按钮打开时没有手势起点，沿用上一次的值。
+    var drawerStartY by remember { mutableFloatStateOf(0.55f) }
     val scope = rememberCoroutineScope()
-    val drawerWidthPx = with(LocalDensity.current) { DrawerWidth.toPx() }
+    // 面板宽度随屏宽自适应（4 个圆要铺得开），手势位移换算与面板本身共用同一个值
+    val drawerWidth = DrawerGeometry.widthDp(
+        LocalConfiguration.current.screenWidthDp.toFloat(),
+    ).dp
+    val drawerWidthPx = with(LocalDensity.current) { drawerWidth.toPx() }
 
     // 库页数据 / 滚动状态放在 Pager 之外：翻到播放器 / 历史再回来时位置与已翻页的数据都还在。
     val libraryVm: LibraryListViewModel = viewModel()
@@ -224,6 +232,9 @@ fun RootScreen(
                         )
                     ) {
                         dragging = true
+                        // 圆盘以起手高度为中心排布：从哪里右滑拉起，圆组就在那个高度出现
+                        val h = size.height.toFloat()
+                        if (h > 0f) drawerStartY = (down.position.y / h).coerceIn(0f, 1f)
                     }
                 } else {
                     // 拖到一半用户其实是往下滑列表 → 回弹收手
@@ -355,6 +366,8 @@ fun RootScreen(
 
         SideDrawer(
             fraction = drawerFraction,
+            width = drawerWidth,
+            startFraction = drawerStartY,
             onDragBy = { delta ->
                 drawerFraction = (drawerFraction + delta).coerceIn(0f, 1f)
                 drawerOpen = drawerFraction > 0f
