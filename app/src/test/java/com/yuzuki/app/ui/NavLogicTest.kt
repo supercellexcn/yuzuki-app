@@ -243,9 +243,45 @@ class NavLogicTest {
     }
 
     @Test
+    fun `覆盖层打开时不识别侧栏手势`() {
+        // 设置页拖滑块（按住横滑）不能把侧栏拉出来；详情 / 收藏 / 改密同理
+        assertFalse(
+            DrawerDrag.canStart(
+                sumX = 400f,
+                absYAcc = 0f,
+                startSlop = 48f,
+                innerClaimed = false,
+                fullscreen = false,
+                overlayOpen = true,
+            ),
+        )
+        // 同样的位移在库页（无覆盖层）仍然可以拉侧栏
+        assertTrue(
+            DrawerDrag.canStart(
+                sumX = 400f,
+                absYAcc = 0f,
+                startSlop = 48f,
+                innerClaimed = false,
+                fullscreen = false,
+                overlayOpen = false,
+            ),
+        )
+    }
+
+    @Test
     fun `侧栏起手判定保持原条件`() {
-        fun can(sumX: Float, absY: Float, slop: Float = 48f, fullscreen: Boolean = false) =
-            DrawerDrag.canStart(sumX, absY, slop, innerClaimed = false, fullscreen = fullscreen)
+        fun can(
+            sumX: Float,
+            absY: Float,
+            slop: Float = 48f,
+            fullscreen: Boolean = false,
+            overlay: Boolean = false,
+        ) = DrawerDrag.canStart(
+            sumX, absY, slop,
+            innerClaimed = false,
+            fullscreen = fullscreen,
+            overlayOpen = overlay,
+        )
 
         // 页面空白处右滑（未过门槛 / 已过门槛）
         assertFalse(can(30f, 0f))
@@ -254,5 +290,7 @@ class NavLogicTest {
         assertFalse(can(100f, 200f))
         // 全屏播放器展开时不允许拉侧栏
         assertFalse(can(200f, 10f, fullscreen = true))
+        // 覆盖层打开时不允许拉侧栏
+        assertFalse(can(200f, 10f, overlay = true))
     }
 }

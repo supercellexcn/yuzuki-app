@@ -186,11 +186,15 @@ fun RootScreen(
     //
     // 防误触：列表纵向滑动时手指难免带一点横向抖动，所以必须"向右位移明显大于纵向位移"
     // 才拉起侧栏；已经上手拖侧栏后若纵向分量转为占主导，立刻回弹并放弃这次手势。
-    val drawerObserve = Modifier.pointerInput(pagerState, playState.fullscreen) {
+    val drawerObserve = Modifier.pointerInput(pagerState, playState.fullscreen, overlayRoute) {
         val startSlop = 16.dp.toPx()      // 起手门槛（≈48px），轻微抖动不会触发
         val verticalSlop = 24.dp.toPx()
         awaitEachGesture {
             val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+            // 覆盖层（设置 / 详情 / 收藏 / 改密）整层不参与侧栏手势：
+            // 设置页的滑块、收藏页的横向标签都是按住横滑，外层旁路观察看不到子级消费，
+            // 不排除的话拖滑块就会把侧栏拉出来。覆盖层里也没有需要拉侧栏的入口。
+            if (overlayRoute != null) return@awaitEachGesture
             var lastX = down.position.x
             var lastY = down.position.y
             var sumX = 0f      // 水平位移（右为正）
@@ -216,6 +220,7 @@ fun RootScreen(
                             startSlop = startSlop,
                             innerClaimed = DrawerGate.claimedByInner,
                             fullscreen = playState.fullscreen,
+                            overlayOpen = overlayRoute != null,
                         )
                     ) {
                         dragging = true

@@ -33,8 +33,11 @@ object DrawerGate {
 }
 
 /**
- * 侧栏起手的纯判定：右移过门槛、方向明显偏水平、抽屉未开、不在全屏播放器、内层未认领。
- * 纯数值逻辑，JVM 单测可直接断言。
+ * 侧栏起手的纯判定：右移过门槛、方向明显偏水平、抽屉未开、不在全屏播放器、
+ * 内层未认领、当前不在覆盖层（设置 / 详情 / 收藏 / 改密）。
+ *
+ * 覆盖层必须排除：设置页的滑块、收藏页的横向标签都是「按住横滑」，外层在 Initial pass
+ * 旁路观察时看不到子级消费，拖滑块就会被当成右滑拉起侧栏。纯数值逻辑，JVM 单测可直接断言。
  */
 object DrawerDrag {
     fun canStart(
@@ -43,8 +46,11 @@ object DrawerDrag {
         startSlop: Float,
         innerClaimed: Boolean,
         fullscreen: Boolean,
+        overlayOpen: Boolean = false,
     ): Boolean = !innerClaimed &&
         !fullscreen &&
+        // 覆盖层里全是可拖动控件，一律不认侧栏手势
+        !overlayOpen &&
         sumX > startSlop &&
         // 纵向累计必须明显小于水平位移：列表纵向滑动时手指难免带点横向抖动
         sumX > absYAcc * 1.5f

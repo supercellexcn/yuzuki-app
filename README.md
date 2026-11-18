@@ -153,7 +153,9 @@ ADB=.toolchain/sdk/platform-tools/adb.exe
    拉起侧栏要求「向右位移 > 16dp 且明显大于纵向位移」，列表纵向滑动时的手指抖动不会误开；
    松手吸附门槛按方向区分：展开需过 40%，收起只需过 22%（≈57dp），不用一路滑到底。
    详情 / 收藏 / 设置 / 改密是覆盖层，盖在 Pager 之上，此时不响应翻页；覆盖层自带不透明页面底色，
-   不会透出下层的库页卡片或播放器模糊封面。
+   不会透出下层的库页卡片或播放器模糊封面。**覆盖层打开期间整层不识别侧栏手势**：
+   设置页的滑块、收藏页的横向标签都是「按住横滑」，外层侧栏手势在 Initial pass 旁路观察、
+   看不到子级消费，不排除就会出现「拖滑块把侧栏拉出来」。
    设置页分三块：**外观**（主题色 / 声优标签色 / 类型标签色 + 面板、控件、两类标签的不透明度，
    预设色板 + 自定义 `#RRGGBB`，改完即时生效并只存本机 DataStore，带「恢复默认外观」）、
    **手势**（退出随机推荐的按住时长，1–10 秒滑块，默认 3 秒，存 `app_interaction`）
@@ -629,6 +631,23 @@ ADB=.toolchain/sdk/platform-tools/adb.exe
   （新增 `InteractionPrefsTest` 3 例：默认值与 `FeedPull.HOLD_MS` 对齐、范围夹紧、秒转毫秒夹紧）。
 - Release `0.1.42` 已发布共享（`yuzuki-0.1.42-1118-2217.apk` + `yuzuki-latest.apk`，sha256 一致
   `2a94ae22…a3f20d`）；已装到 `192.168.5.16:37557`（`versionCode=1042`、`versionName=0.1.42`），未启动。
+
+**本次增量验证（2026-11-18 九改，覆盖层不识别侧栏手势 · 分支 `feat/pull-exit-random` · Release `0.1.43`）**：
+
+- 反馈：设置页拖不透明度滑块时会被识别成右滑，直接把侧栏抽屉拉出来。
+- 根因：`RootScreen` 的侧栏手势用 `PointerEventPass.Initial`「旁路观察」右拖位移，刻意不消费事件，
+  因此看不到子级是否消费；`Slider` 正常消费了横滑，但外层仍然照常累计 `sumX` 并过门槛。
+- 改动：
+  - `ui/DrawerGate.kt`：`DrawerDrag.canStart()` 增加 `overlayOpen` 参数（默认 false），
+    覆盖层打开时一律不认侧栏手势；
+  - `ui/RootScreen.kt`：`pointerInput` 增加 `overlayRoute` 作为 key（进出覆盖层即重启手势协程，
+    避免闭包里读到旧的 `overlayRoute`），按下即判定 `overlayRoute != null` 直接放弃本轮。
+- 影响面：设置（滑块）、收藏（横向标签行）、详情（相关推荐已有 `claimHorizontalGesture` 兜底）、
+  改密页全部不再触发侧栏；库页 / 历史页 / 播放器的侧栏手势行为不变。
+- `assembleRelease` 通过；`testDebugUnitTest` **116 例全过、0 失败 0 错误**
+  （新增「覆盖层打开时不识别侧栏手势」，并在原侧栏判定用例里补了 `overlayOpen` 分支）。
+- Release `0.1.43` 已发布共享（`yuzuki-0.1.43-1118-2226.apk` + `yuzuki-latest.apk`，sha256 一致
+  `7c359250…09d03d`）；已装到 `192.168.5.16:37557`（`versionCode=1043`、`versionName=0.1.43`），未启动。
 
 **仍待验证**：A1–A5 接口同源断言、锁屏 metadata 与 `artworkData`、连续 `next()` 3 次通知不消失、
 息屏 5 分钟进度增长、蓝牙耳机按键、通知点击直达播放页、flac/mkv 解码、base64 图片上传返回码、
