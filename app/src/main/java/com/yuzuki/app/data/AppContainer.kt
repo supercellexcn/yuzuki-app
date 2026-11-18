@@ -27,7 +27,6 @@ object AppContainer {
         private set
 
     val settings by lazy { SettingsRepository(api, offline) }
-    val prefs by lazy { PrefsRepository(api) }
     val offline by lazy { OfflineCache(app) }
     val library by lazy { LibraryRepository(api, offline) }
     val reporter by lazy { com.yuzuki.app.playback.PlayReporter(api, offline) }
@@ -72,24 +71,6 @@ class SettingsRepository(
         val result = api.saveSettings(value)
         result.onSuccess { _state.value = it }
         return result
-    }
-}
-
-class PrefsRepository(private val api: YuzukiApi) {
-    private val _state = MutableStateFlow(LibraryPrefs())
-    val state: StateFlow<LibraryPrefs> = _state
-    val current: LibraryPrefs get() = _state.value
-
-    suspend fun load(): Result<LibraryPrefs> = api.prefs().onSuccess { _state.value = it }
-
-    suspend fun save(value: LibraryPrefs): Result<LibraryPrefs> {
-        val result = api.savePrefs(value)
-        result.onSuccess { _state.value = it }
-        return result
-    }
-
-    fun updateLocal(value: LibraryPrefs) {
-        _state.value = value
     }
 }
 

@@ -5,13 +5,6 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import com.yuzuki.app.data.AppContainer
 import com.yuzuki.app.data.FilterCond
-import com.yuzuki.app.data.LibraryPrefs
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.launch
-
-private val libraryScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
 /**
  * 库页的三种展现形态：
@@ -21,7 +14,12 @@ private val libraryScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
  */
 enum class LibraryView { List, Detail, Image }
 
-/** 媒体库界面状态：抽屉、顶栏、悬浮按钮与列表共享，避免层层传参。 */
+/** 媒体库界面状态：抽屉、顶栏、悬浮按钮与列表共享，避免层层传参。
+ *
+ * 搜索关键词 / 筛选条件 / 排序 **只在本次会话内存中**：不落盘、不读写服务端的 `/api/prefs`，
+ * 冷启动恒为「空关键词 + 无筛选 + 默认排序」。这样既不会记住 App 自己上次的条件，
+ * 也不会把网页端保存的搜索条件带进来（或反过来覆盖掉网页端的）。
+ */
 object LibraryState {
     var query by mutableStateOf("")
         private set
@@ -43,13 +41,6 @@ object LibraryState {
     var scrollTopTicket by mutableStateOf(0)
         private set
 
-    fun restore(prefs: LibraryPrefs) {
-        query = prefs.q
-        conds = prefs.conditions.take(5)
-        sort = prefs.sort
-        order = prefs.order
-    }
-
     /** 兼容既有渲染代码：只有「图片」形态才只画封面。 */
     val imageMode: Boolean get() = view == LibraryView.Image
 
@@ -68,28 +59,23 @@ object LibraryState {
         if (conds.size >= 5 || conds.contains(cond)) return
         conds = conds + cond
         randomMode = false
-        persistAsync()
     }
 
     fun removeCond(cond: FilterCond) {
         conds = conds - cond
-        persistAsync()
     }
 
     fun clearConds() {
         conds = emptyList()
-        persistAsync()
     }
 
     fun updateSort(value: String) {
         sort = value
         randomMode = false
-        persistAsync()
     }
 
     fun toggleOrder() {
         order = if (order == "desc") "asc" else "desc"
-        persistAsync()
     }
 
     fun toggleRandom() { randomMode = !randomMode }
@@ -112,15 +98,6 @@ object LibraryState {
         conds = emptyList()
         randomMode = false
         scrollToTop()
-        persistAsync()
-    }
-
-    suspend fun persist() {
-        AppContainer.prefs.save(LibraryPrefs(conds, query, sort, order))
-    }
-
-    private fun persistAsync() {
-        libraryScope.launch { runCatching { persist() } }
     }
 }
 

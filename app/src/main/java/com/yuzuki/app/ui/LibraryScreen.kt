@@ -130,16 +130,17 @@ fun LibraryScreen(
     val libraryTopAtEnter = remember { LibraryState.scrollTopTicket }
     val viewAtEnter = remember { LibraryState.view }
 
-    // 启动恢复 / 其它入口改了查询词时，输入框跟随（否则会出现「搜索词生效但框里空白」）
+    // 其它入口（点标签 / 声优进搜索等）改了查询词时，输入框跟随（否则会出现「搜索词生效但框里空白」）
     LaunchedEffect(LibraryState.query) {
         if (LibraryState.query != searchText) searchText = LibraryState.query
     }
 
+    // 关键词只落到内存（LibraryState.query），不落盘也不上报服务端：
+    // 下次冷启动仍是空搜索，也不会把网页端的搜索条件带回来。
     LaunchedEffect(searchText) {
         if (searchText != LibraryState.query) {
             delay(400)
             LibraryState.updateQuery(searchText)
-            LibraryState.persist()
         }
     }
 

@@ -90,7 +90,6 @@ fun RootScreen(
 
     LaunchedEffect(Unit) {
         FavoritesState.refresh()
-        LibraryState.restore(AppContainer.prefs.current)
     }
 
     fun openLibraryWith(cond: FilterCond) {

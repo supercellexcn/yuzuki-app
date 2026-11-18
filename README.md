@@ -10,7 +10,9 @@
 ## 硬约束
 
 - `D:\node\yuzuki` 全程只读：不新增接口、不改 schema、不改配置、不改前端代码
-- 账号与网页端同源（同一 `users` 表、同一 JWT），收藏 / 历史 / 偏好互通
+- 账号与网页端同源（同一 `users` 表、同一 JWT），收藏 / 历史互通；
+  **库页的搜索 / 筛选 / 排序不互通、也不记忆**：只活在本次会话内存里，App 不读写服务端 `/api/prefs`，
+  既不记住自己上次的条件，也不会带出或覆盖网页端的搜索条件
 - 播放走原生 Media3，支持锁屏 / 后台续播 / 通知栏换曲不消失
 - 首版交付 web 移动版全部功能（图片查看器、离线缓存等）；App 设置页只管本机缓存，服务端设置项由网页端承担
 - 界面采用 Material 3 风格：不透明容器、高对比文字，不使用模糊 / 半透明叠层 / 壁纸背景
@@ -27,7 +29,7 @@ ui/          单 Activity + AppNav 返回栈 + RootScreen（Column：内容 weig
              FeedPull（信息流顶部下拉手势 + 纯判定）
 ui/theme/    Material 3 配色 + Surface 组件封装（Glass* 为兼容层）· GlassSpec 纯函数 · 圆角 / 动画令牌
 data/        Models（DTO + org.json 解析）· YuzukiApi（全量 REST）· AppContainer（服务定位）
-             SettingsRepository · PrefsRepository · LibraryRepository（在线优先 + 离线兜底）
+             SettingsRepository · LibraryRepository（在线优先 + 离线兜底）
              OfflineCache（JSON 快照 / 封面 / 音频 / 播放记录补报队列）
              CacheUsage（缓存分类统计 / 清理 / 格式化，纯 JVM 可测）
              ImageSave（图片下载落相册：MIME / 文件名清洗 / MediaStore 写入，纯逻辑可测）
@@ -198,7 +200,7 @@ ADB=.toolchain/sdk/platform-tools/adb.exe
 |---|---|---|
 | N0 | 清除 WebView 层、原生导航骨架、GlassSurface 设计系统 | ✅ |
 | N1 | 全量 REST 客户端、DTO、Repository、登录 / 改密 / 401 | ✅ |
-| N2 | 媒体库（搜索 / 排序 / 筛选 / 分页 / 图片模式）、抽屉、外观（悬浮控件 MobileDock 已于 2026-11-18 移除） | ✅ |
+| N2 | 媒体库（搜索 / 排序 / 筛选 / 分页 / 图片模式）、抽屉、外观（悬浮控件 MobileDock 已于 2026-11-18 移除；搜索条件 2026-11-18 起不落盘、不读写 `/api/prefs`） | ✅ |
 | N3 | 作品详情、文件树、图片查看器、设封面 / 壁纸、相关推荐 | ✅ |
 | N4 | 原生播放队列、迷你条 + 全屏播放器、PlayReporter 时长上报 | ✅ |
 | N5 | 锁屏 / 通知 / 线控、收藏 4 Tab、历史列表 / 卡片 | ✅ |
@@ -510,6 +512,28 @@ ADB=.toolchain/sdk/platform-tools/adb.exe
 - `assembleRelease` 通过；`testDebugUnitTest` **98 例全过、0 失败 0 错误**。未截图验证。
 - Release `0.1.37` 已发布共享 `yuzuki-0.1.37-1118-2020.apk` + `yuzuki-latest.apk`，
   已装到 `192.168.5.16:37557`（`versionName=0.1.37`）。
+
+**本次增量验证（2026-11-18 四改，库页搜索条件不再记忆 · Release `0.1.38`）**：
+
+- 需求：App 端不记忆自己上次的搜索条件，也不带出 / 不覆盖网页端保存的搜索条件。
+- 根因：`/api/prefs` 是 App 与网页端**共用的一份**「搜索关键词 + 筛选 + 排序」。App 启动会恢复它
+  （于是把网页上次的搜索词带进搜索框），改筛选 / 排序时又 `PUT` 覆盖它 —— 两个方向互相污染。
+- 改动（分支 `feat/no-search-prefs`）：
+  - `ui/AppStates.kt`：`LibraryState` 删除 `restore()` / `persist()` / `persistAsync()`，
+    `addCond` / `removeCond` / `clearConds` / `updateSort` / `toggleOrder` / `home` 去掉落盘调用
+    → 关键词与条件只存内存，冷启动恒为「空关键词 + 无筛选 + added/desc」；
+  - `ui/LibraryScreen.kt`：搜索框 400ms 防抖后只 `updateQuery()`，不再 `persist()`；
+  - `ui/AppViewModel.kt`：`enterMain` 只等 `settings.load()`，不再 `prefs.load()` / `restore()`；
+  - `ui/RootScreen.kt`：首帧只剩 `FavoritesState.refresh()`；
+  - `data/AppContainer.kt` 删除 `PrefsRepository`；`data/YuzukiApi.kt` 删除 `prefs()` / `savePrefs()`；
+    `Models.prefs()` 与 `LibraryPrefs` 保留 —— 登录与 `/api/me` 返回体仍带 `prefs` 字段，协议不动。
+- 后端 `D:\node\yuzuki` 零改动，网页端自己的记忆完全不受影响（App 只是不再读、不再写）。
+- 新增 `ui/LibraryStateTest.kt` 2 例：冷启动默认值；改条件 / 改排序 / `home()` 全程不触达持久层
+  （单测里 `AppContainer` 未初始化，若残留 `persist` 会直接抛 lateinit 异常）。
+- `assembleRelease` 通过；`testDebugUnitTest` **100 例全过、0 失败 0 错误**（原 98 + 新增 2）。
+- Release `0.1.38` 已发布共享：`yuzuki-0.1.38-1118-2123.apk` + `yuzuki-latest.apk`，
+  与本地 `app-release.apk` 三方 sha256 一致 `b966fb52…06c910a89a`；已装到 `192.168.5.16:37557`
+  （`versionCode=1038`、`versionName=0.1.38`），未启动、测试由用户自测。
 
 **仍待验证**：A1–A5 接口同源断言、锁屏 metadata 与 `artworkData`、连续 `next()` 3 次通知不消失、
 息屏 5 分钟进度增长、蓝牙耳机按键、通知点击直达播放页、flac/mkv 解码、base64 图片上传返回码、

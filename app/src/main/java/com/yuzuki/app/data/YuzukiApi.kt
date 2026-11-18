@@ -249,12 +249,8 @@ class YuzukiApi(
             .mapCatching { Models.objects(it).map(Models::work) }
 
     // ---- 偏好 ----
-
-    suspend fun prefs(): Result<LibraryPrefs> =
-        obj("GET", "/api/prefs").mapCatching(Models::prefs)
-
-    suspend fun savePrefs(prefs: LibraryPrefs): Result<LibraryPrefs> =
-        obj("PUT", "/api/prefs", body = prefs.toJson()).mapCatching(Models::prefs)
+    // App 不再读写服务端 /api/prefs：库页的搜索 / 筛选 / 排序只活在本次会话内存里，
+    // 既不记住自己上次的条件，也不会带出或覆盖网页端保存的搜索条件。
 
     // ---- 设置 ----
 

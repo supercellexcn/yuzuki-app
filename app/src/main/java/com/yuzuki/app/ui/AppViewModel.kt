@@ -13,7 +13,6 @@ import com.yuzuki.app.data.AppContainer
 import com.yuzuki.app.data.LoginResult
 import com.yuzuki.app.playback.PlaybackController
 import com.yuzuki.app.playback.PlaybackService
-import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 
@@ -119,16 +118,12 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
     private suspend fun enterMain(base: String, token: String) {
         AppContainer.bindSession(base, token)
-        // 先把「服务端偏好 + 本地设置」拉回来再进主界面（最多等 1.5s）。
-        // 否则主界面首帧会用默认参数（无筛选、默认排序）请求一次全库，
-        // 等偏好回来再重载 —— 表现为「刚进界面作品数量/排序不对，动一下才正常」。
+        // 先把「本地设置」拉回来再进主界面（最多等 1.5s）。
+        // 否则主界面首帧会用默认外观，等设置回来再刷新。
+        // 库页的搜索 / 筛选 / 排序不从这里恢复：它们只活在本次会话内存里，冷启动一律为空。
         withTimeoutOrNull(1500) {
-            coroutineScope {
-                launch { AppContainer.settings.load() }
-                launch { AppContainer.prefs.load() }
-            }
+            AppContainer.settings.load()
         }
-        LibraryState.restore(AppContainer.prefs.current)
 
         state = State.Main(base, token)
         // 离线补报：失败不阻塞进入
