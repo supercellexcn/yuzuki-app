@@ -109,8 +109,6 @@ private val CoverShape = RoundedCornerShape(10.dp)
 /** 标签圆角（web 为 4px，按项目「框体一律圆角」规范取 8）。 */
 private val TagShape = RoundedCornerShape(8.dp)
 
-private fun MediaFile.dirOf(): String = relPath.substringBeforeLast('/', "")
-
 /** 全屏看图解码长边：卡片用 720，查看器提到 1440，比原图清晰又不会 OOM。 */
 private const val VIEWER_TARGET_PX = 1440
 
@@ -198,6 +196,8 @@ fun WorkDetailScreen(
     val fav = FavoritesState.workRjs.contains(rj)
     // 图片查看器：只在「被点图片的同一目录」内左右切换（web openImage）
     val images = files.filter { !it.isDir && it.kind == "image" }
+    // 播放候选池：整棵文件树的可播放项。真正的队列由 PlaybackController 按「被点文件所在目录」
+    // 收敛（QueueMath.sameDir），所以这里给全量即可，不要在这里提前按目录过滤。
     val queue = files.filter { it.playable }
 
     val panelBg = WebColors.panel(nav, appearance.panelAlpha)

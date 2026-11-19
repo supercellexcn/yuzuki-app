@@ -56,7 +56,11 @@ data class PlaybackSnapshot(
     /** 校验并夹紧：脏数据一律不恢复，避免把进度条拉到无效位置或恢复出空队列。 */
     fun sanitized(): PlaybackSnapshot? {
         if (rj.isBlank() || fileId <= 0L) return null
-        if (queue.isEmpty() || queue.none { it.id == fileId }) return null
+        val anchor = queue.firstOrNull { it.id == fileId && it.playable } ?: return null
+        // 旧版本把整个作品的可播放文件都存进 queue；这里按「当前文件所在目录」收敛一次
+        // （与 QueueMath.sameDir 同一规则），老快照恢复后播放列表同样不会跨目录。
+        val scoped = queue.filter { it.playable && it.dirOf() == anchor.dirOf() }
+        if (scoped.isEmpty()) return null
         val duration = durationMs.coerceAtLeast(0L)
         val raw = positionMs.coerceAtLeast(0L)
         // 播到结尾的记录按「从头开始」处理：否则恢复出来就是结尾，点播放直接跳下一首
@@ -65,7 +69,7 @@ data class PlaybackSnapshot(
             raw >= duration -> 0L
             else -> raw
         }
-        return copy(positionMs = position, durationMs = duration)
+        return copy(queue = scoped, positionMs = position, durationMs = duration)
     }
 
     companion object {

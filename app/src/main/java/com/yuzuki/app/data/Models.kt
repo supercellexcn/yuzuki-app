@@ -36,6 +36,13 @@ data class MediaFile(
     val sortOrder: Int,
 ) {
     val playable: Boolean get() = !isDir && (kind == "audio" || kind == "video")
+
+    /**
+     * 所在目录：rel_path 去掉文件名，根目录文件返回 ""。
+     * 播放列表以「同目录」为边界（图片查看器的同目录切换也复用它），
+     * 所以目录算法只能有这一处，别在外层再抄一遍 substringBeforeLast。
+     */
+    fun dirOf(): String = relPath.substringBeforeLast('/', "")
 }
 
 data class WorkDetail(

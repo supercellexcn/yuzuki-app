@@ -117,6 +117,30 @@ class PlaybackSnapshotTest {
     }
 
     @Test
+    fun 旧快照的跨目录队列按当前文件目录收敛() {
+        // 旧版本存的是整个作品的可播放文件，恢复时必须收敛到当前文件所在目录
+        val s = sample().copy(
+            fileId = 22L,
+            queue = listOf(
+                file(11L, "Track/01.flac"),
+                file(22L, "Track/02.flac"),
+                file(33L, "Bonus/03.flac"),
+            ),
+        ).sanitized()!!
+        assertEquals(listOf(11L, 22L), s.queue.map { it.id })
+        assertEquals(2, s.toWork().fileCount)
+    }
+
+    @Test
+    fun 当前文件独占目录时队列只剩自己() {
+        val s = sample().copy(
+            fileId = 22L,
+            queue = listOf(file(11L, "Track/01.flac"), file(22L, "SE/02.flac")),
+        ).sanitized()!!
+        assertEquals(listOf(22L), s.queue.map { it.id })
+    }
+
+    @Test
     fun 损坏JSON与缺字段返回null() {
         assertNull(PlaybackSnapshot.from(JSONObject("{}")))
         assertNull(PlaybackSnapshot.from(JSONObject().put("rj", "RJ1")))

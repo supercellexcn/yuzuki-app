@@ -93,10 +93,14 @@ object PlaybackController {
             toggle()
             return
         }
-        val playable = QueueMath.playable(queue)
-        val list = playable.ifEmpty {
-            if (state.current?.rj == rj) state.queue.ifEmpty { listOf(file) } else listOf(file)
+        // queue 是「候选池」（详情页传的整棵文件树的可播放项），实际队列以被点文件
+        // 所在目录为界：同一作品里 Track / 特典 / SE 常分目录，跨目录连播会把内容接错
+        val pool = QueueMath.playable(queue)
+        val scoped = QueueMath.sameDir(pool, file).ifEmpty {
+            // 调用方只给了单文件：同作品当前队列也按目录收敛一次，收敛不到就只播这一首
+            if (state.current?.rj == rj) QueueMath.sameDir(state.queue, file) else emptyList()
         }
+        val list = scoped.ifEmpty { listOf(file) }
         val index = list.indexOfFirst { it.id == file.id }.coerceAtLeast(0)
         currentWork = work
         _state.value = state.copy(

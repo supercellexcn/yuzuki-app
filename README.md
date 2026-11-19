@@ -51,6 +51,13 @@ playback/    PlaybackService（MediaSessionService，唯一持有 ExoPlayer 与 
 UI 经 `MediaController` 下指令、从 `StateFlow` 读状态，Activity 里不持有播放器实例，
 页面重建 / 息屏 / 切 App 都不影响播放。
 
+**队列边界 = 被点文件所在目录**（2026-11-19 起）：`PlaybackController.play(rj, file, work, queue)`
+的 `queue` 语义是「候选池」，详情页传的是整棵文件树的可播放项；真正下发给 ExoPlayer 的列表
+由 `QueueMath.sameDir()` 收敛为 `file` 的父目录（`MediaFile.dirOf()`）内的可播放文件，
+**不含子目录也不含父目录**，同一作品的 Track / 特典 / SE 分目录时不会跨目录连播。
+目录算法只有 `MediaFile.dirOf()` 一处；恢复用的 `PlaybackSnapshot.sanitized()` 按同一规则收敛，
+旧版本写下的跨目录快照会就地修正。收敛后为空时退化为「只播这一首」。
+
 ## 构建环境
 
 | 项 | 版本 |
@@ -697,6 +704,16 @@ ADB=.toolchain/sdk/platform-tools/adb.exe
 - 本机播放位置只写 `filesDir/playback/state.json`：不调用任何服务端接口、不参与缓存统计与清除；退出登录时清掉。
 - 「下载图片」只把当前图片写入系统相册 `Pictures/Yuzuki/`（Android 10+ 免权限；8/9 的存储权限仅
   `maxSdkVersion=28` 生效），不上传、不改服务端数据。
+
+**本次增量验证（2026-11-19，播放队列按目录收口）**：
+
+- 修复：播放列表原先取「整个作品文件夹」的全部可播放文件，改为只取**被点文件所在目录**的同层文件
+  （`QueueMath.sameDir` + `MediaFile.dirOf`），跨 Track / 特典 / SE 子目录不再连播；恢复快照同规则收敛。
+- `assembleDebug` / `testDebugUnitTest` 通过，**127 例全过、0 失败 0 错误**
+  （新增 `QueueMathTest` 3 例：按目录收敛 / 根目录同组 / 保持入库顺序跳过目录项；
+  `PlaybackSnapshotTest` 2 例：旧跨目录队列收敛 / 独占目录只剩一首）。
+- 静态断言：`dirOf` 只在 `MediaFile` 定义一次（`WorkDetailScreen` 的私有扩展已删），
+  `PlaybackController.play` 内 `QueueMath.sameDir` 为唯一队列收敛点。
 
 ## 已知限制
 
