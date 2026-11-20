@@ -12,6 +12,7 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.rotate
 import kotlin.math.PI
 import kotlin.math.cos
 import kotlin.math.sin
@@ -26,7 +27,7 @@ import kotlin.math.sin
 
 private const val VIEW = 24f
 
-/** 底部 Tab 图标：库 = 三条滑块；播放器 = 圆环 + 圆心；历史 = 时钟 + 逆时针箭头。 */
+/** 底部 Tab 图标：库 = 三条滑块；播放器 = 圆环 + 斜置八分音符；历史 = 时钟 + 逆时针箭头。 */
 @Composable
 fun TabBarIcon(tab: MainTab, tint: Color, modifier: Modifier = Modifier) {
     Canvas(modifier) {
@@ -47,18 +48,48 @@ fun TabBarIcon(tab: MainTab, tint: Color, modifier: Modifier = Modifier) {
                 }
             }
             MainTab.Player -> {
-                // 视觉稿：外圈 + 内圈，12 点方向一段短竖线把两个圆连起来
-                val outer = 8.4f
-                val inner = 3.4f
-                drawCircle(tint, radius = outer * u, center = center, style = Stroke(stroke))
-                drawCircle(tint, radius = inner * u, center = center, style = Stroke(stroke))
-                drawLine(
-                    color = tint,
-                    start = Offset(center.x, center.y - outer * u),
-                    end = Offset(center.x, center.y - inner * u),
-                    strokeWidth = stroke,
-                    cap = StrokeCap.Round,
+                // 2026-11-20 重绘：原为「外圈 + 内圈 + 连线」，像两个套在一起的圆、读不出播放语义。
+                // 现按用户给的参考图描摹：圆环 + 圆内一个斜置八分音符（空心头、杆从圆周顶点穿过、杆顶一条顺下来的曲线旗）。
+                // 全部参数来自对参考图（593×627）的最小二乘拟合，以圆半径 R 为单位：
+                //   音符头 中心 (−0.046,+0.030)R、半轴 0.377R × 0.223R、倾角 −26.8°；杆 斜 17.6°；旗尖 (+0.454,−2.097)R。
+                // 线宽取 0.8（相邻 Tab 是 1.7）：参考图线宽只有 0.029R，等比放大到 1.7 会把音符的细节全糊掉。
+                val thin = 0.8f * u
+                val noteR = 7.4f
+                val noteCy = 16f
+                drawCircle(
+                    tint,
+                    radius = noteR * u,
+                    center = Offset(12f * u, noteCy * u),
+                    style = Stroke(thin),
                 )
+
+                // 音符头：空心斜椭圆，中心几乎就在圆心
+                val head = Offset(11.66f * u, 16.22f * u)
+                rotate(degrees = -26.8f, pivot = head) {
+                    drawOval(
+                        color = tint,
+                        topLeft = Offset((11.66f - 2.79f) * u, (16.22f - 1.65f) * u),
+                        size = Size(5.58f * u, 3.3f * u),
+                        style = Stroke(thin),
+                    )
+                }
+
+                // 杆：下端收在音符头右端尖点，上端穿出圆周顶点
+                drawLine(
+                    tint,
+                    Offset(14.15f * u, 14.95f * u),
+                    Offset(10.0f * u, 2.5f * u),
+                    thin,
+                    StrokeCap.Round,
+                )
+
+                // 旗：一条顺下来的曲线（先平后扬，中途无接点、无折角），再从尖端一条弧收回杆身
+                val flag = Path().apply {
+                    moveTo(10.0f * u, 2.5f * u)
+                    cubicTo(12.4f * u, 2.75f * u, 14.5f * u, 1.85f * u, 15.36f * u, 0.48f * u)
+                    cubicTo(13.9f * u, 2.1f * u, 12.2f * u, 3.5f * u, 10.56f * u, 4.43f * u)
+                }
+                drawPath(flag, tint, style = Stroke(thin, cap = StrokeCap.Round, join = StrokeJoin.Round))
             }
             MainTab.History -> {
                 // 视觉稿：圆环在左上留缺口，缺口处一个逆时针箭头（90° 张角），圈内保留时针分针
