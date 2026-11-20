@@ -56,6 +56,7 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
@@ -93,6 +94,12 @@ private val TOP_SORTS = listOf(
     "release" to "发售",
     "sales" to "销量",
 )
+
+/**
+ * 悬浮条件条占用的高度：胶囊 24 + 上下各 8。
+ * 列表顶部留出这段空白，静止时首屏不被胶囊压住；一滚动卡片就从胶囊底下穿过。
+ */
+private const val FLOAT_COND_H = 40
 
 /** 页面级间距（.content padding: 14px 20px 24px / .grid gap: 16px）。 */
 private const val PAGE_PAD_H = 20
@@ -345,23 +352,6 @@ fun LibraryScreen(
             controlBg = controlBg,
         )
 
-        if (hasFilter) {
-            ActiveCondRow(
-                query = searchText,
-                conds = LibraryState.conds,
-                onRemoveQuery = {
-                    searchText = ""
-                    LibraryState.updateQuery("")
-                },
-                onRemoveCond = { LibraryState.removeCond(it) },
-                onClearAll = {
-                    searchText = ""
-                    LibraryState.updateQuery("")
-                    LibraryState.clearConds()
-                },
-            )
-        }
-
         // 信息流区域：下拉时整体下移，顶端露出提示条（空白区 + 箭头 + 松开以…）
         Box(modifier = Modifier.weight(1f)) {
             FeedPullHint(
@@ -395,7 +385,7 @@ fun LibraryScreen(
                         LazyColumn(
                             state = listState,
                             contentPadding = PaddingValues(
-                                top = if (hasFilter) 12.dp else PAGE_PAD_TOP.dp,
+                                top = if (hasFilter) FLOAT_COND_H.dp else PAGE_PAD_TOP.dp,
                                 bottom = PAGE_PAD_BOTTOM.dp,
                             ),
                             modifier = Modifier.fillMaxSize(),
@@ -441,7 +431,7 @@ fun LibraryScreen(
                             contentPadding = PaddingValues(
                                 start = PAGE_PAD_H.dp,
                                 end = PAGE_PAD_H.dp,
-                                top = if (hasFilter) 12.dp else PAGE_PAD_TOP.dp,
+                                top = if (hasFilter) FLOAT_COND_H.dp else PAGE_PAD_TOP.dp,
                                 bottom = PAGE_PAD_BOTTOM.dp,
                             ),
                             horizontalArrangement = Arrangement.spacedBy(GRID_GAP.dp),
@@ -476,6 +466,23 @@ fun LibraryScreen(
                         }
                     }
                 }
+            }
+
+            // 已选条件：悬浮在信息流上方（无底色、无分割线），跟着下拉一起下移，
+            // 不盖住顶端提示条；滚动时下面的卡片从胶囊底下穿过。
+            if (hasFilter) {
+                ActiveCondRow(
+                    query = searchText,
+                    conds = LibraryState.conds,
+                    onRemoveQuery = {
+                        searchText = ""
+                        LibraryState.updateQuery("")
+                    },
+                    onRemoveCond = { LibraryState.removeCond(it) },
+                    modifier = Modifier
+                        .align(Alignment.TopCenter)
+                        .offset { IntOffset(0, pullReveal.roundToInt()) },
+                )
             }
         }
     }
@@ -685,7 +692,8 @@ private fun SortTabButton(label: String, active: Boolean, onClick: () -> Unit) {
 }
 
 // ---------------------------------------------------------------- 已选条件
-// .status-row: gap 12；el-tag: 24 高 / padding 0 9 / 12px / 白 35% 底 + 深灰字
+// 悬浮层：不铺底色、不加分割线，只有一排不透明胶囊浮在信息流上方；
+// 每条胶囊点一下即删除（右侧 × 只是提示），不再提供「清除筛选」。
 
 @Composable
 private fun ActiveCondRow(
@@ -693,54 +701,46 @@ private fun ActiveCondRow(
     conds: List<FilterCond>,
     onRemoveQuery: () -> Unit,
     onRemoveCond: (FilterCond) -> Unit,
-    onClearAll: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
-    Row(
-        modifier = Modifier
+    LazyRow(
+        modifier = modifier
             .fillMaxWidth()
-            .padding(start = PAGE_PAD_H.dp, end = PAGE_PAD_H.dp, top = 14.dp, bottom = 2.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
+            .padding(start = PAGE_PAD_H.dp, end = PAGE_PAD_H.dp, top = 8.dp, bottom = 8.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        contentPadding = PaddingValues(end = 12.dp),
     ) {
-        LazyRow(
-            modifier = Modifier.weight(1f),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            if (query.isNotBlank()) {
-                item { ActiveCondChip("搜索: $query", onRemoveQuery) }
-            }
-            lazyItems(conds, key = { "${it.type}:${it.value}" }) { cond ->
-                ActiveCondChip("${typeLabel(cond.type)}: ${cond.value}") { onRemoveCond(cond) }
-            }
+        if (query.isNotBlank()) {
+            item { ActiveCondChip("搜索: $query", onRemoveQuery) }
         }
-        Box(
-            modifier = Modifier
-                .height(24.dp)
-                .clip(ShapeItem)
-                .border(1.dp, WebColors.Border, ShapeItem)
-                .clickable(onClick = onClearAll)
-                .padding(horizontal = 11.dp),
-            contentAlignment = Alignment.Center,
-        ) {
-            Text("清除筛选", fontSize = 12.sp, color = WebColors.Muted)
+        lazyItems(conds, key = { "${it.type}:${it.value}" }) { cond ->
+            ActiveCondChip("${typeLabel(cond.type)}: ${cond.value}") { onRemoveCond(cond) }
         }
     }
 }
 
+/**
+ * 已选条件胶囊：**不透明**底 + 描边 + 轻阴影。
+ *
+ * 底色不能用半透明（原来那版是 0x59FFFFFF）：它现在浮在封面卡片上，
+ * 半透明会让文字压在花哨的封面上糊成一片。
+ */
 @Composable
 private fun ActiveCondChip(text: String, onRemove: () -> Unit) {
     Row(
         modifier = Modifier
             .height(24.dp)
+            .shadow(3.dp, ShapeItem)
             .clip(ShapeItem)
-            .background(Color(0x59FFFFFF))
+            .background(WebColors.control(1f))
+            .border(1.dp, WebColors.Border, ShapeItem)
             .clickable(onClick = onRemove)
             .padding(start = 9.dp, end = 7.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(text, fontSize = 12.sp, color = WebColors.ElTextPrimary, maxLines = 1)
+        Text(text, fontSize = 12.sp, color = WebColors.Text, maxLines = 1)
         Spacer(Modifier.width(4.dp))
-        ClearIcon(WebColors.ElTextPrimary, Modifier.size(10.dp))
+        ClearIcon(WebColors.Muted, Modifier.size(10.dp))
     }
 }
 
