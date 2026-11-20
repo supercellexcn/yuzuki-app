@@ -267,7 +267,7 @@ fun RootScreen(
                     state = pagerState,
                     // 邻页预组合，手指一拖内容就已经在那儿了
                     beyondViewportPageCount = 1,
-                    userScrollEnabled = overlayRoute == null && !drawerOpen,
+                    userScrollEnabled = overlayRoute == null && !drawerOpen && !PlaylistDrag.active,
                     modifier = Modifier.fillMaxSize(),
                 ) { page ->
                     // 每页必须裁到自己的边界：播放器背景是 blur(Unbounded)，不裁会糊出页外，
