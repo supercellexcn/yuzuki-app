@@ -848,6 +848,26 @@ ADB=.toolchain/sdk/platform-tools/adb.exe
   与本地 `app-release.apk` 三方 sha256 一致 `b8ad5642…ed223f`；已装到 `192.168.5.16:42847`
   （`versionCode=1060`、`versionName=0.1.60`），未启动、测试由用户自测。
 
+**本次重构（2026-11-20，拖动改用「顺序不动 + 让位」 · 0.1.61）**：
+
+- 用户实测：拖到最上部仍然抖，且会莫名被放下。
+- 判定根因（上两版都没跳出同一个坑）：**拖动中实时改列表顺序**。
+  每换一次位 LazyColumn 就要重新布局，而位移补偿依赖「layoutInfo 已反映这次换位」的时序；
+  贴边自动滚动时每帧都在写位移，时序一错开就是「跳一行再回来」；
+  换位下标配错时行会被搬到别处，帧循环 `firstOrNull { it.key == id }` 找不到它 → 旧代码 `break`，拖动当场结束。
+  拖到最上部时换位与滚动最密集，所以那里最先炸。
+- 改法（`ui/PlayerUI.kt`）：**拖动期间队列顺序一个字都不改**
+  - 记 `dragFrom`（起始下标，拖动期恒定）/ `dragTo`（落点）/ `dragOffset`（跟手位移）/ `dragRowSize`（实测行高）；
+  - 每帧只做：夹位移 → 用视觉中心算 `dragTo` → 贴边自动滚动。布局恒定 ⇒ 判定天然稳定，不会来回；
+  - 渲染：被拖行 `translationY = dragOffset`，`dragFrom`→`dragTo` 之间的行整体让位一个行高
+    （新增 `ui/ReorderSlide.shiftOf`，纯函数 + 4 例单测钉住方向）；
+  - 松手 / 手势被打断时才 `QueueMath.reorder(from, to)` 提交一次（本地镜像先换成新顺序再清状态，避免闪一帧旧顺序）；
+  - 帧循环里找不到被拖行改成 `continue`（原来 `break`）——偶发一帧异常不再等于「放下」。
+- 验证：`compileDebugKotlin` / `testDebugUnitTest` 通过，**146 例全过、0 失败 0 错误**。
+- Release `0.1.61` 已发布共享：`yuzuki-0.1.61-1120-1851.apk` + `yuzuki-latest.apk`，
+  与本地 `app-release.apk` 三方 sha256 一致 `84c25a4c…0de4b86`；已装到 `192.168.5.16:42847`
+  （`versionCode=1061`、`versionName=0.1.61`），未启动、测试由用户自测。
+
 ## 已知限制
 - 仅家中 WiFi 可用；离开 WiFi 只能看离线缓存内容；明文 HTTP 的 token 在局域网可被嗅探。
 - 冷门格式（wma 等）需后续接入 `media3-decoder-ffmpeg`；flac/mkv/mp4/wav/m4a 由 Media3 默认解码器覆盖。
