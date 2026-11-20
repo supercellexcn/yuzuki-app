@@ -10,6 +10,7 @@ import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
+import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -46,6 +47,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.BlurredEdgeTreatment
@@ -60,6 +62,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -529,6 +532,12 @@ fun FullscreenPlayer(
             val dragQueue = remember { mutableStateListOf<MediaFile>().apply { addAll(state.queue) } }
             var dragId by remember { mutableStateOf<Long?>(null) }
             var dragOffset by remember { mutableFloatStateOf(0f) }
+            // 被拖行的视觉中心（列表坐标系）。靠它驱动边缘自动滚动，所以必须独立存一份：
+            // 滚动后会补偿 dragOffset，center 因此保持不变，滚动速率才稳定。
+            var dragCenter by remember { mutableFloatStateOf(0f) }
+            val density = LocalDensity.current
+            val edgePx = with(density) { 56.dp.toPx() }
+            val rollStepPx = with(density) { 9.dp.toPx() }
             // 队列被外部换掉（切作品 / 自动切歌重建）时同步本地镜像；
             // 拖动中不动，否则正在拖的那一行会被从手下抽走
             LaunchedEffect(state.queue, dragId) {
@@ -537,22 +546,50 @@ fun FullscreenPlayer(
                     dragQueue.addAll(state.queue)
                 }
             }
-            // 拖动中的一步：位移累加 → 被拖行中心越过哪一行就换到哪一行
-            val onDragStep: (Long, Float) -> Unit = { id, dy ->
-                dragOffset += dy
-                val visible = playlistState.layoutInfo.visibleItemsInfo
-                val dragged = visible.firstOrNull { it.key == id }
-                val center = dragged?.let { it.offset + it.size / 2f + dragOffset }
-                val target = if (center == null) null else visible.firstOrNull {
+            // 拖动中的一步：夹住位移 → 中心越过哪一行就换到哪一行。
+            // 位移夹在列表可视区内是必须的：跑出 viewport 会被 LazyColumn 裁掉甚至回收，
+            // 行一消失手势就跟着断（用户看到的就是「刚拖到顶上就弹回原位」）。
+            // 贴住上下边之后不再外移，改由下面的滚动循环把前后内容露出来。
+            fun settle(id: Long) {
+                val info = playlistState.layoutInfo
+                val visible = info.visibleItemsInfo
+                val dragged = visible.firstOrNull { it.key == id } ?: return
+                val minOffset = (info.viewportStartOffset - dragged.offset).toFloat()
+                val maxOffset = (info.viewportEndOffset - dragged.size - dragged.offset).toFloat()
+                dragOffset = dragOffset.coerceIn(minOf(minOffset, maxOffset), maxOf(minOffset, maxOffset))
+                val center = dragged.offset + dragged.size / 2f + dragOffset
+                dragCenter = center
+                val target = visible.firstOrNull {
                     it.key != id && center >= it.offset && center < it.offset + it.size
-                }
-                if (dragged != null && target != null) {
-                    val fromIndex = dragQueue.indexOfFirst { it.id == id }
-                    val toIndex = target.index
-                    if (fromIndex >= 0 && toIndex in dragQueue.indices && fromIndex != toIndex) {
-                        dragQueue.add(toIndex, dragQueue.removeAt(fromIndex))
-                        // 换位后这一行的布局位置变了，位移补回来，手指下面的行才不会跳
-                        dragOffset += (dragged.offset - target.offset).toFloat()
+                } ?: return
+                val fromIndex = dragQueue.indexOfFirst { it.id == id }
+                val toIndex = target.index
+                if (fromIndex < 0 || toIndex !in dragQueue.indices || fromIndex == toIndex) return
+                dragQueue.add(toIndex, dragQueue.removeAt(fromIndex))
+                // 换位后这一行的布局位置变了，位移补回来，手指下面的行才不会跳
+                dragOffset += (dragged.offset - target.offset).toFloat()
+            }
+            // 边缘自动滚动：行贴住列表上下边（或手指已移到列表外的标题栏）时，
+            // 按越界深度每帧滚一点；滚完补偿位移让行继续跟手，再重算一次落点，
+            // 否则「按住不动只看列表滚」时上面的行会直接从被拖行上方越过去。
+            LaunchedEffect(dragId) {
+                val id = dragId ?: return@LaunchedEffect
+                while (true) {
+                    withFrameNanos { }
+                    val info = playlistState.layoutInfo
+                    if (info.visibleItemsInfo.none { it.key == id }) break
+                    val step = DragAutoScroll.step(
+                        center = dragCenter,
+                        viewportStart = info.viewportStartOffset,
+                        viewportEnd = info.viewportEndOffset,
+                        edge = edgePx,
+                        maxStep = rollStepPx,
+                    )
+                    if (step == 0f) continue
+                    val scrolled = playlistState.scrollBy(step)
+                    if (scrolled != 0f) {
+                        dragOffset += scrolled
+                        settle(id)
                     }
                 }
             }
@@ -628,12 +665,16 @@ fun FullscreenPlayer(
                                         onDragStart = {
                                             dragId = file.id
                                             dragOffset = 0f
+                                            settle(file.id)
                                             haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                                         },
                                         onDrag = { change, amount ->
                                             change.consume()
                                             val id = dragId
-                                            if (id != null) onDragStep(id, amount.y)
+                                            if (id != null) {
+                                                dragOffset += amount.y
+                                                settle(id)
+                                            }
                                         },
                                         onDragEnd = {
                                             PlaybackController.reorderQueue(dragQueue.toList())
@@ -641,10 +682,9 @@ fun FullscreenPlayer(
                                             dragOffset = 0f
                                         },
                                         onDragCancel = {
-                                            // 取消（手势被系统打断）时按播放器里的真实顺序还原，别留下半截排序
-                                            val real = PlaybackController.state.value.queue
-                                            dragQueue.clear()
-                                            dragQueue.addAll(real)
+                                            // 手势被打断（系统手势 / 来电）时也提交已排好的顺序：
+                                            // 行早就换到新位置了，还原回去反而像「白拖一场」
+                                            PlaybackController.reorderQueue(dragQueue.toList())
                                             dragId = null
                                             dragOffset = 0f
                                         },
