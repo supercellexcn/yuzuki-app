@@ -38,7 +38,6 @@ import androidx.compose.ui.unit.sp
 import com.yuzuki.app.data.AppContainer
 import com.yuzuki.app.data.FilterCond
 import com.yuzuki.app.data.Work
-import com.yuzuki.app.ui.theme.GlassSpec
 import com.yuzuki.app.ui.theme.ShapePill
 import com.yuzuki.app.ui.theme.WebColors
 import kotlinx.coroutines.launch
@@ -189,22 +188,7 @@ fun WorkCard(
                 }
             }
 
-            if (imageMode) {
-                val flame = GlassSpec.flame(work.salesCount)
-                if (flame.count > 0) {
-                    Text(
-                        "▲".repeat(flame.count),
-                        color = when (flame.kind) {
-                            "red" -> Color(0xFFF05A4B)
-                            "yellow" -> Color(0xFFF2C14E)
-                            "rainbow" -> Color(0xFFB69AF6)
-                            else -> Color(0xFF9AA3B0)
-                        },
-                        fontSize = 11.sp,
-                        modifier = Modifier.align(Alignment.TopEnd).padding(10.dp),
-                    )
-                }
-            }
+            // 图片模式右上角热度三角（web 的 flame）已按用户要求移除，App 暂不展示热度分档。
         }
 
         // 图片模式：历史卡片保留一行「播放时间 播放时长」，其余卡片整块收起

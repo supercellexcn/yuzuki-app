@@ -771,6 +771,18 @@ ADB=.toolchain/sdk/platform-tools/adb.exe
   与本地 `app-release.apk` 三方 sha256 一致 `d27749e1…9c79bd3`；已装到 `192.168.5.16:42847`
   （`versionCode=1056`、`versionName=0.1.56`），未启动、测试由用户自测。
 
+**本次增量验证（2026-11-20，图片模式移除热度三角 · 0.1.57）**：
+
+- 用户反馈「图片模式里右上角的热度标签是个三角形，看着很奇怪」，要求 App 暂时不展示热度。
+- 改法：删除 `ui/WorkCards.kt` 里 `if (imageMode)` 分支中按 `GlassSpec.flame(salesCount)` 拼的
+  `"▲".repeat(count)` 文本（灰 / 黄 / 红 / 彩虹四档配色随之不再渲染），并移除随之失效的 `GlassSpec` 导入。
+  热度分档函数本身（`ui/theme/Glass.kt` 的 `GlassSpec.flame` 与 `GlassSpecTest` 9 例）保留不动，
+  只是 App 侧暂无调用点，后续要恢复只需加回这一段。库页 / 收藏 / 历史 / 详情相关推荐共用 `WorkCard`，一处删除即全部生效。
+- 验证：`:app:testDebugUnitTest` + `:app:assembleRelease` 通过（**135 例全过**），未截图。
+- Release `0.1.57` 已发布共享：`yuzuki-0.1.57-1120-1810.apk` + `yuzuki-latest.apk`，
+  与本地 `app-release.apk` 三方 sha256 一致 `c22a76df…ff1748e7`；
+  已装到 `192.168.5.16:42847`（`versionCode=1057`、`versionName=0.1.57`），未启动、测试由用户自测。
+
 ## 已知限制
 
 - 仅家中 WiFi 可用；离开 WiFi 只能看离线缓存内容；明文 HTTP 的 token 在局域网可被嗅探。
