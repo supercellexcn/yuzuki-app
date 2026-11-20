@@ -11,6 +11,8 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -25,14 +27,12 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
-import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items as lazyColumnItems
 import androidx.compose.foundation.lazy.staggeredgrid.LazyStaggeredGridState
 import androidx.compose.foundation.lazy.staggeredgrid.LazyVerticalStaggeredGrid
 import androidx.compose.foundation.lazy.staggeredgrid.StaggeredGridCells
 import androidx.compose.foundation.lazy.staggeredgrid.StaggeredGridItemSpan
 import androidx.compose.foundation.lazy.staggeredgrid.items
-import androidx.compose.foundation.lazy.items as lazyItems
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
@@ -45,6 +45,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -60,6 +61,7 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
@@ -96,8 +98,9 @@ private val TOP_SORTS = listOf(
 )
 
 /**
- * 悬浮条件条占用的高度：胶囊 24 + 上下各 8。
- * 列表顶部留出这段空白，静止时首屏不被胶囊压住；一滚动卡片就从胶囊底下穿过。
+ * 悬浮条件条的**兜底**高度（胶囊 24 + 上下各 8），单行时的实际值。
+ * 真正的留位高度来自 `ActiveCondRow` 的 `onSizeChanged`：条件多到换行时它会变高，
+ * 列表顶部留位跟着涨，静止时首屏始终不被胶囊压住；一滚动卡片就从胶囊底下穿过。
  */
 private const val FLOAT_COND_H = 40
 
@@ -265,6 +268,15 @@ fun LibraryScreen(
     val actorBg = WebColors.tagBg(appearance.actorColor, appearance.actorTagAlpha)
 
     val hasFilter = searchText.isNotBlank() || LibraryState.conds.isNotEmpty()
+    // 悬浮条件条实测高度：条件多到换行时会变高，列表顶部留位跟着涨
+    var condBarPx by remember { mutableIntStateOf(0) }
+    val feedTopPad = if (!hasFilter) {
+        PAGE_PAD_TOP.dp
+    } else if (condBarPx > 0) {
+        with(LocalDensity.current) { condBarPx.toDp() }
+    } else {
+        FLOAT_COND_H.dp
+    }
 
     val haptic = LocalHapticFeedback.current
     val scope = rememberCoroutineScope()
@@ -385,7 +397,7 @@ fun LibraryScreen(
                         LazyColumn(
                             state = listState,
                             contentPadding = PaddingValues(
-                                top = if (hasFilter) FLOAT_COND_H.dp else PAGE_PAD_TOP.dp,
+                                top = feedTopPad,
                                 bottom = PAGE_PAD_BOTTOM.dp,
                             ),
                             modifier = Modifier.fillMaxSize(),
@@ -431,7 +443,7 @@ fun LibraryScreen(
                             contentPadding = PaddingValues(
                                 start = PAGE_PAD_H.dp,
                                 end = PAGE_PAD_H.dp,
-                                top = if (hasFilter) FLOAT_COND_H.dp else PAGE_PAD_TOP.dp,
+                                top = feedTopPad,
                                 bottom = PAGE_PAD_BOTTOM.dp,
                             ),
                             horizontalArrangement = Arrangement.spacedBy(GRID_GAP.dp),
@@ -479,6 +491,7 @@ fun LibraryScreen(
                         LibraryState.updateQuery("")
                     },
                     onRemoveCond = { LibraryState.removeCond(it) },
+                    onHeightChange = { condBarPx = it },
                     modifier = Modifier
                         .align(Alignment.TopCenter)
                         .offset { IntOffset(0, pullReveal.roundToInt()) },
@@ -692,29 +705,37 @@ private fun SortTabButton(label: String, active: Boolean, onClick: () -> Unit) {
 }
 
 // ---------------------------------------------------------------- 已选条件
-// 悬浮层：不铺底色、不加分割线，只有一排不透明胶囊浮在信息流上方；
+// 悬浮层：不铺底色、不加分割线，只有一组不透明胶囊浮在信息流上方；
+// **装不下就换行**（不做横向滚动：横滑会跟信息流的下拉手势抢事件，也很难看见末尾的条件），
 // 每条胶囊点一下即删除（右侧 × 只是提示），不再提供「清除筛选」。
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun ActiveCondRow(
     query: String,
     conds: List<FilterCond>,
     onRemoveQuery: () -> Unit,
     onRemoveCond: (FilterCond) -> Unit,
+    onHeightChange: (Int) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    LazyRow(
+    FlowRow(
         modifier = modifier
             .fillMaxWidth()
+            // onSizeChanged 放在 padding 之前：量到的是含内距的整块高度，
+            // 上层据此给信息流留位，换行变高时留位自动跟上
+            .onSizeChanged { onHeightChange(it.height) }
             .padding(start = PAGE_PAD_H.dp, end = PAGE_PAD_H.dp, top = 8.dp, bottom = 8.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
-        contentPadding = PaddingValues(end = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         if (query.isNotBlank()) {
-            item { ActiveCondChip("搜索: $query", onRemoveQuery) }
+            ActiveCondChip("搜索: $query", onRemoveQuery)
         }
-        lazyItems(conds, key = { "${it.type}:${it.value}" }) { cond ->
-            ActiveCondChip("${typeLabel(cond.type)}: ${cond.value}") { onRemoveCond(cond) }
+        conds.forEach { cond ->
+            key("${cond.type}:${cond.value}") {
+                ActiveCondChip("${typeLabel(cond.type)}: ${cond.value}") { onRemoveCond(cond) }
+            }
         }
     }
 }
@@ -738,7 +759,15 @@ private fun ActiveCondChip(text: String, onRemove: () -> Unit) {
             .padding(start = 9.dp, end = 7.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(text, fontSize = 12.sp, color = WebColors.Text, maxLines = 1)
+        // 超长条件（长系列名 / 长标签）也不许把 × 挤出去：文字可缩，省略号收尾
+        Text(
+            text = text,
+            fontSize = 12.sp,
+            color = WebColors.Text,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f, fill = false),
+        )
         Spacer(Modifier.width(4.dp))
         ClearIcon(WebColors.Muted, Modifier.size(10.dp))
     }
