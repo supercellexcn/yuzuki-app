@@ -2,6 +2,7 @@ package com.yuzuki.app.playback
 
 import com.yuzuki.app.data.MediaFile
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class QueueMathTest {
@@ -79,11 +80,50 @@ class QueueMathTest {
         assertEquals(listOf(9L, 7L), QueueMath.sameDir(files, files[2]).map { it.id })
     }
 
+    @Test
+    fun 手动排序把元素搬到目标位置并保持其它顺序() {
+        val ids = listOf(1L, 2L, 3L, 4L)
+        assertEquals(listOf(2L, 3L, 1L, 4L), QueueMath.reorder(ids, 0, 2))
+        assertEquals(listOf(1L, 4L, 2L, 3L), QueueMath.reorder(ids, 3, 1))
+        // 原地不动 / 越界都原样返回，调用方可以直接赋回状态
+        assertEquals(ids, QueueMath.reorder(ids, 1, 1))
+        assertEquals(ids, QueueMath.reorder(ids, -1, 2))
+        assertEquals(ids, QueueMath.reorder(ids, 0, 9))
+        assertEquals(emptyList<Long>(), QueueMath.reorder(emptyList<Long>(), 0, 1))
+    }
+
+    @Test
+    fun 排序序列逐项搬位后与目标顺序一致() {
+        val cases = listOf(
+            listOf(1L, 2L, 3L, 4L) to listOf(4L, 1L, 3L, 2L),
+            listOf(1L, 2L, 3L, 4L) to listOf(2L, 1L, 4L, 3L),
+            listOf(1L, 2L, 3L, 4L) to listOf(3L, 2L, 1L, 4L),
+            listOf(5L) to listOf(5L),
+        )
+        cases.forEach { (current, target) ->
+            val plan = QueueMath.movePlan(current, target)
+            val work = current.toMutableList()
+            // 按 ExoPlayer moveMediaItem(from, to) 的语义重放：每步都基于上一步的结果
+            plan.forEach { (from, to) -> work.add(to, work.removeAt(from)) }
+            assertEquals(target, work)
+            // 最少步数：每一步都至少让一个位置就位，不会无限搬
+            assertTrue(plan.size <= current.size)
+        }
+    }
+
+    @Test
+    fun 顺序没变或元素集合不同时不下发搬位() {
+        assertEquals(emptyList<Pair<Int, Int>>(), QueueMath.movePlan(listOf(1L, 2L), listOf(1L, 2L)))
+        // 队列被换过（不同作品 / 少了一首）：放弃排序，别把播放器改成别的队列
+        assertEquals(emptyList<Pair<Int, Int>>(), QueueMath.movePlan(listOf(1L, 2L), listOf(1L, 3L)))
+        assertEquals(emptyList<Pair<Int, Int>>(), QueueMath.movePlan(listOf(1L, 2L), listOf(1L, 2L, 3L)))
+        assertEquals(emptyList<Pair<Int, Int>>(), QueueMath.movePlan(emptyList(), emptyList()))
+    }
+
     private fun file(id: Long, kind: String, isDir: Boolean) = MediaFile(
         id = id, filename = "$id", relPath = "dir/$id", ext = "", kind = kind,
         isDir = isDir, size = 0, sortOrder = id.toInt(),
     )
-
     private fun path(
         id: Long,
         name: String,

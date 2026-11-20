@@ -1,9 +1,12 @@
 package com.yuzuki.app.ui
 
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
@@ -37,6 +40,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -52,8 +57,10 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.LayoutDirection
@@ -66,8 +73,10 @@ import androidx.compose.ui.window.PopupPositionProvider
 import androidx.compose.ui.window.PopupProperties
 import androidx.compose.ui.window.Popup
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.zIndex
 import com.yuzuki.app.data.AppContainer
 import com.yuzuki.app.data.FilterCond
+import com.yuzuki.app.data.MediaFile
 import com.yuzuki.app.data.Work
 import com.yuzuki.app.playback.PlaybackController
 import com.yuzuki.app.playback.RepeatMode
@@ -85,7 +94,7 @@ import kotlin.math.roundToInt
  */
 private val ChipShape = RoundedCornerShape(4.dp)
 
-@OptIn(ExperimentalLayoutApi::class)
+@OptIn(ExperimentalLayoutApi::class, ExperimentalFoundationApi::class)
 @Composable
 fun FullscreenPlayer(
     onClose: () -> Unit,
@@ -109,9 +118,12 @@ fun FullscreenPlayer(
     var seekPreview by remember { mutableStateOf<Float?>(null) }
     var playlistVisible by remember { mutableStateOf(false) }
     var volumeVisible by remember { mutableStateOf(false) }
-    // 打开播放列表 / 切歌时滚到当前文件，冷启动恢复后也能直接看到上次那一首
+    val haptic = LocalHapticFeedback.current
+    // 打开播放列表 / 切歌时滚到当前文件，冷启动恢复后也能直接看到上次那一首。
+    // 键取「当前文件」而不是 queueIndex / queue.size：手动排序后下标会变，
+    // 若按下标触发，排完序列表会被立刻拽回当前曲目。
     val playlistState = rememberLazyListState()
-    LaunchedEffect(playlistVisible, state.queueIndex, state.queue.size) {
+    LaunchedEffect(playlistVisible, state.current?.file?.id) {
         if (playlistVisible && state.queue.isNotEmpty()) {
             playlistState.scrollToItem(state.queueIndex.coerceIn(0, state.queue.lastIndex))
         }
@@ -512,6 +524,38 @@ fun FullscreenPlayer(
 
         // ---- 播放列表（底部 55%，顶部圆角 12）----
         if (playlistVisible && item != null) {
+            // 拖拽排序：拖动期间只在本地镜像里换位，松手才一次性提交给播放器，
+            // 避免每越过一行就 moveMediaItem 一次（播放器会反复重建 timeline）。
+            val dragQueue = remember { mutableStateListOf<MediaFile>().apply { addAll(state.queue) } }
+            var dragId by remember { mutableStateOf<Long?>(null) }
+            var dragOffset by remember { mutableFloatStateOf(0f) }
+            // 队列被外部换掉（切作品 / 自动切歌重建）时同步本地镜像；
+            // 拖动中不动，否则正在拖的那一行会被从手下抽走
+            LaunchedEffect(state.queue, dragId) {
+                if (dragId == null && dragQueue.map { it.id } != state.queue.map { it.id }) {
+                    dragQueue.clear()
+                    dragQueue.addAll(state.queue)
+                }
+            }
+            // 拖动中的一步：位移累加 → 被拖行中心越过哪一行就换到哪一行
+            val onDragStep: (Long, Float) -> Unit = { id, dy ->
+                dragOffset += dy
+                val visible = playlistState.layoutInfo.visibleItemsInfo
+                val dragged = visible.firstOrNull { it.key == id }
+                val center = dragged?.let { it.offset + it.size / 2f + dragOffset }
+                val target = if (center == null) null else visible.firstOrNull {
+                    it.key != id && center >= it.offset && center < it.offset + it.size
+                }
+                if (dragged != null && target != null) {
+                    val fromIndex = dragQueue.indexOfFirst { it.id == id }
+                    val toIndex = target.index
+                    if (fromIndex >= 0 && toIndex in dragQueue.indices && fromIndex != toIndex) {
+                        dragQueue.add(toIndex, dragQueue.removeAt(fromIndex))
+                        // 换位后这一行的布局位置变了，位移补回来，手指下面的行才不会跳
+                        dragOffset += (dragged.offset - target.offset).toFloat()
+                    }
+                }
+            }
             Box(
                 modifier = Modifier
                     .fillMaxSize()
@@ -552,26 +596,76 @@ fun FullscreenPlayer(
                     state = playlistState,
                     modifier = Modifier.fillMaxWidth().weight(1f).padding(horizontal = 8.dp, vertical = 6.dp),
                 ) {
-                    items(state.queue, key = { it.id }) { file ->
+                    items(dragQueue, key = { it.id }) { file ->
                         val playing = file.id == item.file.id
+                        val dragging = dragId == file.id
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
+                                // 被拖起来的那一行画在其它行之上，并随手指上下位移
+                                .zIndex(if (dragging) 1f else 0f)
+                                .graphicsLayer { translationY = if (dragging) dragOffset else 0f }
                                 .clip(RoundedCornerShape(8.dp))
-                                .background(if (playing) accent.copy(alpha = 0.2f) else Color.Transparent)
-                                .clickable {
-                                    PlaybackController.play(item.rj, file, item.work, state.queue)
-                                    playlistVisible = false
+                                .background(
+                                    when {
+                                        // 拖动中必须是不透明底，否则会透出被它盖住的下面几行
+                                        dragging -> panelSolid
+                                        playing -> accent.copy(alpha = 0.2f)
+                                        else -> Color.Transparent
+                                    }
+                                )
+                                .combinedClickable(
+                                    onClick = {
+                                        PlaybackController.play(item.rj, file, item.work, state.queue)
+                                        playlistVisible = false
+                                    },
+                                    // 长按本身不改状态，只是让「长按后松手」不再触发 onClick；
+                                    // 真正进入拖拽由下面的拖拽检测器负责
+                                    onLongClick = {},
+                                )
+                                .pointerInput(file.id) {
+                                    detectDragGesturesAfterLongPress(
+                                        onDragStart = {
+                                            dragId = file.id
+                                            dragOffset = 0f
+                                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                        },
+                                        onDrag = { change, amount ->
+                                            change.consume()
+                                            val id = dragId
+                                            if (id != null) onDragStep(id, amount.y)
+                                        },
+                                        onDragEnd = {
+                                            PlaybackController.reorderQueue(dragQueue.toList())
+                                            dragId = null
+                                            dragOffset = 0f
+                                        },
+                                        onDragCancel = {
+                                            // 取消（手势被系统打断）时按播放器里的真实顺序还原，别留下半截排序
+                                            val real = PlaybackController.state.value.queue
+                                            dragQueue.clear()
+                                            dragQueue.addAll(real)
+                                            dragId = null
+                                            dragOffset = 0f
+                                        },
+                                    )
                                 }
                                 .padding(horizontal = 12.dp, vertical = 10.dp),
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(10.dp),
                         ) {
-                            Text(
-                                if (file.playable && file.kind == "video") "▶" else "♪",
-                                fontSize = 13.sp,
-                                color = WebColors.Muted,
-                            )
+                            // 左侧图标：平时是音符（视频为 ▶），进入拖拽后变成列表图标 —— 提示可以上下拖
+                            Box(modifier = Modifier.size(20.dp), contentAlignment = Alignment.Center) {
+                                if (dragging) {
+                                    PlaylistIcon(accent, Modifier.size(16.dp))
+                                } else {
+                                    Text(
+                                        if (file.playable && file.kind == "video") "▶" else "♪",
+                                        fontSize = 13.sp,
+                                        color = WebColors.Muted,
+                                    )
+                                }
+                            }
                             Text(
                                 file.filename,
                                 fontSize = 14.sp,

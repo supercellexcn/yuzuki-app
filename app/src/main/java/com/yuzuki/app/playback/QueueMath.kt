@@ -42,4 +42,37 @@ object QueueMath {
         val dir = anchor.dirOf()
         return files.filter { it.playable && it.dirOf() == dir }
     }
+
+    /**
+     * 手动排序：把 [from] 位置的元素搬到 [to]（播放列表长按拖动）。
+     * 越界或原地不动时原样返回，方便调用方直接拿来赋给状态。
+     */
+    fun <T> reorder(list: List<T>, from: Int, to: Int): List<T> {
+        if (from == to || from !in list.indices || to !in list.indices) return list
+        val out = list.toMutableList()
+        out.add(to, out.removeAt(from))
+        return out
+    }
+
+    /**
+     * 把播放器里的现有顺序 [current] 变成 [target] 需要的 (from, to) 序列，
+     * 对应 ExoPlayer 的 `moveMediaItem(from, to)`：每步都按「移动后的结果」解释下标。
+     *
+     * 之所以不在排序后直接 `setMediaItems` 重建队列：那会打断播放、丢掉当前进度，
+     * 还会让播放记录多报一次。元素集合不一致（队列被换过）时返回空列表，调用方据此放弃。
+     */
+    fun movePlan(current: List<Long>, target: List<Long>): List<Pair<Int, Int>> {
+        if (current.size != target.size) return emptyList()
+        if (current.toSet() != target.toSet()) return emptyList()
+        val work = current.toMutableList()
+        val plan = mutableListOf<Pair<Int, Int>>()
+        target.forEachIndexed { to, id ->
+            val from = work.indexOf(id)
+            if (from >= 0 && from != to) {
+                work.add(to, work.removeAt(from))
+                plan += from to to
+            }
+        }
+        return plan
+    }
 }

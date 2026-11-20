@@ -205,6 +205,34 @@ object PlaybackController {
         withController { it.shuffleModeEnabled = enabled }
     }
 
+    /**
+     * 播放列表手动排序（播放页底部列表长按拖动后松手提交）。
+     *
+     * 本机队列与 ExoPlayer 的 playlist 必须同序，否则界面顺序与通知栏 / 上一曲下一曲不一致，
+     * 所以两边一起改：本机换位后按 [QueueMath.movePlan] 逐项 `moveMediaItem`，
+     * 不用 `setMediaItems` 重建队列（会打断播放、丢当前进度、多报一次播放记录）。
+     * 当前播放的曲目跟着下标走，不换曲、不重播。
+     */
+    fun reorderQueue(newOrder: List<MediaFile>) {
+        val state = _state.value
+        val currentId = state.current?.file?.id ?: return
+        val oldIds = state.queue.map { it.id }
+        val newIds = newOrder.map { it.id }
+        // 只接受「同一批文件换了个顺序」：队列刚被换过（如切了作品）时直接忽略
+        if (newIds.size != oldIds.size || newIds.toSet() != oldIds.toSet() || newIds == oldIds) return
+        val index = newIds.indexOf(currentId).coerceAtLeast(0)
+        _state.value = state.copy(queue = newOrder, queueIndex = index)
+        // 恢复态：队列还没下发给播放器，点播放时会按新顺序下发，这里只改 UI
+        if (pendingStart) return
+        val plan = QueueMath.movePlan(oldIds, newIds)
+        withController { c ->
+            if (c.mediaItemCount != newOrder.size) return@withController
+            plan.forEach { (from, to) -> c.moveMediaItem(from, to) }
+        }
+        // 顺序也进本机快照：冷启动恢复时看到的仍是用户排好的顺序
+        maybeSave(force = true)
+    }
+
     /** 退出登录 / 清空播放：停止并清队列，媒体通知随之消失。 */
     fun stop() {
         clearSavedPosition()
