@@ -174,6 +174,7 @@ ADB=.toolchain/sdk/platform-tools/adb.exe
    与**本机缓存**（已用大小、分类明细、二次确认清除）。三块都不读写服务端设置。
    播放页信息区顺序固定为 标题 → 当前文件名 → 社团 → 系列 → 声优 → 类型标签；会还原上次播放的文件、
    整条播放列表与秒数（本机记录，不自动开播，点播放才续上）。
+   播放页底部「播放列表」支持**长按拖动排序**：长按后左侧图标变成列表图标，上下拖动即换位，松手生效。
 5. 收藏（作品 / 社团 / 声优 / 标签）、随机播放、循环模式切换都会在底部 Tab 上方弹出 App 内轻提示
    （圆角胶囊，1s 后消失，连续触发只保留最新一条；不走系统 Toast）。收藏统一调用
    `FavoritesState.toggleWorkWithToast` / `toggleWithToast`，失败提示「操作失败，请检查网络」。
@@ -783,8 +784,31 @@ ADB=.toolchain/sdk/platform-tools/adb.exe
   与本地 `app-release.apk` 三方 sha256 一致 `c22a76df…ff1748e7`；
   已装到 `192.168.5.16:42847`（`versionCode=1057`、`versionName=0.1.57`），未启动、测试由用户自测。
 
-## 已知限制
+**本次增量验证（2026-11-20，播放列表长按拖动排序 · 分支 `feat/playlist-reorder`，0.1.58）**：
 
+- 需求：播放页底部弹出的播放列表要能长按拖动、上下调整顺序。
+- 交互（`ui/PlayerUI.kt`）：长按行内任意位置（`detectDragGesturesAfterLongPress`，约 500ms）→ 该行左侧图标
+  由「♪ / ▶」换成**列表图标**（复用 `PlaylistIcon`、强调色）+ 轻震；被拖行 `zIndex` 抬到最上层、
+  拖动时补不透明底、`graphicsLayer.translationY` 跟手；中心越过相邻行就**实时换位**并补回位移差
+  （手指下面的行不会跳）；松手一次提交，手势被打断则按播放器里的真实顺序还原。
+- `combinedClickable(onClick = 播放并关闭, onLongClick = {})` 的 `onLongClick` 只用来吃掉这次点击 ——
+  没有它就退化成 `clickable`，长按后松手会被当成点击直接开播。拖拽检测器挂在同一行、比 clickable 更内层，
+  起拖后消费事件，点击自然取消。
+- 顺序必须两处一起改：新增 `PlaybackController.reorderQueue()` —— 先按新顺序写本机 `state.queue`
+  （`queueIndex` 跟着当前曲目走），再用 `QueueMath.movePlan()` 算出 `(from, to)` 序列逐项 `moveMediaItem`。
+  **不重建队列**：播放不中断、进度不丢、不多报一次播放记录。恢复态（`pendingStart`，队列还没下发给播放器）
+  只改 UI，点播放时按新顺序下发；排序完 `maybeSave(force = true)` 落盘，冷启动恢复看到的也是排好的顺序。
+  拖动期间只在本地镜像列表里换位（`mutableStateListOf`），松手才提交，不会每越过一行就打一次播放器。
+- 「打开列表 / 切歌自动滚到当前曲目」的 `LaunchedEffect` 键由 `queueIndex + queue.size` 改为**当前文件 id**，
+  否则排完序下标变化会立刻把列表拽回当前曲目。
+- 验证：`compileDebugKotlin` / `testDebugUnitTest` 通过，**138 例全过、0 失败 0 错误**
+  （`QueueMathTest` 新增 3 例：手动排序搬位与越界 / 原地不动、`movePlan` 逐项重放后与目标顺序一致且步数不超过队列长度、
+  顺序没变或元素集合不同时不下发搬位）。未截图验证，真机手感由用户自测。
+- Release `0.1.58` 已发布共享：`yuzuki-0.1.58-1120-1826.apk` + `yuzuki-latest.apk`，
+  与本地 `app-release.apk` 三方 sha256 一致 `0b72ce20…9531a`；已装到 `192.168.5.16:42847`
+  （`versionCode=1058`、`versionName=0.1.58`），未启动、测试由用户自测。
+
+## 已知限制
 - 仅家中 WiFi 可用；离开 WiFi 只能看离线缓存内容；明文 HTTP 的 token 在局域网可被嗅探。
 - 冷门格式（wma 等）需后续接入 `media3-decoder-ffmpeg`；flac/mkv/mp4/wav/m4a 由 Media3 默认解码器覆盖。
 - 界面采用 Material 3 风格：不再渲染液态玻璃 / 壁纸 / 模糊 / 半透明叠层（所有框体都是不透明容器）；
