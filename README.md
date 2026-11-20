@@ -830,6 +830,24 @@ ADB=.toolchain/sdk/platform-tools/adb.exe
   与本地 `app-release.apk` 三方 sha256 一致 `fa0ebab4…8aea691`；已装到 `192.168.5.16:42847`
   （`versionCode=1059`、`versionName=0.1.59`），未启动、测试由用户自测。
 
+**本次修复（2026-11-20，拖动抖动 + 没松手就被放下 · 0.1.60）**：
+
+- 用户实测：往上拖到某个位置列表会抖；而且没松手就被「放下」了。
+- 根因：换位是**在 `pointerInput` 的 `onDrag` 里按当时拿到的 `layoutInfo` 算的**。一帧内常有多个 move 事件，
+  第一次换位后 LazyColumn 还没重新布局，第二、三次读到的还是「行在旧槽位」的旧几何，于是算出反方向的落点再换回来 ——
+  这就是抖；抖的过程里行还会被顶出可视区 / 触发多余的换位提交，手势被打断，看着就像被放下了。
+- 修复：
+  - `ui/PlayerUI.kt`：换位 / 夹位移 / 滚动全部收进 `LaunchedEffect(dragId) + withFrameNanos` 的**每帧单次调度**，
+    `onDrag` 只累加位移、不做任何判断；每帧最多换一位，换完立刻 `continue` 等下一帧布局，绝不在同一份旧布局上换第二次。
+    换位后位移按「新槽位 = target 原来的 offset」直接重算，不必等下一帧（等就会有一帧偏移，看着也像抖）。
+  - 新增 `ui/PlaylistDrag.kt`（`active` 标记）：拖动期间 `RootScreen` 的 `HorizontalPager` 设 `userScrollEnabled = false` ——
+    手指斜着拖时横向分量超过 touch slop，Pager 会抢走手势并消费事件，拖拽当场 cancel，表现就是「没松手却被放下」。
+    列表关闭 / 页面销毁时用 `DisposableEffect` 兜底复位。
+- 验证：`compileDebugKotlin` / `testDebugUnitTest` 通过，**142 例全过、0 失败 0 错误**。
+- Release `0.1.60` 已发布共享：`yuzuki-0.1.60-1120-1845.apk` + `yuzuki-latest.apk`，
+  与本地 `app-release.apk` 三方 sha256 一致 `b8ad5642…ed223f`；已装到 `192.168.5.16:42847`
+  （`versionCode=1060`、`versionName=0.1.60`），未启动、测试由用户自测。
+
 ## 已知限制
 - 仅家中 WiFi 可用；离开 WiFi 只能看离线缓存内容；明文 HTTP 的 token 在局域网可被嗅探。
 - 冷门格式（wma 等）需后续接入 `media3-decoder-ffmpeg`；flac/mkv/mp4/wav/m4a 由 Media3 默认解码器覆盖。
