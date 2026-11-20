@@ -10,6 +10,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animate
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -18,6 +19,10 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.Orientation
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.calculateCentroid
+import androidx.compose.foundation.gestures.calculateZoom
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.draggable
 import androidx.compose.foundation.gestures.rememberDraggableState
@@ -50,12 +55,15 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -66,7 +74,10 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.PointerInputScope
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.positionChanged
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
@@ -87,6 +98,7 @@ import com.yuzuki.app.playback.PlaybackController
 import com.yuzuki.app.ui.theme.LocalAppearance
 import com.yuzuki.app.ui.theme.WebColors
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -878,21 +890,122 @@ private fun ImageViewer(
         properties = DialogProperties(usePlatformDefaultWidth = false),
     ) {
         BoxWithConstraints(modifier = Modifier.fillMaxSize().background(Color(0xFF000000))) {
-            val pagePx = with(LocalDensity.current) { maxWidth.toPx() }
+            val density = LocalDensity.current
+            val pagePx = with(density) { maxWidth.toPx() }
+            val viewportW = pagePx
+            val viewportH = with(density) { maxHeight.toPx() }
             // 跟手位移：拖动时整屏实时平移，相邻图从屏幕边缘补位；松手再吸附 / 回弹
             val offsetX = remember(safeIndex) { Animatable(0f) }
             // 正在靠近的相邻图（首尾循环取），位移回到 0 时清空
             var incoming by remember(safeIndex) { mutableStateOf<Int?>(null) }
+            // 缩放：scale 以视口中心为 pivot，pan 是以屏幕像素计的平移（推导见 ViewerZoom 注释）
+            var zoomScale by remember(safeIndex) { mutableFloatStateOf(ViewerZoom.MIN_SCALE) }
+            var panX by remember(safeIndex) { mutableFloatStateOf(0f) }
+            var panY by remember(safeIndex) { mutableFloatStateOf(0f) }
+            // 原图像素尺寸：解码完成后才知道，用于算放大后的可平移边界（Fit 后尺寸才是边界依据）
+            var imageSize by remember(safeIndex) { mutableStateOf<Pair<Int, Int>?>(null) }
+            // 双指捏合进行中：单指翻页必须让位（draggable 仍挂在链上，靠它读这个标记）
+            val pinching = remember(safeIndex) { mutableStateOf(false) }
+            var zoomJob by remember(safeIndex) { mutableStateOf<Job?>(null) }
+
+            val fitted = imageSize?.let { (w, h) ->
+                ViewerZoom.fittedSize(viewportW, viewportH, w.toFloat(), h.toFloat())
+            } ?: (viewportW to viewportH)
+            val limits: (Float) -> Pair<Float, Float> = { s ->
+                ViewerZoom.panLimit(viewportW, fitted.first, s) to
+                    ViewerZoom.panLimit(viewportH, fitted.second, s)
+            }
+            // 解码完成后 fitted 会变，但手势协程不重启（key 没变）——经 State 让它每次取最新边界
+            val limitsNow = rememberUpdatedState(limits)
+
+            /** 双击 / 松手复位用：倍率与平移一起补间，避免画面跳一下。 */
+            fun animateZoomTo(targetScale: Float, targetPanX: Float, targetPanY: Float) {
+                val fromScale = zoomScale
+                val fromPanX = panX
+                val fromPanY = panY
+                zoomJob?.cancel()
+                zoomJob = scope.launch {
+                    animate(
+                        initialValue = 0f,
+                        targetValue = 1f,
+                        animationSpec = tween(220, easing = FastOutSlowInEasing),
+                    ) { t, _ ->
+                        zoomScale = fromScale + (targetScale - fromScale) * t
+                        panX = fromPanX + (targetPanX - fromPanX) * t
+                        panY = fromPanY + (targetPanY - fromPanY) * t
+                    }
+                }
+            }
 
             Box(
                 modifier = Modifier
                     .fillMaxSize()
+                    // 双击：自适应 ↔ 放大（以点击点为中心放大，再双击回到自适应）
+                    .pointerInput(safeIndex, images.size, viewportW, viewportH) {
+                        detectTapGestures(
+                            onDoubleTap = { pos ->
+                                val target = ViewerZoom.doubleTapTarget(zoomScale)
+                                if (target <= ViewerZoom.MIN_SCALE) {
+                                    animateZoomTo(ViewerZoom.MIN_SCALE, 0f, 0f)
+                                } else {
+                                    val (nx, ny) = ViewerZoom.panKeeping(
+                                        cx = pos.x - viewportW / 2f,
+                                        cy = pos.y - viewportH / 2f,
+                                        panX = panX,
+                                        panY = panY,
+                                        from = zoomScale,
+                                        to = target,
+                                    )
+                                    val (limitX, limitY) = limitsNow.value(target)
+                                    animateZoomTo(
+                                        target,
+                                        ViewerZoom.clampPan(nx, limitX),
+                                        ViewerZoom.clampPan(ny, limitY),
+                                    )
+                                }
+                            },
+                            onLongPress = { menuOpen = true },
+                        )
+                    }
+                    // 捏合缩放 + 放大后单指平移（Initial pass 接管，未放大时完全不消费 → 翻页照旧）
                     .pointerInput(safeIndex, images.size) {
-                        detectTapGestures(onLongPress = { menuOpen = true })
+                        viewerZoomGesture(
+                            scale = { zoomScale },
+                            pan = { panX to panY },
+                            limits = { s -> limitsNow.value(s) },
+                            pinching = pinching,
+                            onIntercept = { zoomJob?.cancel() },
+                            onPinchStart = {
+                                // 双指介入时把正在进行的翻页位移立刻收回，避免松手误翻页
+                                scope.launch { offsetX.snapTo(0f) }
+                                incoming = null
+                            },
+                            onUpdate = { s, x, y ->
+                                zoomScale = s
+                                panX = x
+                                panY = y
+                            },
+                            onSettle = { s, x, y ->
+                                val (limitX, limitY) = limitsNow.value(s)
+                                if (!ViewerZoom.isZoomed(s)) {
+                                    animateZoomTo(ViewerZoom.MIN_SCALE, 0f, 0f)
+                                } else if (x != ViewerZoom.clampPan(x, limitX) ||
+                                    y != ViewerZoom.clampPan(y, limitY)
+                                ) {
+                                    zoomScale = s
+                                    panX = ViewerZoom.clampPan(x, limitX)
+                                    panY = ViewerZoom.clampPan(y, limitY)
+                                }
+                            },
+                        )
                     }
                     .draggable(
                         orientation = Orientation.Horizontal,
                         state = rememberDraggableState { delta ->
+                            // 放大状态下的单指拖动是平移（由 viewerZoomGesture 消费），这里不能再翻页
+                            if (pinching.value || ViewerZoom.isZoomed(zoomScale)) {
+                                return@rememberDraggableState
+                            }
                             scope.launch {
                                 offsetX.snapTo(offsetX.value + delta)
                                 val moved = offsetX.value
@@ -910,8 +1023,15 @@ private fun ImageViewer(
                             }
                         },
                         onDragStopped = { velocity ->
-                            val decision = ViewerSwipe.decide(offsetX.value, velocity, pagePx)
-                            if (decision == ViewerSwipe.NONE) {
+                            val decided = if (pinching.value ||
+                                ViewerZoom.isZoomed(zoomScale)
+                            ) {
+                                // 双指接管或画面已放大：位移不参与翻页判定（放大状态下滑动是平移）
+                                ViewerSwipe.NONE
+                            } else {
+                                ViewerSwipe.decide(offsetX.value, velocity, pagePx)
+                            }
+                            if (decided == ViewerSwipe.NONE) {
                                 // 没滑够：弹簧回原位，图片不换
                                 offsetX.animateTo(
                                     targetValue = 0f,
@@ -923,11 +1043,11 @@ private fun ImageViewer(
                             } else {
                                 // 滑够：把整屏推出去（邻居正好补到正中），再提交下标
                                 offsetX.animateTo(
-                                    targetValue = if (decision == ViewerSwipe.NEXT) -pagePx else pagePx,
+                                    targetValue = if (decided == ViewerSwipe.NEXT) -pagePx else pagePx,
                                     animationSpec = tween(220, easing = FastOutSlowInEasing),
                                 )
                                 incoming = null
-                                ViewerSwipe.neighbor(safeIndex, decision, images.size)
+                                ViewerSwipe.neighbor(safeIndex, decided, images.size)
                                     ?.let { onIndexChange(it) }
                             }
                         },
@@ -937,10 +1057,18 @@ private fun ImageViewer(
                     url = AppContainer.api.mediaUrl(rj, file.id),
                     modifier = Modifier
                         .fillMaxSize()
-                        .graphicsLayer { translationX = offsetX.value },
+                        .graphicsLayer {
+                            // 翻页位移与缩放平移叠加；未放大时 pan 恒为 0，互不干扰
+                            translationX = offsetX.value + panX
+                            translationY = panY
+                            scaleX = zoomScale
+                            scaleY = zoomScale
+                        },
                     contentScale = ContentScale.Fit,
                     // 全屏看图：长边按 1440 解码（卡片用 720），比原图清晰又不会 OOM
                     targetPx = VIEWER_TARGET_PX,
+                    // Fit 后的实际尺寸决定放大后能拖多远（否则能拖出大片黑边）
+                    onBitmapSize = { w, h -> imageSize = w to h },
                 )
                 incoming?.let { i ->
                     RemoteImage(
@@ -1047,6 +1175,102 @@ private fun ViewerIconButton(
         contentAlignment = Alignment.Center,
     ) {
         content()
+    }
+}
+
+/**
+ * 图片查看器的缩放 / 平移手势（在 Initial pass 上「旁路观察 → 需要时接管」）。
+ *
+ * 分工，保证三种手势互不抢事件：
+ * - 未放大 + 单指：完全不接管、不消费，翻页仍由外层 `draggable` 处理，双击仍由 `detectTapGestures` 处理；
+ * - 已放大 + 单指：平移。先按 touchSlop 攒位移，过了门槛才消费 —— 这样「放大状态下双击还原」
+ *   不会被这一层提前吃掉（tap 检测遇到 consumed 会取消）；
+ * - 双指（任何状态）：以两指质心为不动点捏合缩放，质心移动即双指平移（`ViewerZoom.panKeeping`）。
+ *
+ * 消费写在 Initial pass：`draggable` 在 Main pass 看到 consumed 就不会再翻页；
+ * 已放大的单指拖动因此不会顺带翻页，而未放大时这一层不存在任何消费动作。
+ *
+ * @param onIntercept  双指接管的第一帧（取消正在跑的双击动画）
+ * @param onPinchStart 双指接管的第一帧（把正在翻页的位移收回，松手不误翻页）
+ * @param onSettle     手势结束：调用方按倍率决定要不要复弹到边界或还原成自适应
+ */
+private suspend fun PointerInputScope.viewerZoomGesture(
+    scale: () -> Float,
+    pan: () -> Pair<Float, Float>,
+    limits: (Float) -> Pair<Float, Float>,
+    pinching: MutableState<Boolean>,
+    onIntercept: () -> Unit,
+    onPinchStart: () -> Unit,
+    onUpdate: (scale: Float, panX: Float, panY: Float) -> Unit,
+    onSettle: (scale: Float, panX: Float, panY: Float) -> Unit,
+) {
+    awaitEachGesture {
+        val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+        var claimed = ViewerZoom.isZoomed(scale())
+        var pastSlop = false
+        var multi = false
+        var intercepted = false
+        var lastCentroid = down.position
+        var lastScale = scale()
+        var lastPan = pan()
+        try {
+            while (true) {
+                val event = awaitPointerEvent(PointerEventPass.Initial)
+                val pressed = event.changes.count { it.pressed }
+                if (pressed == 0) break
+                val centroid = event.calculateCentroid(useCurrent = true)
+                if (centroid.x.isNaN() || centroid.y.isNaN()) break
+                if (pressed >= 2 && !claimed) {
+                    // 双指加入：从这一帧开始接管，之前由翻页手势累计的位移直接丢弃
+                    claimed = true
+                    onIntercept()
+                    lastCentroid = centroid
+                    lastScale = scale()
+                    lastPan = pan()
+                }
+                if (pressed >= 2 && !multi) {
+                    multi = true
+                    pinching.value = true
+                    onPinchStart()
+                }
+                if (!claimed) continue
+                val zoomChange = event.calculateZoom()
+                if (!pastSlop) {
+                    val moved = (centroid - lastCentroid).getDistance()
+                    if (multi || moved > viewConfiguration.touchSlop) pastSlop = true
+                }
+                if (!pastSlop) continue
+                if (!intercepted) {
+                    // 真正开始动画面了：先掐掉双击的补间动画，否则动画会跟手指抢这几帧
+                    intercepted = true
+                    onIntercept()
+                }
+                val newScale = ViewerZoom.clampScale(lastScale * zoomChange)
+                val (keepX, keepY) = ViewerZoom.panKeeping(
+                    cx = lastCentroid.x,
+                    cy = lastCentroid.y,
+                    panX = lastPan.first,
+                    panY = lastPan.second,
+                    from = lastScale,
+                    to = newScale,
+                )
+                val (limitX, limitY) = limits(newScale)
+                val nextX = ViewerZoom.clampPan(keepX, limitX)
+                val nextY = ViewerZoom.clampPan(keepY, limitY)
+                onUpdate(newScale, nextX, nextY)
+                lastScale = newScale
+                lastPan = nextX to nextY
+                lastCentroid = centroid
+                event.changes.forEach { if (it.positionChanged()) it.consume() }
+            }
+        } finally {
+            pinching.value = false
+            if (claimed) {
+                val s = scale()
+                val p = pan()
+                onSettle(s, p.first, p.second)
+            }
+        }
     }
 }
 

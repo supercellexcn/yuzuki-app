@@ -32,6 +32,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -155,6 +156,8 @@ fun RemoteImage(
     placeholder: Color = MaterialTheme.colorScheme.surfaceVariant,
     /** 解码长边上限，<=0 表示原图（大图查看器用）。 */
     targetPx: Int = ImageCache.DEFAULT_TARGET_PX,
+    /** 位图就绪后回调原始像素尺寸（查看器用它算缩放后的可平移边界）。 */
+    onBitmapSize: ((width: Int, height: Int) -> Unit)? = null,
 ) {
     val context = LocalContext.current
     // 不能用 produceState(initialValue = cached, url, targetPx)：它内部是 remember（无 key）的
@@ -164,6 +167,11 @@ fun RemoteImage(
     var bitmap by remember(url, targetPx) { mutableStateOf(ImageCache.peek(url, targetPx)) }
     LaunchedEffect(url, targetPx) {
         if (bitmap == null) bitmap = ImageCache.load(context, url, targetPx)
+    }
+    // 回调不参与 key：位图相同但 lambda 换了实例不该重放
+    val sizeCallback = rememberUpdatedState(onBitmapSize)
+    LaunchedEffect(bitmap) {
+        bitmap?.let { sizeCallback.value?.invoke(it.width, it.height) }
     }
     Box(modifier = modifier.background(placeholder)) {
         if (bitmap != null) {

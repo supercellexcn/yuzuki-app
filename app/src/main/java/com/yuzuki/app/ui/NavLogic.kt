@@ -104,6 +104,77 @@ object ViewerSwipe {
     }
 }
 
+/**
+ * 图片查看器的缩放 / 平移数值规则：不依赖 Android / Compose，JVM 可直接断言。
+ *
+ * 坐标约定与 Compose `graphicsLayer` 对齐：`scale` 以视口中心为 pivot，`pan` 是以屏幕像素计的
+ * 平移量（不受 scale 影响）。因此屏幕位置 = pan + u × scale，u 为内容相对中心的偏移。
+ *
+ * 由「某个屏幕点 p 处的画面在缩放前后必须待在原地」可解出
+ * `panNew = p − (p − panOld) × (scaleNew / scaleOld)`：
+ * 双指捏合以两指质心为不动点，双击则以点击点为不动点，两者共用这一条公式。
+ */
+object ViewerZoom {
+    /** 最小倍率 = 自适应铺满（ContentScale.Fit），即「还原」。 */
+    const val MIN_SCALE = 1f
+
+    /** 上限：再放大也只是马赛克，且 1440 解码的图到 4 倍已无细节。 */
+    const val MAX_SCALE = 4f
+
+    /** 双击放大到的倍率。 */
+    const val DOUBLE_TAP_SCALE = 2.5f
+
+    /** 超过这个倍率才算「已放大」：捏合停在 1.005 时不该挡住翻页。 */
+    const val ZOOMED_EPSILON = 1.01f
+
+    fun clampScale(scale: Float): Float =
+        if (scale.isNaN()) MIN_SCALE else scale.coerceIn(MIN_SCALE, MAX_SCALE)
+
+    fun isZoomed(scale: Float): Boolean = scale > ZOOMED_EPSILON
+
+    /** 双击落点：已放大 → 还原成自适应；否则放大一档。 */
+    fun doubleTapTarget(scale: Float): Float =
+        if (isZoomed(scale)) MIN_SCALE else DOUBLE_TAP_SCALE
+
+    /**
+     * 让屏幕点 (cx, cy) 在 from → to 缩放后仍停在原处所需的平移量。
+     * @return panX to panY（调用方仍需按 [panLimit] 夹紧）
+     */
+    fun panKeeping(
+        cx: Float,
+        cy: Float,
+        panX: Float,
+        panY: Float,
+        from: Float,
+        to: Float,
+    ): Pair<Float, Float> {
+        if (from <= 0f || !from.isFinite() || !to.isFinite()) return panX to panY
+        val k = to / from
+        return (cx - (cx - panX) * k) to (cy - (cy - panY) * k)
+    }
+
+    /** 单轴可平移上限：内容放大后超出视口的部分两端各分一半；没有超出就不给动。 */
+    fun panLimit(viewportPx: Float, contentPx: Float, scale: Float): Float =
+        ((contentPx * scale - viewportPx) / 2f).coerceAtLeast(0f)
+
+    fun clampPan(value: Float, limit: Float): Float =
+        if (limit <= 0f) 0f else value.coerceIn(-limit, limit)
+
+    /** ContentScale.Fit 之后的实际显示尺寸；参数非法时退化为铺满视口。 */
+    fun fittedSize(
+        viewportW: Float,
+        viewportH: Float,
+        imageW: Float,
+        imageH: Float,
+    ): Pair<Float, Float> {
+        if (viewportW <= 0f || viewportH <= 0f || imageW <= 0f || imageH <= 0f) {
+            return viewportW to viewportH
+        }
+        val k = minOf(viewportW / imageW, viewportH / imageH)
+        return (imageW * k) to (imageH * k)
+    }
+}
+
 object PagingLogic {
     /** 后端 /api/works 把 pageSize clamp 到 1..200，前端必须同步，否则 offset 会跳页漏数据。 */
     const val MAX_PAGE_SIZE = 200

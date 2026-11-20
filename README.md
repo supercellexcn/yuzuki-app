@@ -184,6 +184,8 @@ ADB=.toolchain/sdk/platform-tools/adb.exe
 7. 图片查看器：顶栏左 ✕ 关闭、中间只显示当前图片文件大小、右边「当前第几张/同文件夹图片总数」+ ⋮，
    图片区**左右滑动**切换同目录内的图片：拖动时整屏跟手平移、相邻图从屏幕边缘补位，
    松手位移过屏宽 25% 或速度过 900px/s 就滑完翻页，否则弹簧回弹（首尾循环）；
+   **双指捏合**放大（1×–4×，以两指质心为不动点）、放大后**单指拖动平移**（边界按 Fit 后的实际显示尺寸算，
+   拖不出大片黑边）、**双击**在「自适应 ↔ 2.5× 放大」之间切换（以点击点为中心放大，再双击还原为自适应）；
    ⋮ 菜单目前只有「下载图片」，保存到系统相册 `Pictures/Yuzuki/`（Android 10+ 免权限，8/9 首次会申请存储权限）。
    查看器内不再放「设为封面 / 设为壁纸」，这两个入口仍在文件列表长按菜单里。
 
@@ -743,6 +745,31 @@ ADB=.toolchain/sdk/platform-tools/adb.exe
   颜色集中在 `WebColors.CustomTagBg/Fg/Border`，`CUSTOM_TAG` 常量为同包共用。
 - 验证：`:app:compileDebugKotlin`、`:app:testDebugUnitTest` 通过；静态断言上述三处标签按 `category == "custom"` 取自定义配色。
   真机观感由用户自测（不截图）。
+
+**本次增量验证（2026-11-20，图片查看器支持捏合缩放 / 双击缩放 · 分支 `feat/viewer-zoom`，0.1.56）**：
+
+- 需求：照片查看器要能「双指捏合张开缩小放大」与「双击照片放大 / 还原」。
+- 新增纯逻辑 `ViewerZoom`（`ui/NavLogic.kt`，JVM 可测）：倍率夹紧（1×–4×，NaN 回落到 1×）、
+  `isZoomed` 阈值（1.01，捏合停在 1.005 不挡翻页）、`doubleTapTarget`（自适应 ↔ 2.5×）、
+  **`panKeeping`**（让屏幕上某点在缩放前后停在原地的平移量，公式 `panNew = p − (p − panOld) × scaleNew/scaleOld`，
+  捏合与双击共用）、`panLimit` / `clampPan`（可平移边界）、`fittedSize`（ContentScale.Fit 后的实际显示尺寸）。
+- 手势分工写在 `WorkDetailScreen.kt` 的 `viewerZoomGesture`（**Initial pass 旁路观察 → 需要时接管**）：
+  - 未放大 + 单指：完全不消费，翻页仍由原 `draggable` 负责，双击仍由 `detectTapGestures` 负责；
+  - 已放大 + 单指：平移；先攒 touchSlop，过门槛才消费 —— 放大状态下双击还原不会被这层提前吃掉；
+  - 双指（任何状态）：以两指质心为不动点捏合缩放，质心移动即双指平移，并且**接管第一帧就把正在翻页的位移收回**
+    （`offsetX.snapTo(0f)` + `incoming = null`），松手不会误翻页（`draggable` 的 onDelta / onDragStopped 都看
+    `pinching` 与 `isZoomed` 双重条件直接跳过）。
+- 渲染：查看器主图 `graphicsLayer` 里叠 `translationX = offsetX + panX / translationY = panY / scaleX = scaleY = zoomScale`；
+  双击与松手复位走 220ms 补间（`animate`），双指接管时先 cancel 掉补间，避免和手指抢帧。
+- 边界依据真实图片尺寸：`RemoteImage` 新增可选回调 `onBitmapSize`（默认 null，其它调用点零影响），
+  解码完成后把原图宽高回传，查看器按 `fittedSize` 算出 Fit 后的显示尺寸再算可平移上限 —— 竖图放大后
+  不会被拖出大片黑边。
+- `:app:compileDebugKotlin` / `:app:testDebugUnitTest` 通过，**135 例全过、0 失败 0 错误**
+  （新增 `ViewerZoomTest` 8 例：倍率夹紧含 NaN / Infinity、isZoomed 阈值、双击目标、点击点不动点平移与还原、
+  中心缩放零平移、Fit 后尺寸的边界、边界夹紧、Fit 尺寸按短边对齐与非法尺寸退化）。
+- Release `0.1.56` 已发布共享：`yuzuki-0.1.56-1120-1719.apk` + `yuzuki-latest.apk`，
+  与本地 `app-release.apk` 三方 sha256 一致 `d27749e1…9c79bd3`；已装到 `192.168.5.16:42847`
+  （`versionCode=1056`、`versionName=0.1.56`），未启动、测试由用户自测。
 
 ## 已知限制
 
