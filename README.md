@@ -808,6 +808,28 @@ ADB=.toolchain/sdk/platform-tools/adb.exe
   与本地 `app-release.apk` 三方 sha256 一致 `0b72ce20…9531a`；已装到 `192.168.5.16:42847`
   （`versionCode=1058`、`versionName=0.1.58`），未启动、测试由用户自测。
 
+**本次修复（2026-11-20，长列表拖不到上面 · 0.1.59）**：
+
+- 用户实测：列表很长时往上拖，拖到顶部「播放列表」那一栏，被拖的行直接弹回原位。
+- 根因两条：
+  1. **没有边缘自动滚动**，被拖行只能一路移出 viewport，而换位只发生在「可见行」之间，
+     所以永远爬不到上面去；
+  2. `graphicsLayer.translationY` 不参与布局，行被拖出 viewport 后会被 LazyColumn 裁掉甚至回收，
+     行一消失手势就断了，看起来就是「刚拖到顶上就弹回原位」。
+- 修复（`ui/PlayerUI.kt`）：
+  - **位移夹在列表可视区内**（`viewportStartOffset … viewportEndOffset - rowHeight`），行贴边就停住不再外移；
+  - **边缘自动滚动**：新增 `ui/DragAutoScroll.step(center, viewportStart, viewportEnd, edge, maxStep)` 纯函数，
+    被拖行中心进入上下 56dp 感应区后按越界深度线性加速（上限 9dp/帧），
+    `LaunchedEffect(dragId)` 每帧 `withFrameNanos` + `LazyListState.scrollBy`，
+    滚完把 `dragOffset` 补回滚动量（行继续跟手、贴边不动），再重算一次落点 ——
+    所以「按住不动只看列表滚」时也会继续换位，不会让上面的行从被拖行上方越过；
+  - 手势被打断（`onDragCancel`）改为**提交已排好的顺序**而不是还原，避免「白拖一场」的回弹。
+- 验证：`compileDebugKotlin` / `testDebugUnitTest` 通过，**142 例全过、0 失败 0 错误**
+  （新增 `DragAutoScrollTest` 4 例：中间区不滚、贴顶向上滚且越贴越快并封顶、贴底向下滚、感应区/上限为 0 不滚）。
+- Release `0.1.59` 已发布共享：`yuzuki-0.1.59-1120-1837.apk` + `yuzuki-latest.apk`，
+  与本地 `app-release.apk` 三方 sha256 一致 `fa0ebab4…8aea691`；已装到 `192.168.5.16:42847`
+  （`versionCode=1059`、`versionName=0.1.59`），未启动、测试由用户自测。
+
 ## 已知限制
 - 仅家中 WiFi 可用；离开 WiFi 只能看离线缓存内容；明文 HTTP 的 token 在局域网可被嗅探。
 - 冷门格式（wma 等）需后续接入 `media3-decoder-ffmpeg`；flac/mkv/mp4/wav/m4a 由 Media3 默认解码器覆盖。
