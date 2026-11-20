@@ -719,7 +719,8 @@ ADB=.toolchain/sdk/platform-tools/adb.exe
 
 - 参考 yuzuki 前端（`WorkCard.vue` / `FavoriteStar.vue` / `.tag-custom`）复刻两个纯前端功能，数据层与后端零改动。
 - 作品网格卡（`WorkCard`）封面左上角：原 30dp 圆形收藏钮改为 **RJ 号 + 收藏星胶囊**
-  （黑底 `#000000`、全圆角、RJ 号 11sp 白字单行省略 + 后置 14dp 白星）。点星切换收藏（子 `clickable` 消费事件），
+  （黑底 `#000000`、RJ 号 11sp 白字单行省略 + 后置 14dp 白星）。胶囊彻底贴住卡片左上角 (0,0)，
+  圆角取卡片圆角 **10dp**，左上圆弧与卡片边缘同心贴合。点星切换收藏（子 `clickable` 消费事件），
   点 RJ 号冒泡走卡片 `onOpen`；图片模式卡 / 播放历史卡共用该封面区，自动覆盖。
 - 列表模式（`WorkRow`，64dp 小封面）不挂胶囊，改为标题前缀 **`[RJ号]标题`**。
 - 全年龄（内置 `custom` 标签）视觉对齐 web `.tag-custom`：深绿底 `#1D3A33` + 薄荷绿字 `#8EE0C0` + 深绿描边 `#2A5A4D`，

@@ -152,13 +152,13 @@ fun WorkCard(
                 }
             }
 
-            // 封面左上角：RJ 号 + 收藏星胶囊（对齐 web `.card-badge`：纯黑底白字，
-            // 点星切换收藏、点 RJ 号仍进作品；封面明暗差异大，黑底任何封面上都清晰）
+            // 封面左上角：RJ 号 + 收藏星胶囊。彻底贴住卡片左上角 (0,0)，
+            // 左上圆角取卡片圆角 10dp，与卡片边缘同心贴合；其余三角沿用同一幅度。
+            // 黑底白字：封面明暗差异大，黑底在任何封面上都清晰。
             Row(
                 modifier = Modifier
                     .align(Alignment.TopStart)
-                    .padding(6.dp)
-                    .clip(ShapePill)
+                    .clip(RoundedCornerShape(10.dp))
                     .background(Color.Black)
                     .padding(start = 8.dp, end = 4.dp, top = 1.dp, bottom = 1.dp),
                 verticalAlignment = Alignment.CenterVertically,
