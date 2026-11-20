@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
@@ -52,6 +53,9 @@ import kotlinx.coroutines.launch
  * 两列互不影响，短卡下方直接接下一张，不再被邻卡撑高留白。
  */
 private val CardShape = RoundedCornerShape(10.dp)
+
+/** 自定义标签的统一 category 值（与 DLsite/hvdb 原生标签区分；内置「全年龄」也属于此列）。 */
+const val CUSTOM_TAG = "custom"
 
 /** 播放历史卡片的附加信息（web `WorkCard` 的 history prop）。 */
 data class HistoryMeta(
@@ -143,25 +147,46 @@ fun WorkCard(
                         .padding(start = 6.dp, end = 6.dp, top = 10.dp, bottom = 4.dp),
                 ) {
                     work.tags.forEach { tag ->
-                        CoverTagChip(tag.name, genreBg) { onCond(FilterCond("tag", tag.name)) }
+                        CoverTagChip(tag.name, tag.category, genreBg) { onCond(FilterCond("tag", tag.name)) }
                     }
                 }
             }
 
-            Box(
+            // 封面左上角：RJ 号 + 收藏星胶囊（对齐 web `.card-badge`：纯黑底白字，
+            // 点星切换收藏、点 RJ 号仍进作品；封面明暗差异大，黑底任何封面上都清晰）
+            Row(
                 modifier = Modifier
                     .align(Alignment.TopStart)
                     .padding(6.dp)
-                    .size(30.dp)
-                    .clip(CircleShape)
-                    .clickable { scope.launch { FavoritesState.toggleWorkWithToast(work.rjCode) } },
-                contentAlignment = Alignment.Center,
+                    .clip(ShapePill)
+                    .background(Color.Black)
+                    .padding(start = 8.dp, end = 4.dp, top = 1.dp, bottom = 1.dp),
+                verticalAlignment = Alignment.CenterVertically,
             ) {
-                FavoriteStarIcon(
-                    favored = fav,
-                    tint = if (fav) MaterialTheme.colorScheme.primary else Color.White,
-                    modifier = Modifier.size(22.dp),
+                Text(
+                    work.rjCode,
+                    fontSize = 11.sp,
+                    lineHeight = 11.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    letterSpacing = 0.2.sp,
+                    color = Color.White,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.widthIn(max = 88.dp),
                 )
+                Box(
+                    modifier = Modifier
+                        .size(20.dp)
+                        .clip(CircleShape)
+                        .clickable { scope.launch { FavoritesState.toggleWorkWithToast(work.rjCode) } },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    FavoriteStarIcon(
+                        favored = fav,
+                        tint = Color.White,
+                        modifier = Modifier.size(14.dp),
+                    )
+                }
             }
 
             if (imageMode) {
@@ -275,11 +300,14 @@ private fun CardInfoRow(label: String, value: String, onClick: (() -> Unit)? = n
  * 左右内边距收窄后每行还能多塞一个标签，常能少换一行。
  */
 @Composable
-private fun CoverTagChip(text: String, background: Color, onClick: () -> Unit) {
+private fun CoverTagChip(text: String, category: String, background: Color, onClick: () -> Unit) {
+    // 自定义标签（category=='custom'，含内置「全年龄」）：与 web `.cover-tag.tag-custom` 一致的深绿配色
+    val custom = category == CUSTOM_TAG
     Box(
         modifier = Modifier
             .clip(ShapePill)
-            .background(background)
+            .background(if (custom) WebColors.CustomTagBg else background)
+            .then(if (custom) Modifier.border(1.dp, WebColors.CustomTagBorder, ShapePill) else Modifier)
             .clickable(onClick = onClick)
             .padding(horizontal = 7.dp, vertical = 2.dp),
     ) {
@@ -287,7 +315,7 @@ private fun CoverTagChip(text: String, background: Color, onClick: () -> Unit) {
             text,
             fontSize = 11.sp,
             lineHeight = 12.sp,
-            color = Color.White,
+            color = if (custom) WebColors.CustomTagFg else Color.White,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
@@ -443,8 +471,9 @@ fun WorkRow(
                 modifier = Modifier.weight(1f),
                 verticalArrangement = Arrangement.spacedBy(4.dp),
             ) {
+                // 列表模式不挂封面胶囊（64dp 小封面放不下），改为标题前缀 [RJ号]
                 Text(
-                    work.title.ifBlank { work.rjCode },
+                    "[${work.rjCode}]" + work.title,
                     fontSize = 15.sp,
                     lineHeight = 20.sp,
                     fontWeight = FontWeight.SemiBold,

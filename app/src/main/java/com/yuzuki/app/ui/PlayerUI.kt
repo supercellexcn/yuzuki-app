@@ -292,6 +292,7 @@ fun FullscreenPlayer(
                             work.actors.take(6).forEach { actor ->
                                 FavChip(
                                     text = actor,
+                                    category = "",
                                     background = actorBg,
                                     favored = FavoritesState.actors.contains(actor),
                                     onToggleFav = { scope.launch { FavoritesState.toggleWithToast("actor", actor) } },
@@ -309,6 +310,7 @@ fun FullscreenPlayer(
                             work.tags.take(8).forEach { tag ->
                                 FavChip(
                                     text = tag.name,
+                                    category = tag.category,
                                     background = genreBg,
                                     favored = FavoritesState.tags.contains(tag.name),
                                     onToggleFav = {
@@ -756,23 +758,27 @@ private fun VerticalVolumeSlider(
 @Composable
 private fun FavChip(
     text: String,
+    category: String,
     background: Color,
     favored: Boolean,
     onToggleFav: () -> Unit,
     onClick: () -> Unit,
 ) {
+    // 自定义标签（含内置「全年龄」）与 web `.tag-custom` 一致：深绿底 + 薄荷绿字 + 深绿描边
+    val custom = category == CUSTOM_TAG
     Row(
         modifier = Modifier
             .height(24.dp)
             .clip(ChipShape)
-            .background(background)
+            .background(if (custom) WebColors.CustomTagBg else background)
+            .then(if (custom) Modifier.border(1.dp, WebColors.CustomTagBorder, ChipShape) else Modifier)
             .clickable(onClick = onClick),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(
             text,
             fontSize = 12.sp,
-            color = Color.White,
+            color = if (custom) WebColors.CustomTagFg else Color.White,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.padding(start = 8.dp, end = 2.dp),
@@ -788,7 +794,7 @@ private fun FavChip(
                 if (favored) "−" else "+",
                 fontSize = 12.sp,
                 fontWeight = FontWeight.Bold,
-                color = Color.White.copy(alpha = 0.85f),
+                color = if (custom) WebColors.CustomTagFg.copy(alpha = 0.85f) else Color.White.copy(alpha = 0.85f),
             )
         }
     }

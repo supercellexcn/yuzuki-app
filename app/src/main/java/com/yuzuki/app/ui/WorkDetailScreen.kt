@@ -456,6 +456,7 @@ private fun HeaderCard(
                     work.actors.forEach { actor ->
                         FavableTag(
                             text = actor,
+                            category = "",
                             background = actorBg,
                             favored = FavoritesState.actors.contains(actor),
                             onOpen = { onCond(FilterCond("actor", actor)) },
@@ -470,6 +471,7 @@ private fun HeaderCard(
                     work.tags.forEach { tag ->
                         FavableTag(
                             text = tag.name,
+                            category = tag.category,
                             background = genreBg,
                             favored = FavoritesState.tags.contains(tag.name),
                             onOpen = { onCond(FilterCond("tag", tag.name)) },
@@ -503,23 +505,27 @@ private fun MetaRow(label: String, content: @Composable () -> Unit) {
 @Composable
 private fun FavableTag(
     text: String,
+    category: String,
     background: Color,
     favored: Boolean,
     onOpen: () -> Unit,
     onToggle: () -> Unit,
 ) {
+    // 自定义标签（含内置「全年龄」）与 web `.tag-custom` 一致：深绿底 + 薄荷绿字 + 深绿描边
+    val custom = category == CUSTOM_TAG
     Row(
         modifier = Modifier
             .height(22.dp)
             .clip(TagShape)
-            .background(background)
+            .background(if (custom) WebColors.CustomTagBg else background)
+            .then(if (custom) Modifier.border(1.dp, WebColors.CustomTagBorder, TagShape) else Modifier)
             .clickable(onClick = onOpen),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(
             text,
             fontSize = 12.sp,
-            color = Color.White,
+            color = if (custom) WebColors.CustomTagFg else Color.White,
             maxLines = 1,
             modifier = Modifier.padding(start = 7.dp, end = 6.dp),
         )
@@ -551,7 +557,7 @@ private fun FavableTag(
                 if (favored) "−" else "+",
                 fontSize = 12.sp,
                 fontWeight = FontWeight.Bold,
-                color = Color.White,
+                color = if (custom) WebColors.CustomTagFg else Color.White,
             )
         }
     }

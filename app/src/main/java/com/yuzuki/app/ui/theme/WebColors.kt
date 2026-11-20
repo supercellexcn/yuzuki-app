@@ -21,6 +21,14 @@ object WebColors {
     val Text = Color(0xFFE8EBF0)
     val Muted = Color(0xFF9AA3B0)
 
+    /**
+     * 自定义标签（category == 'custom'，含内置「全年龄」）配色，
+     * 对齐 web `.tag-custom`：深绿底 + 薄荷绿字 + 深绿描边。
+     */
+    val CustomTagBg = Color(0xFF1D3A33)
+    val CustomTagFg = Color(0xFF8EE0C0)
+    val CustomTagBorder = Color(0xFF2A5A4D)
+
     /** Element Plus 浅色主题正文字色（已选条件标签用它）。 */
     val ElTextPrimary = Color(0xFF303133)
 

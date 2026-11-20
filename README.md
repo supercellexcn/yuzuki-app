@@ -715,6 +715,19 @@ ADB=.toolchain/sdk/platform-tools/adb.exe
 - 静态断言：`dirOf` 只在 `MediaFile` 定义一次（`WorkDetailScreen` 的私有扩展已删），
   `PlaybackController.play` 内 `QueueMath.sameDir` 为唯一队列收敛点。
 
+**本次增量验证（2026-11-20，卡片 RJ 号胶囊 + 全年龄标签配色 · 分支 `feat/rj-badge-allages`）**：
+
+- 参考 yuzuki 前端（`WorkCard.vue` / `FavoriteStar.vue` / `.tag-custom`）复刻两个纯前端功能，数据层与后端零改动。
+- 作品网格卡（`WorkCard`）封面左上角：原 30dp 圆形收藏钮改为 **RJ 号 + 收藏星胶囊**
+  （黑底 `#000000`、全圆角、RJ 号 11sp 白字单行省略 + 后置 14dp 白星）。点星切换收藏（子 `clickable` 消费事件），
+  点 RJ 号冒泡走卡片 `onOpen`；图片模式卡 / 播放历史卡共用该封面区，自动覆盖。
+- 列表模式（`WorkRow`，64dp 小封面）不挂胶囊，改为标题前缀 **`[RJ号]标题`**。
+- 全年龄（内置 `custom` 标签）视觉对齐 web `.tag-custom`：深绿底 `#1D3A33` + 薄荷绿字 `#8EE0C0` + 深绿描边 `#2A5A4D`，
+  应用到卡片封面标签（`CoverTagChip`）、详情页标签（`FavableTag`）、播放页标签（`FavChip`）三处；
+  颜色集中在 `WebColors.CustomTagBg/Fg/Border`，`CUSTOM_TAG` 常量为同包共用。
+- 验证：`:app:compileDebugKotlin`、`:app:testDebugUnitTest` 通过；静态断言上述三处标签按 `category == "custom"` 取自定义配色。
+  真机观感由用户自测（不截图）。
+
 ## 已知限制
 
 - 仅家中 WiFi 可用；离开 WiFi 只能看离线缓存内容；明文 HTTP 的 token 在局域网可被嗅探。
