@@ -929,6 +929,10 @@ ADB=.toolchain/sdk/platform-tools/adb.exe
   排序与升降序白名单、去重与 5 条上限、未知类型与空值丢弃、关键词去空白；
   `LibraryStateTest` 由 2 例增至 4 例：每次改条件都交一次快照且与 `snapshot()` 一致、
   `restore` 应用条件并退出随机）。未截图验证。
+- Release `0.1.65` 已构建：`app/build/outputs/apk/release/app-release.apk`（10.6MB，
+  sha256 `9ee03b2c…b5a537`，`versionCode=1065` / `versionName=0.1.65`）。
+  本次 `//192.168.5.4/FileTemp` 不可访问（`publish-apk.sh` 只警告、返回 0），
+  `adb devices` 无设备、上次的无线地址 `192.168.5.16:42847` 连接失败 —— **未发布共享、未装机**，由用户自测。
 
 ## 已知限制
 
