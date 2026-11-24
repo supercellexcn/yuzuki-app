@@ -40,6 +40,7 @@ import com.yuzuki.app.data.FilterCond
 import com.yuzuki.app.data.Work
 import com.yuzuki.app.ui.theme.ShapePill
 import com.yuzuki.app.ui.theme.WebColors
+import com.yuzuki.app.ui.theme.pillTextStyle
 import kotlinx.coroutines.launch
 
 /**
@@ -164,10 +165,8 @@ fun WorkCard(
             ) {
                 Text(
                     work.rjCode,
-                    fontSize = 11.sp,
-                    lineHeight = 11.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    letterSpacing = 0.2.sp,
+                    // RJ 胶囊同理：不再压行高，去掉字体留白后文字才在胶囊里居中
+                    style = pillTextStyle(11.sp, FontWeight.SemiBold).copy(letterSpacing = 0.2.sp),
                     color = Color.White,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
@@ -297,8 +296,8 @@ private fun CoverTagChip(text: String, category: String, background: Color, onCl
     ) {
         Text(
             text,
-            fontSize = 11.sp,
-            lineHeight = 12.sp,
+            // 不再压 lineHeight：11sp 配 12sp 会让字形被行盒挤住、上下偏移
+            style = pillTextStyle(11.sp),
             color = if (custom) WebColors.CustomTagFg else Color.White,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
@@ -385,8 +384,7 @@ private fun ActorChip(text: String, background: Color, onClick: () -> Unit) {
     ) {
         Text(
             text,
-            fontSize = 12.sp,
-            lineHeight = 13.sp,
+            style = pillTextStyle(12.sp),
             color = Color.White,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,

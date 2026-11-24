@@ -5,6 +5,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import com.yuzuki.app.data.AppContainer
 import com.yuzuki.app.data.FilterCond
+import com.yuzuki.app.data.LibraryFilterPrefs
 
 /**
  * 库页的三种展现形态：
@@ -16,9 +17,9 @@ enum class LibraryView { List, Detail, Image }
 
 /** 媒体库界面状态：抽屉、顶栏、悬浮按钮与列表共享，避免层层传参。
  *
- * 搜索关键词 / 筛选条件 / 排序 **只在本次会话内存中**：不落盘、不读写服务端的 `/api/prefs`，
- * 冷启动恒为「空关键词 + 无筛选 + 默认排序」。这样既不会记住 App 自己上次的条件，
- * 也不会把网页端保存的搜索条件带进来（或反过来覆盖掉网页端的）。
+ * 搜索关键词 / 筛选条件 / 排序 **记在本机**（DataStore `app_library_filter`，见 [LibraryFilterPrefs]）：
+ * 冷启动由 `AppViewModel.enterMain` 读回上次的条件；改条件时经 [persistHook] 回写。
+ * 服务端 `/api/prefs` 一概不读不写 —— 网页端自己的记忆不受影响，App 也不会把网页端的条件带进来。
  */
 object LibraryState {
     var query by mutableStateOf("")
@@ -31,6 +32,12 @@ object LibraryState {
         private set
     var view by mutableStateOf(LibraryView.Detail)
     var randomMode by mutableStateOf(false)
+
+    /**
+     * 条件落盘钩子：进主界面前由 `AppViewModel` 挂上（本机 DataStore）。
+     * 默认 null —— 单测里不触达任何存储，也不会碰到未初始化的 `AppContainer`。
+     */
+    var persistHook: ((LibraryFilterPrefs) -> Unit)? = null
 
     /**
      * 随机批次号：已处于随机模式时再要一批随机，条件本身没变，
@@ -53,29 +60,37 @@ object LibraryState {
         }
     }
 
-    fun updateQuery(value: String) { query = value }
+    fun updateQuery(value: String) {
+        query = value
+        persist()
+    }
 
     fun addCond(cond: FilterCond) {
-        if (conds.size >= 5 || conds.contains(cond)) return
+        if (conds.size >= LibraryFilterPrefs.MAX_CONDS || conds.contains(cond)) return
         conds = conds + cond
         randomMode = false
+        persist()
     }
 
     fun removeCond(cond: FilterCond) {
         conds = conds - cond
+        persist()
     }
 
     fun clearConds() {
         conds = emptyList()
+        persist()
     }
 
     fun updateSort(value: String) {
         sort = value
         randomMode = false
+        persist()
     }
 
     fun toggleOrder() {
         order = if (order == "desc") "asc" else "desc"
+        persist()
     }
 
     fun toggleRandom() { randomMode = !randomMode }
@@ -103,10 +118,31 @@ object LibraryState {
     }
 
     fun scrollToTop() { scrollTopTicket++ }
+
+    /** 当前条件的快照，交给 [persistHook] 落盘。 */
+    fun snapshot(): LibraryFilterPrefs = LibraryFilterPrefs(query, conds, sort, order)
+
+    /**
+     * 冷启动恢复上次条件（只来自本机存储）：随机模式属于临时状态，恢复时一律回到常规列表。
+     */
+    fun restore(prefs: LibraryFilterPrefs) {
+        val clean = prefs.sanitized()
+        query = clean.query
+        conds = clean.conds
+        sort = clean.sort
+        order = clean.order
+        randomMode = false
+    }
+
+    private fun persist() {
+        persistHook?.invoke(snapshot())
+    }
+
     fun home() {
         query = ""
         conds = emptyList()
         randomMode = false
+        persist()
         scrollToTop()
     }
 }

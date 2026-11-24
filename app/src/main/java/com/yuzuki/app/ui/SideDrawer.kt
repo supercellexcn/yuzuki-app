@@ -58,6 +58,7 @@ import com.yuzuki.app.data.FilterCond
 import com.yuzuki.app.ui.theme.LocalAppearance
 import com.yuzuki.app.ui.theme.ShapePill
 import com.yuzuki.app.ui.theme.WebColors
+import com.yuzuki.app.ui.theme.pillTextStyle
 import kotlin.math.roundToInt
 
 /**
@@ -511,11 +512,11 @@ private fun ChipFilterSheet(
                         ) {
                             Text(
                                 item.name,
-                                fontSize = 14.sp,
+                                style = pillTextStyle(14.sp),
                                 color = if (active) accent else Color(0xFFD3D9E3),
                                 maxLines = 1,
                             )
-                            Text(item.count.toString(), fontSize = 13.sp, color = WebColors.Muted)
+                            Text(item.count.toString(), style = pillTextStyle(13.sp), color = WebColors.Muted)
                         }
                     }
                 }

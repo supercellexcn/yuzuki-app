@@ -10,6 +10,7 @@ import androidx.lifecycle.viewModelScope
 import com.yuzuki.app.SessionEvents
 import com.yuzuki.app.data.ApiException
 import com.yuzuki.app.data.AppContainer
+import com.yuzuki.app.data.LibraryFilterPrefs
 import com.yuzuki.app.data.LoginResult
 import com.yuzuki.app.playback.PlaybackController
 import com.yuzuki.app.playback.PlaybackService
@@ -120,10 +121,16 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         AppContainer.bindSession(base, token)
         // 服务端设置只用于「每页数量 / 快进秒数 / 相关推荐开关」这类非配色项；
         // 界面配色完全走本机 DataStore（AppearanceStore），不从这里覆盖。
-        // 库页的搜索 / 筛选 / 排序也不从这里恢复：它们只活在本次会话内存里，冷启动一律为空。
         withTimeoutOrNull(1500) {
             AppContainer.settings.load()
         }
+
+        // 库页的搜索 / 筛选 / 排序：读**本机**上次的条件（DataStore `app_library_filter`），
+        // 既不进 `/api/prefs`，也不会把网页端保存的条件带进来。
+        // 必须在 state = Main 之前完成，首帧才直接是上次的条件，不会先按空条件拉一遍列表。
+        val saved = runCatching { AppContainer.filter.load() }.getOrDefault(LibraryFilterPrefs.Default)
+        LibraryState.restore(saved)
+        LibraryState.persistHook = { AppContainer.filter.saveAsync(it) }
 
         state = State.Main(base, token)
         // 离线补报：失败不阻塞进入

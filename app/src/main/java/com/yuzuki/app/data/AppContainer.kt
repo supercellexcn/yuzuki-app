@@ -32,6 +32,9 @@ object AppContainer {
 
     /** App 本机交互偏好（手势时长等），同样不碰服务端。 */
     val interaction by lazy { InteractionStore(app) }
+
+    /** App 本机记住的库页筛选条件（只写本机 DataStore，不碰服务端 `/api/prefs`）。 */
+    val filter by lazy { FilterStore(app) }
     val offline by lazy { OfflineCache(app) }
     val library by lazy { LibraryRepository(api, offline) }
     val reporter by lazy { com.yuzuki.app.playback.PlayReporter(api, offline) }

@@ -88,6 +88,7 @@ import com.yuzuki.app.playback.QueueMath
 import com.yuzuki.app.playback.RepeatMode
 import com.yuzuki.app.ui.theme.LocalAppearance
 import com.yuzuki.app.ui.theme.WebColors
+import com.yuzuki.app.ui.theme.pillTextStyle
 import kotlinx.coroutines.launch
 import kotlin.math.abs
 import kotlin.math.roundToInt
@@ -273,8 +274,7 @@ fun FullscreenPlayer(
                             ) {
                                 Text(
                                     if (circleFav) "−" else "+",
-                                    fontSize = 13.sp,
-                                    fontWeight = FontWeight.Bold,
+                                    style = pillTextStyle(13.sp, FontWeight.Bold),
                                     color = accentFg,
                                 )
                             }
@@ -938,7 +938,7 @@ private fun FavChip(
     ) {
         Text(
             text,
-            fontSize = 12.sp,
+            style = pillTextStyle(12.sp),
             color = if (custom) WebColors.CustomTagFg else Color.White,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
@@ -953,8 +953,7 @@ private fun FavChip(
         ) {
             Text(
                 if (favored) "−" else "+",
-                fontSize = 12.sp,
-                fontWeight = FontWeight.Bold,
+                style = pillTextStyle(12.sp, FontWeight.Bold),
                 color = if (custom) WebColors.CustomTagFg.copy(alpha = 0.85f) else Color.White.copy(alpha = 0.85f),
             )
         }

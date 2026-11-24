@@ -66,7 +66,6 @@ import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
-import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -80,6 +79,7 @@ import com.yuzuki.app.ui.theme.LocalAppearance
 import com.yuzuki.app.ui.theme.ShapeItem
 import com.yuzuki.app.ui.theme.ShapePill
 import com.yuzuki.app.ui.theme.WebColors
+import com.yuzuki.app.ui.theme.pillTextStyle
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
@@ -643,7 +643,7 @@ private fun SearchPill(
         value = value,
         onValueChange = onValueChange,
         singleLine = true,
-        textStyle = TextStyle(color = WebColors.Text, fontSize = 12.sp),
+        textStyle = pillTextStyle(12.sp).copy(color = WebColors.Text),
         cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
         modifier = modifier,
         decorationBox = { inner ->
@@ -660,7 +660,7 @@ private fun SearchPill(
                     if (value.isEmpty()) {
                         Text(
                             text = placeholder,
-                            fontSize = 12.sp,
+                            style = pillTextStyle(12.sp),
                             color = WebColors.Muted,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
@@ -697,8 +697,7 @@ private fun SortTabButton(label: String, active: Boolean, onClick: () -> Unit) {
     ) {
         Text(
             text = label,
-            fontSize = 12.sp,
-            fontWeight = if (active) FontWeight.SemiBold else FontWeight.Normal,
+            style = pillTextStyle(12.sp, if (active) FontWeight.SemiBold else FontWeight.Normal),
             color = if (active) MaterialTheme.colorScheme.onPrimary else WebColors.Text,
         )
     }
@@ -762,7 +761,7 @@ private fun ActiveCondChip(text: String, onRemove: () -> Unit) {
         // 超长条件（长系列名 / 长标签）也不许把 × 挤出去：文字可缩，省略号收尾
         Text(
             text = text,
-            fontSize = 12.sp,
+            style = pillTextStyle(12.sp),
             color = WebColors.Text,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,

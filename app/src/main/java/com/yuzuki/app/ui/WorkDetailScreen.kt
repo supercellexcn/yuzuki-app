@@ -97,6 +97,7 @@ import com.yuzuki.app.data.WorkDetail
 import com.yuzuki.app.playback.PlaybackController
 import com.yuzuki.app.ui.theme.LocalAppearance
 import com.yuzuki.app.ui.theme.WebColors
+import com.yuzuki.app.ui.theme.pillTextStyle
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -536,7 +537,7 @@ private fun FavableTag(
     ) {
         Text(
             text,
-            fontSize = 12.sp,
+            style = pillTextStyle(12.sp),
             color = if (custom) WebColors.CustomTagFg else Color.White,
             maxLines = 1,
             modifier = Modifier.padding(start = 7.dp, end = 6.dp),
@@ -567,8 +568,7 @@ private fun FavableTag(
             }
             Text(
                 if (favored) "−" else "+",
-                fontSize = 12.sp,
-                fontWeight = FontWeight.Bold,
+                style = pillTextStyle(12.sp, FontWeight.Bold),
                 color = if (custom) WebColors.CustomTagFg else Color.White,
             )
         }

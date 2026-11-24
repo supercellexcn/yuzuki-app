@@ -11,8 +11,9 @@
 
 - `D:\node\yuzuki` 全程只读：不新增接口、不改 schema、不改配置、不改前端代码
 - 账号与网页端同源（同一 `users` 表、同一 JWT），收藏 / 历史互通；
-  **库页的搜索 / 筛选 / 排序不互通、也不记忆**：只活在本次会话内存里，App 不读写服务端 `/api/prefs`，
-  既不记住自己上次的条件，也不会带出或覆盖网页端的搜索条件
+  **库页的搜索 / 筛选 / 排序与网页端不互通，但 App 会记住自己上次的条件（2026-11-24 起）**：
+  存在本机 DataStore `app_library_filter`（`LibraryFilterPrefs`），冷启动读回来；
+  App 仍不读写服务端 `/api/prefs`，所以既不会带出、也不会覆盖网页端的搜索条件
 - 播放走原生 Media3，支持锁屏 / 后台续播 / 通知栏换曲不消失
 - 首版交付 web 移动版全部功能（图片查看器、离线缓存等）；App 设置页负责「外观 + 手势 + 本机缓存」，
   **这些设置只读本机 DataStore，不读服务端 `/api/settings`**：网页端改主题色不影响 App，App 改色也不回写网页端
@@ -36,6 +37,7 @@ data/        Models（DTO + org.json 解析）· YuzukiApi（全量 REST）· Ap
              SettingsRepository · LibraryRepository（在线优先 + 离线兜底）
              AppearancePrefs / AppearanceStore（App 本机外观，DataStore `app_appearance`）
              InteractionPrefs / InteractionStore（手势时长等交互偏好，DataStore `app_interaction`）
+             FilterPrefs / FilterStore（库页上次的搜索 / 筛选 / 排序，DataStore `app_library_filter`）
              OfflineCache（JSON 快照 / 封面 / 音频 / 播放记录补报队列）
              CacheUsage（缓存分类统计 / 清理 / 格式化，纯 JVM 可测）
              ImageSave（图片下载落相册：MIME / 文件名清洗 / MediaStore 写入，纯逻辑可测）
@@ -274,7 +276,7 @@ ADB=.toolchain/sdk/platform-tools/adb.exe
 |---|---|---|
 | N0 | 清除 WebView 层、原生导航骨架、GlassSurface 设计系统 | ✅ |
 | N1 | 全量 REST 客户端、DTO、Repository、登录 / 改密 / 401 | ✅ |
-| N2 | 媒体库（搜索 / 排序 / 筛选 / 分页 / 图片模式）、抽屉、外观（悬浮控件 MobileDock 已于 2026-11-18 移除；搜索条件 2026-11-18 起不落盘、不读写 `/api/prefs`） | ✅ |
+| N2 | 媒体库（搜索 / 排序 / 筛选 / 分页 / 图片模式）、抽屉、外观（悬浮控件 MobileDock 已于 2026-11-18 移除；搜索条件 2026-11-18 起不读写 `/api/prefs`，2026-11-24 起改为记在本机 DataStore） | ✅ |
 | N3 | 作品详情、文件树、图片查看器、设封面 / 壁纸、相关推荐 | ✅ |
 | N4 | 原生播放队列、迷你条 + 全屏播放器、PlayReporter 时长上报 | ✅ |
 | N5 | 锁屏 / 通知 / 线控、收藏 4 Tab、历史列表 / 卡片 | ✅ |
@@ -902,7 +904,34 @@ ADB=.toolchain/sdk/platform-tools/adb.exe
 - Release `0.1.64` 已发布共享：`yuzuki-0.1.64-1120-1932.apk` + `yuzuki-latest.apk`，
   与本地一致 `774476d1…ad01f7`；已装到 `192.168.5.16:42847`（`versionCode=1064`），未启动、测试由用户自测。
 
+**本次增量验证（2026-11-24，标签文字居中 + 筛选条件记本机 · 分支 `feat/local-filter-recall`）**：
+
+- 需求：①标签（胶囊）里的文字没有上下居中；②App 要记住自己上次的筛选条件（存设备、下次进入读回），
+  但**不记网页端的**。
+- 居中根因（`ui/theme/PillText.kt`）：Compose 的 `Text` 默认 `includeFontPadding = true`，
+  按字体 top / bottom 指标在上下补白，top 留白通常比 bottom 多 ≈0.2em，11–14sp 的文字整体偏下 1–2dp；
+  封面标签 / 声优 chip 还把 `lineHeight` 压得比字号更小（11sp 配 12sp、12sp 配 13sp），字形被行盒挤住，
+  偏移更明显。
+- 改法：新增 `pillTextStyle(fontSize, weight)`（`includeFontPadding = false`、不再压行高，由容器
+  对称内距 / 居中排布保证居中），替换所有标签 / 胶囊文字：`CoverTagChip`、`ActorChip`、RJ 号胶囊、
+  详情 `FavableTag`（含 +/−）、播放页 `FavChip`（含 +/−）与社团 +/− 圆钮、排序胶囊、已选条件胶囊、
+  搜索框占位与输入文字、抽屉筛选 chip。容器高度与内距不动，单行封面标签约 16 → 17dp。
+- 本机记忆：新增 `data/FilterPrefs.kt`（`LibraryFilterPrefs(query/conds/sort/order)`，
+  `sanitized()` 走排序 / 条件类型白名单 + 去重 + 5 条上限，`encode/decode` 坏数据一律退回默认）
+  与 `data/FilterStore.kt`（独立 DataStore `app_library_filter`，`load` / `save` / `saveAsync`）；
+  `AppContainer.filter` 暴露，`AppViewModel.enterMain` 在 `state = Main` 之前读回并
+  `LibraryState.restore(...)`（首帧就是上次条件，不会先按空条件拉一遍列表）。
+- `LibraryState` 新增 `persistHook`（默认 null，单测不触达存储）：`updateQuery` / `addCond` /
+  `removeCond` / `clearConds` / `updateSort` / `toggleOrder` / `home` 都会把 `snapshot()` 交出去；
+  随机模式仍属临时状态，恢复时收回常规列表。服务端 `/api/prefs` 依旧零读写，网页端记忆不受影响。
+- 验证：`:app:compileDebugKotlin` / `:app:testDebugUnitTest` 通过，**156 例全过、0 失败 0 错误**
+  （新增 `FilterPrefsTest` 8 例：默认值、编解码往返、空串 / 坏 JSON / `[]` 退回默认、字段缺失、
+  排序与升降序白名单、去重与 5 条上限、未知类型与空值丢弃、关键词去空白；
+  `LibraryStateTest` 由 2 例增至 4 例：每次改条件都交一次快照且与 `snapshot()` 一致、
+  `restore` 应用条件并退出随机）。未截图验证。
+
 ## 已知限制
+
 - 仅家中 WiFi 可用；离开 WiFi 只能看离线缓存内容；明文 HTTP 的 token 在局域网可被嗅探。
 - 冷门格式（wma 等）需后续接入 `media3-decoder-ffmpeg`；flac/mkv/mp4/wav/m4a 由 Media3 默认解码器覆盖。
 - 界面采用 Material 3 风格：不再渲染液态玻璃 / 壁纸 / 模糊 / 半透明叠层（所有框体都是不透明容器）；
