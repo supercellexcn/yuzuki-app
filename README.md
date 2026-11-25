@@ -1103,6 +1103,11 @@ ADB=.toolchain/sdk/platform-tools/adb.exe
 - Release `0.1.73` 已构建并发布共享：`yuzuki-0.1.73-1125-1649.apk` + `yuzuki-latest.apk`，
   sha256 `b03217a6…8625ff37`（10 621 430 字节），`versionCode=1073`；
   构建时设备未连接（`adb devices` 为空、`adb mdns services` 未发现无线调试），未装机。
+- 代码提交 `b3ee565`（分支 `feat/detail-sheet`）。**推送失败**：直连 github:443 超时
+  （`Failed to connect after 21s`，走代理报 `CONNECT tunnel failed, response 502`），
+  网络恢复后补推 `git push origin feat/detail-sheet`；提交已打增量 bundle 备份到共享目录
+  `yuzuki-0.1.73-1125-1649.bundle`（5767 字节，sha256 `740a6e69…a2e4d00`，本地与共享两处一致），
+  恢复后 `git fetch <bundle> feat/detail-sheet` 即可取回这一笔。
 
 ## 已知限制
 
