@@ -987,6 +987,25 @@ ADB=.toolchain/sdk/platform-tools/adb.exe
   与本地 `app-release.apk` 三方 sha256 一致 `d54e27dc…2656a9`（10.6MB，`versionCode=1067`）；
   已装到 `192.168.5.16:45195`（`versionCode=1067`、`versionName=0.1.67`），未启动、测试由用户自测。
 
+**本次修复（2026-11-25，点作品后详情一片黑 · 0.1.68）**：
+
+- 现象：0.1.67 点作品卡片后，详情页只剩顶栏和页面底色，弹出框整块看不见（截图采样中心列全是
+  `#121417` 页面底色，节点树里也没有详情内容）。
+- 根因：`DetailSheet` 原先靠 `Modifier.onSizeChanged` 回调拿框高，并用 `offsetPx < 0` 当「还没量到」
+  的隐藏标志（`alpha = 0`）；实测这条时序在详情首次组合时没有把 `offsetPx` 从初始值推到有效值，
+  框一直停在「隐藏」状态 —— 页面看上去就是全黑。另外 `Modifier.weight(1f)` 直接透传到自定义
+  composable 内部的最外层节点，高度也不够可靠。
+- 改法（`ui/DetailSheet.kt`）：换成 `BoxWithConstraints`，在**布局期**直接算框高
+  （`maxHeight − SheetTopGap`），首帧 `offsetPx` 就等于框高（摆在屏幕下方），`LaunchedEffect(Unit)`
+  滑到 0；彻底删掉 `alpha` 与「未初始化」分支，不存在一直隐藏的死状态。
+  同时 `WorkDetailOverlay` 里把 `weight(1f)` 落在一层显式 `Box` 上，弹框自己 `fillMaxSize()`
+  撑满这层 Box，高度来源唯一。
+- 其余交互（下滑关闭、列表滚动、相关推荐横滑、系统返回键）不变。
+- 验证：`:app:testDebugUnitTest` **166 例全过、0 失败 0 错误**。
+- Release `0.1.68` 已构建并发布共享：`yuzuki-0.1.68-1125-1611.apk` + `yuzuki-latest.apk`，
+  与本地 `app-release.apk` 三方 sha256 一致 `000f3552…749ba0`（10.6MB，`versionCode=1068`）；
+  已装到 `192.168.5.16:45195`（`versionCode=1068`、`versionName=0.1.68`），未启动、测试由用户自测。
+
 ## 已知限制
 
 - 仅家中 WiFi 可用；离开 WiFi 只能看离线缓存内容；明文 HTTP 的 token 在局域网可被嗅探。
