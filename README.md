@@ -971,7 +971,10 @@ ADB=.toolchain/sdk/platform-tools/adb.exe
   `DetailSheet`。框 `fillMaxSize`、顶部留 `SheetTopGap = 56dp`（留白处透出被压暗的底层内容）、
   `RoundedCornerShape(topStart/topEnd = 24.dp)`、底边贴内容区（不盖底部 Tab）、
   不透明面板底 `WebColors.panel(nav, 1f)`，**不画描边**（0.1.69 按用户要求去掉那圈灰线）。
-  进场：首帧先摆到屏幕下方再 220ms 滑到就位。关闭统一走 `requestClose()`：180ms 滑出后回调 `onDismiss`。
+  进场：首帧先摆到屏幕下方再 220ms 滑到就位。关闭统一走 `requestClose()`：250ms 滑出后回调 `onDismiss`。
+  **层级硬约束（0.1.73）**：`pointerInput` 不能挂进带 `graphicsLayer{ translationY }` 的子树，
+  必须留在它外面的稳定坐标层（`padding(top = SheetTopGap)` 之后那一层），否则手势坐标与位移互为输入，
+  增益 −1 会导致下滑时框上下抖动（详见 0.1.73 条目）。
 - 下滑关闭（新增 `ui/DetailSheetDrag.kt`，纯 Kotlin）：`canStart` 要求「框内列表已在顶部
   （`firstVisibleItemIndex == 0 && firstVisibleItemScrollOffset == 0`）+ 纵向下拉过 6dp 门槛 +
   纵向位移大于横向」，接管后 `change.consume()`（否则列表会同时 overscroll）；
@@ -1076,6 +1079,30 @@ ADB=.toolchain/sdk/platform-tools/adb.exe
 - Release `0.1.72` 已构建并发布共享：`yuzuki-0.1.72-1125-1638.apk` + `yuzuki-latest.apk`，
   sha256 `5735f318…13b4fc75`，`versionCode=1072`；
   已装到 `192.168.5.16:45195`（`versionCode=1072`、`versionName=0.1.72`），未启动、测试由用户自测。
+
+**本次修复（2026-11-25，下滑抖动真因：手势读在被平移的图层里 · 0.1.73）**：
+
+- 现象：0.1.72 之后下滑关框仍然上下抖。**0.1.70 / 0.1.71 / 0.1.72 三次都修在「什么时候消费事件」
+  和「绘制精度」上，从未动过坐标系，所以都没治本**（0.1.72 里「半像素采样」的判断不成立，予以推翻）。
+- 真因（`ui/DetailSheet.kt`）：`graphicsLayer{ translationY = offsetPx }` 会参与指针坐标转换
+  （`NodeCoordinator.fromParentPosition` 走 layer 逆矩阵），而 `pointerInput` 当时挂在这块被平移的
+  子树里的 `Column` 上 —— 框往下挪多少，`change.position` 就被反向减掉多少：
+  `dragY = 手指位移 d − offsetPx`，而 `offsetPx = dragY − slop`。闭环增益正好 **−1**（特征值 −1，
+  临界振荡）：手指一停 offset 就逐帧在两值间来回跳（幅度≈slop），匀速拖动也只跟到手指的一半。
+- 改法（A 方案，结构）：
+  1. 手势层搬到**被平移层的外面** —— `Box(fillMaxSize.padding(top=SheetTopGap))` 里再套一层
+     `Box(fillMaxSize.pointerInput{…})`，位移 `graphicsLayer` 与 `clip+background` 收进它内部的
+     `Box → Column`。padding 是常量布局偏移、不含 `offsetPx`，坐标系因此稳定；命中区也随之收在框内，
+     顶部 56dp 空隙仍归下层空白层，点空白关框不受影响；
+  2. 手势逻辑零改动（`capturing / canStart / shouldCapture / consume` 原样），`offsetOf` 也不用改；
+  3. 进场 / 回弹 / 收回统一走 `launchSlide()` 的单个 `slideJob`，启动前取消上一个；手势接管瞬间也
+     `cancel()`，避免「回弹没跑完又按下」时动画与手势交替写 `offsetPx`。
+- 回归用例（`DetailSheetDragTest` +2）：「稳定坐标系下手指停住框也停住且全程单调」+「手势层跟着位移层
+  移动会形成负反馈回跳」（后者把真因的数学形态钉死，禁止再把手势放回被平移的子树）。
+- 验证：`:app:testDebugUnitTest` **169 例全过、0 失败 0 错误**；未做界面测试（真机由用户自测）。
+- Release `0.1.73` 已构建并发布共享：`yuzuki-0.1.73-1125-1649.apk` + `yuzuki-latest.apk`，
+  sha256 `b03217a6…8625ff37`（10 621 430 字节），`versionCode=1073`；
+  构建时设备未连接（`adb devices` 为空、`adb mdns services` 未发现无线调试），未装机。
 
 ## 已知限制
 

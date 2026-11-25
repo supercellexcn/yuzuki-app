@@ -4,6 +4,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import kotlin.math.abs
 
 class DetailSheetDragTest {
     private val slop = 12f
@@ -79,5 +80,34 @@ class DetailSheetDragTest {
     @Test
     fun 高度为零时不判定为关闭() {
         assertFalse(DetailSheetDrag.shouldDismiss(500f, 0f))
+    }
+
+    // ---- 坐标系必须稳定（2026-11-25 A 方案的回归点）----
+    // 弹框用 graphicsLayer.translationY 跟手，而图层平移会参与指针坐标转换：
+    // 图层下移多少，交给 pointerInput 的 change.position 就被反向减掉多少。
+    // 所以「读手势的节点」绝不能落在被平移的子树里，否则 dragY 与 offsetPx 互为输入。
+    @Test
+    fun 稳定坐标系下手指停住框也停住且全程单调() {
+        val finger = listOf(20f, 40f, 60f, 80f, 100f, 120f, 120f, 120f, 120f)
+        val offsets = finger.map { d -> DetailSheetDrag.offsetOf(dragY = d, slop = slop, heightPx = 800f) }
+        assertEquals(offsets[5], offsets[8], 0.001f)
+        offsets.zipWithNext().forEach { (a, b) ->
+            assertTrue("offset 回跳：$a -> $b", b >= a)
+        }
+    }
+
+    @Test
+    fun 手势层跟着位移层移动会形成负反馈回跳() {
+        // 旧结构：dragY = 手指位移 − offsetPx，增益 −1，手指停住后 offset 逐帧来回跳 —— 就是「上下抖动」。
+        val finger = listOf(20f, 40f, 60f, 80f, 100f, 120f, 120f, 120f, 120f)
+        var offset = 0f
+        val offsets = ArrayList<Float>(finger.size)
+        finger.forEach { d ->
+            offset = DetailSheetDrag.offsetOf(dragY = d - offset, slop = slop, heightPx = 800f)
+            offsets += offset
+        }
+        val tail = offsets.takeLast(4)
+        val jumps = tail.zipWithNext().count { (a, b) -> abs(b - a) > 0.5f }
+        assertTrue("手势不动时 offset 仍在来回摆：$tail", jumps >= 2)
     }
 }

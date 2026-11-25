@@ -38,6 +38,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import com.yuzuki.app.ui.theme.LocalAppearance
 import com.yuzuki.app.ui.theme.WebColors
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlin.math.abs
 import kotlin.math.roundToInt
@@ -101,6 +102,10 @@ fun DetailSheet(
         val dismissNow by rememberUpdatedState(onDismiss)
         val scrimInteraction = remember { MutableInteractionSource() }
 
+        // 进场 / 回弹 / 收回都写同一个 offsetPx，统一经这一条 Job 调度：
+        // 启动前先取消上一个，避免「回弹还没跑完又按下拖动」时动画与手势交替写值（又是抖动）。
+        val slideJob = remember { mutableStateOf<Job?>(null) }
+
         suspend fun slideTo(targetPx: Float, durationMs: Int) {
             animate(
                 initialValue = offsetPx,
@@ -109,17 +114,22 @@ fun DetailSheet(
             ) { v, _ -> offsetPx = v }
         }
 
-        fun requestClose() {
-            if (closing) return
-            closing = true
-            scope.launch {
-                slideTo(sheetHeightPx, CLOSE_MS)
-                dismissNow()
+        fun launchSlide(targetPx: Float, durationMs: Int, then: (() -> Unit)? = null) {
+            slideJob.value?.cancel()
+            slideJob.value = scope.launch {
+                slideTo(targetPx, durationMs)
+                then?.invoke()
             }
         }
 
+        fun requestClose() {
+            if (closing) return
+            closing = true
+            launchSlide(sheetHeightPx, CLOSE_MS) { dismissNow() }
+        }
+
         // 出场：从屏幕下方滑到就位
-        LaunchedEffect(Unit) { slideTo(0f, OPEN_MS) }
+        LaunchedEffect(Unit) { launchSlide(0f, OPEN_MS) }
 
         BackHandler(enabled = !closing) { requestClose() }
 
@@ -134,20 +144,18 @@ fun DetailSheet(
                         onClick = { requestClose() },
                     ),
             )
-            // 平移单独一层：只改图层矩阵，不再和「圆角裁剪 + 底色」挤在同一个 modifier 链上；
-            // 位移按整数像素对齐，否则图层纹理落在半个像素上，文字会被双线性采样糊掉
-            // （快速拖动时看起来就是「抖到模糊」）。
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(top = SheetTopGap)
-                    .graphicsLayer { translationY = offsetPx.roundToInt().toFloat() },
-            ) {
-                Column(
+            // 手势层必须站在**被平移的那层外面**（2026-11-25 A 方案）。
+            // graphicsLayer 的 translationY 会参与指针坐标转换：图层往下挪多少，交给
+            // pointerInput 的 change.position 就被反向减掉多少。手势若和被平移的层同处一棵子树，
+            // dragY = 手指位移 − offsetPx，而 offsetPx 又由 dragY 算出 —— 增益 −1 的闭环：
+            // 手指一停 offset 就逐帧来回跳（上下抖动），匀速拖动也只跟到手指的一半。
+            // 0.1.70 / 0.1.71 / 0.1.72 都在改「什么时候消费事件」，从未动过坐标系，所以没修掉。
+            // 这里的 padding 是固定布局偏移（不含 offsetPx），坐标系稳定；同时把命中区收在框内，
+            // 顶部那 [SheetTopGap] 空隙仍归下层空白层，不会误吃关闭点击。
+            Box(Modifier.fillMaxSize().padding(top = SheetTopGap)) {
+                Box(
                     modifier = Modifier
                         .fillMaxSize()
-                        .clip(SheetShape)
-                        .background(sheetBg)
                         .pointerInput(Unit) {
                             val halfSlop = viewConfiguration.touchSlop * 0.5f
                             awaitEachGesture {
@@ -175,6 +183,8 @@ fun DetailSheet(
                                                 interactive = !closing,
                                             )
                                         ) {
+                                            // 接管瞬间掐掉还在跑的回弹 / 进场动画，别让两处同时写 offsetPx
+                                            slideJob.value?.cancel()
                                             dragging = true
                                         } else {
                                             // 位移够大才判方向：够大且不是「往下」就整轮放行
@@ -199,13 +209,29 @@ fun DetailSheet(
                                     if (DetailSheetDrag.shouldDismiss(offsetPx, sheetHeightPx)) {
                                         requestClose()
                                     } else {
-                                        scope.launch { slideTo(0f, REBOUND_MS) }
+                                        launchSlide(0f, REBOUND_MS)
                                     }
                                 }
                             }
                         },
                 ) {
-                    content()
+                    // 平移单独一层：只改图层矩阵，不再和「圆角裁剪 + 底色」挤在同一个 modifier 链上；
+                    // 位移按整数像素对齐，否则图层纹理落在半个像素上，文字会被双线性采样糊掉
+                    // （快速拖动时看起来就是「抖到模糊」）。
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .graphicsLayer { translationY = offsetPx.roundToInt().toFloat() },
+                    ) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .clip(SheetShape)
+                                .background(sheetBg),
+                        ) {
+                            content()
+                        }
+                    }
                 }
             }
         }
