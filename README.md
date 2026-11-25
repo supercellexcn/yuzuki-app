@@ -1106,8 +1106,8 @@ ADB=.toolchain/sdk/platform-tools/adb.exe
 - 代码提交 `b3ee565`（分支 `feat/detail-sheet`）。**推送失败**：直连 github:443 超时
   （`Failed to connect after 21s`，走代理报 `CONNECT tunnel failed, response 502`），
   网络恢复后补推 `git push origin feat/detail-sheet`；提交已打增量 bundle 备份到共享目录
-  `yuzuki-0.1.73-1125-1649.bundle`（5767 字节，sha256 `740a6e69…a2e4d00`，本地与共享两处一致），
-  恢复后 `git fetch <bundle> feat/detail-sheet` 即可取回这一笔。
+  `yuzuki-0.1.73-1125-1649.bundle`（含本分支尚未推送的全部提交，字节数与 sha256 记录在
+  `.workbuddy/memory/2026-11-25.md`），恢复后 `git fetch <bundle> feat/detail-sheet` 即可取回。
 
 ## 已知限制
 
