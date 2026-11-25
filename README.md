@@ -1148,6 +1148,9 @@ ADB=.toolchain/sdk/platform-tools/adb.exe
   sha256 `c382bd70…e632e9`，`versionCode=1076`；
   已装到 `192.168.5.16:45195`（`dumpsys` 核对 `versionCode=1076`、`versionName=0.1.76`），
   未启动、测试由用户自测。
+- 分支合并：2026-11-25 17:26 `feat/detail-sheet` 以 **fast-forward** 并入 `main`
+  （`c6ab802..c5e4b9d`，0.1.67~0.1.76 共 14 笔一次性进主干），合并后 169 例单测仍全过，
+  `origin/main` 与本地一致；源分支保留未删。
 
 ## 已知限制
 
