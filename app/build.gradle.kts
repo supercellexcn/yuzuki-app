@@ -7,19 +7,25 @@ plugins {
 }
 
 // ---------------------------------------------------------------- 版本号
-// versionName = 0.1.<BUILD>。BUILD 存在根目录 version.properties，
-// 每次成功打出 release APK 后自增（见文件末尾 bumpBuildNumber），
-// 于是每次打包的版本号都不同，共享目录里能一眼分出新旧。
+// versionName = 0.<MINOR>.<PATCH>：MINOR / PATCH 由根目录 version.properties 决定 ——
+// BUILD 每次成功打出 release APK 后自增（见文件末尾 bumpBuildNumber），
+// PATCH = BUILD − PATCH_BASE，于是 0.2.0 之后每次打包依次 0.2.1 / 0.2.2 …
+// 换小版本时改 MINOR，并把 PATCH_BASE 改成当时的 BUILD 即可从 x.0 重新起算。
 val versionFile = rootProject.file("version.properties")
 
-fun readBuildNumber(): Int {
-    if (!versionFile.exists()) return 1
-    val props = Properties()
-    versionFile.inputStream().use { props.load(it) }
-    return props.getProperty("BUILD")?.toIntOrNull()?.coerceAtLeast(1) ?: 1
+val versionProps: Properties = Properties().apply {
+    if (versionFile.exists()) versionFile.inputStream().use { load(it) }
 }
 
-val buildNumber = readBuildNumber()
+fun readVersionInt(key: String, fallback: Int): Int =
+    versionProps.getProperty(key)?.toIntOrNull() ?: fallback
+
+val buildNumber = readVersionInt("BUILD", 1).coerceAtLeast(1)
+val minorNumber = readVersionInt("MINOR", 0)
+/** 起算补丁号的 BUILD：缺省等于当前 BUILD，即这一次构建就是 x.<MINOR>.0。 */
+val patchBase = readVersionInt("PATCH_BASE", buildNumber)
+val patchNumber = (buildNumber - patchBase).coerceAtLeast(0)
+val versionNameText = "0.$minorNumber.$patchNumber"
 
 /** 配置阶段的时间戳：打包结束时用它判断 APK 是不是本次新产物（失败构建不改号）。 */
 val configStartedAt = System.currentTimeMillis()
@@ -36,7 +42,7 @@ android {
         targetSdk = 35
         // versionCode 必须随版本单调递增，直接用 BUILD 换算，留足余量
         versionCode = 1000 + buildNumber
-        versionName = "0.1.$buildNumber"
+        versionName = versionNameText
     }
 
     buildTypes {
@@ -110,7 +116,7 @@ val bumpBuildNumber = tasks.register("bumpBuildNumber") {
         .resolve("app-release.apk")
     doLast {
         if (!releaseApk.exists() || releaseApk.lastModified() < startedAt) {
-            logger.lifecycle("No new release APK, keep versionName 0.1.$buildNumber")
+            logger.lifecycle("No new release APK, keep versionName $versionNameText")
             return@doLast
         }
         val props = Properties()
@@ -119,9 +125,9 @@ val bumpBuildNumber = tasks.register("bumpBuildNumber") {
         val next = current + 1
         props.setProperty("BUILD", next.toString())
         file.outputStream().use {
-            props.store(it, "自动维护：下一个构建使用的补丁号（versionName = 0.1.<BUILD>）")
+            props.store(it, "自动维护：下一个构建使用的 BUILD（versionName = 0.<MINOR>.<BUILD-PATCH_BASE>）")
         }
-        logger.lifecycle("Built versionName 0.1.$current -> next build will be 0.1.$next")
+        logger.lifecycle("Built versionName $versionNameText -> next build will bump BUILD to $next")
     }
 }
 

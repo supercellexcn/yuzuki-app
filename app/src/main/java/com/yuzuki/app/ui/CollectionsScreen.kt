@@ -289,7 +289,6 @@ private const val HISTORY_VIEW_KEY = "yuzuki_history_view"
 @Composable
 fun HistoryScreen(
     onOpenWork: (String) -> Unit,
-    onOpenDrawer: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val scope = rememberCoroutineScope()
@@ -367,8 +366,6 @@ fun HistoryScreen(
     val actorBg = WebColors.tagBg(appearance.actorColor, appearance.actorTagAlpha)
 
     Column(modifier = modifier.fillMaxSize()) {
-        WebTopBar(onOpenDrawer = onOpenDrawer)
-
         if (cardView) {
             BoxWithConstraints(modifier = Modifier.weight(1f)) {
                 // 同库页：图片模式封面统一高度，避免两列 1px 列宽差在瀑布流里一路累积

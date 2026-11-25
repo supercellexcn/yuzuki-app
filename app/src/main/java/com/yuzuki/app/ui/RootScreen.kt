@@ -307,7 +307,6 @@ fun RootScreen(
                         else -> Box(Modifier.fillMaxSize().clipToBounds().statusBarsPadding()) {
                             HistoryScreen(
                                 onOpenWork = { nav.go(Route.Work(it)) },
-                                onOpenDrawer = { animateDrawer(1f) },
                             )
                         }
                     }
@@ -321,7 +320,6 @@ fun RootScreen(
                             onDismiss = { nav.backOrHome() },
                             onOpenWork = { nav.go(Route.Work(it)) },
                             onOpenLibrary = { nav.replace(Route.Library) },
-                            onOpenDrawer = { animateDrawer(1f) },
                             onOpenPlayer = ::openPlayerFromOverlay,
                         )
                     } else {

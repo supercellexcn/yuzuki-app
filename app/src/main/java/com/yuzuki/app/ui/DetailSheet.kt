@@ -269,11 +269,11 @@ fun DetailSheet(
 }
 
 /**
- * 作品详情覆盖层：底层压暗 + 原有顶栏 + 详情弹出框。
+ * 作品详情覆盖层：底层压暗 + 详情弹出框。
  *
- * 这一层**不铺不透明页面底色**：框顶到顶栏之间那 [SheetTopGap] 的空隙要露出被压暗的
- * 库页 / 播放器，看着才像浮起来的弹出框。顶栏保留（详情页不响应侧栏手势，这里是唯一入口）；
- * 返回按钮已经去掉，关框靠下滑 / 系统返回键 / 点框外空白。
+ * **没有顶栏**（2026-11-25 按用户要求去掉）：详情只是一块浮在内容上的弹出框，
+ * 框顶那 [SheetTopGap] 的留白透出被压暗的底层页面（库 / 播放器 / 收藏 / 历史），
+ * 关框靠下滑、点框外空白或系统返回键。
  */
 @Composable
 fun WorkDetailOverlay(
@@ -281,7 +281,6 @@ fun WorkDetailOverlay(
     onDismiss: () -> Unit,
     onOpenWork: (String) -> Unit,
     onOpenLibrary: () -> Unit,
-    onOpenDrawer: () -> Unit,
     onOpenPlayer: () -> Unit,
 ) {
     // 列表状态放在弹框外面：下滑关闭要读「是否已在顶部」，内容重组时也不能丢滚动位置
@@ -289,30 +288,23 @@ fun WorkDetailOverlay(
     Box(Modifier.fillMaxSize()) {
         // 只做压暗：点空白的处理在 DetailSheet 内部（同一层空白），保证也走 0.25s 收回动画
         Box(Modifier.fillMaxSize().background(ScrimColor))
-        Column(Modifier.fillMaxSize().statusBarsPadding()) {
-            // 顶栏自带半透明底色，下面垫一层页底色，避免压暗层与底层内容透上来干扰文字
-            Box(Modifier.fillMaxWidth().background(WebColors.PageBg)) {
-                WebTopBar(onOpenDrawer = onOpenDrawer)
-            }
-            // 撑开顶栏以下的全部高度：weight 落在这一层显式 Box 上，弹框自己再 fillMaxSize
-            Box(Modifier.weight(1f).fillMaxWidth()) {
-                DetailSheet(
-                    atTop = {
-                        listState.firstVisibleItemIndex == 0 &&
-                            listState.firstVisibleItemScrollOffset == 0
-                    },
-                    onDismiss = onDismiss,
+        Box(Modifier.fillMaxSize().statusBarsPadding()) {
+            DetailSheet(
+                atTop = {
+                    listState.firstVisibleItemIndex == 0 &&
+                        listState.firstVisibleItemScrollOffset == 0
+                },
+                onDismiss = onDismiss,
+                modifier = Modifier.fillMaxSize(),
+            ) {
+                WorkDetailScreen(
+                    rj = rj,
+                    listState = listState,
+                    onOpenWork = onOpenWork,
+                    onOpenLibrary = onOpenLibrary,
+                    onOpenPlayer = onOpenPlayer,
                     modifier = Modifier.fillMaxSize(),
-                ) {
-                    WorkDetailScreen(
-                        rj = rj,
-                        listState = listState,
-                        onOpenWork = onOpenWork,
-                        onOpenLibrary = onOpenLibrary,
-                        onOpenPlayer = onOpenPlayer,
-                        modifier = Modifier.fillMaxSize(),
-                    )
-                }
+                )
             }
         }
     }
