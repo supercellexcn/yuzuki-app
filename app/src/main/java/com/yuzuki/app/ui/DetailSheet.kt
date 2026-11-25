@@ -15,8 +15,10 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
@@ -28,6 +30,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
@@ -62,6 +65,32 @@ private const val CLOSE_MS = 250
 
 /** 起手门槛：小于这个位移仍算轻点 / 抖动。 */
 private val SheetDragSlop = 6.dp
+
+/** 顶部抓手（iPhone 式）：36×5dp 胶囊，居中贴在框顶，占 18dp 高度。 */
+private val GrabberWidth = 36.dp
+private val GrabberHeight = 5.dp
+private val GrabberArea = 18.dp
+
+/**
+ * 顶部下拉抓手：只做视觉提示，**不加任何点击 / 拖动逻辑** —— 下滑关框由整块框的手势层接管
+ * （手势层覆盖框内全部区域，包括这条胶囊），所以抓住它往下拉与抓住别处行为一致。
+ * 贴在平移层里的 Column 顶部，跟着框一起滑；不放进详情内容，否则会跟着列表滚走。
+ */
+@Composable
+private fun SheetGrabber() {
+    Box(
+        modifier = Modifier.fillMaxWidth().height(GrabberArea),
+        contentAlignment = Alignment.Center,
+    ) {
+        Box(
+            Modifier
+                .width(GrabberWidth)
+                .height(GrabberHeight)
+                .clip(RoundedCornerShape(GrabberHeight / 2))
+                .background(WebColors.Muted.copy(alpha = 0.5f)),
+        )
+    }
+}
 
 /**
  * 详情弹出框（2026-11-25 起）。
@@ -229,6 +258,7 @@ fun DetailSheet(
                                 .clip(SheetShape)
                                 .background(sheetBg),
                         ) {
+                            SheetGrabber()
                             content()
                         }
                     }

@@ -975,6 +975,7 @@ ADB=.toolchain/sdk/platform-tools/adb.exe
   **层级硬约束（0.1.73）**：`pointerInput` 不能挂进带 `graphicsLayer{ translationY }` 的子树，
   必须留在它外面的稳定坐标层（`padding(top = SheetTopGap)` 之后那一层），否则手势坐标与位移互为输入，
   增益 −1 会导致下滑时框上下抖动（详见 0.1.73 条目）。
+  框顶另有一条 iPhone 式抓手 `SheetGrabber()`（0.1.74），见下方条目。
 - 下滑关闭（新增 `ui/DetailSheetDrag.kt`，纯 Kotlin）：`canStart` 要求「框内列表已在顶部
   （`firstVisibleItemIndex == 0 && firstVisibleItemScrollOffset == 0`）+ 纵向下拉过 6dp 门槛 +
   纵向位移大于横向」，接管后 `change.consume()`（否则列表会同时 overscroll）；
@@ -1109,6 +1110,24 @@ ADB=.toolchain/sdk/platform-tools/adb.exe
   网络恢复后补推 `git push origin feat/detail-sheet`；提交已打增量 bundle 备份到共享目录
   `yuzuki-0.1.73-1125-1649.bundle`（含本分支尚未推送的全部提交，字节数与 sha256 记录在
   `.workbuddy/memory/2026-11-25.md`），恢复后 `git fetch <bundle> feat/detail-sheet` 即可取回。
+
+**本次改动（2026-11-25，详情框顶部加 iPhone 式抓手 · 0.1.74）**：
+
+- 用户要求：作品详情弹框顶部补一条 iPhone 那样的手势条。
+- 实现（`ui/DetailSheet.kt` 新增私有 `SheetGrabber()`）：`36×5dp` 圆角 `2.5dp` 胶囊，
+  颜色 `WebColors.Muted.copy(alpha = 0.5f)`（面板底 #23262E 上的浅灰条），水平居中，
+  外层占 `18dp` 高（条距框顶约 6.5dp）。
+- 位置：放在平移层里 `Column(clip + background)` 的最前面、`content()` 之前 —— 跟着框一起滑，
+  不会跟列表滚走；**没有**放进 `WorkDetailScreen`。
+- 交互：**不加点击 / 拖动逻辑**，纯视觉提示。抓住它下拉能关框，是因为手势层本来就覆盖框内
+  全部区域（`DetailSheet` 的手势层在平移层外面），走的还是 `DetailSheetDrag` 那套判定。
+- 内容整体下移 18dp；头卡原本 `LazyColumn` 顶部 `contentPadding = 14dp`，与条之间实际留白约 20dp。
+- 验证：`:app:testDebugUnitTest` **169 例全过、0 失败 0 错误**（纯 UI 改动，无新增用例）；
+  未做界面测试（真机由用户自测）。
+- Release `0.1.74` 已构建并发布共享：`yuzuki-0.1.74-1125-1704.apk` + `yuzuki-latest.apk`，
+  sha256 `b50edf40…5ebc93`（10 621 430 字节），`versionCode=1074`；
+  已装到 `192.168.5.16:45195`（`dumpsys` 核对 `versionCode=1074`、`versionName=0.1.74`），
+  未启动、测试由用户自测。
 
 ## 已知限制
 
