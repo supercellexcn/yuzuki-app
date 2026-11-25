@@ -1041,6 +1041,24 @@ ADB=.toolchain/sdk/platform-tools/adb.exe
   sha256 `43552321…327d18`，`versionCode=1070`；
   已装到 `192.168.5.16:45195`（`versionCode=1070`、`versionName=0.1.70`），未启动、测试由用户自测。
 
+**本次修复（2026-11-25，下滑手势吃掉列表滚动 / 头卡不占空间 · 0.1.71）**：
+
+- 用户反馈：① 只做视觉上去掉了框线，元素并没有获得更多空间；② 详情页滑不动了，很多内容看不到。
+- ② 是 0.1.70 引入的回归：为了消掉 overscroll 抖动，按下时只要列表在顶部就把**所有** move 都吃掉，
+  包括向上滑 —— 列表一帧都收不到，自然滚不动。
+- 改法（`ui/DetailSheet.kt` + `ui/DetailSheetDrag.kt`）：只截获「明确往下拉」的帧
+  （新增 `shouldCapture(dragY, dragX, slop)` = 下拉过半个 touchSlop 且纵向占主导）；
+  位移够大但方向不是往下（向上滑 / 横滑）就把**整轮手势放行**（`abandoned = true`），
+  列表正常滚、相关推荐正常横滑；位移不足半个 slop 时既不截获也不放行，保证点击不被吞。
+- ① 头卡真正让出空间（`ui/WorkDetailScreen.kt`）：`HeaderCard` 不再套卡片容器 ——
+  去掉 `clip + background + padding(16dp)`，内容直接铺在弹出框底色上，
+  可用宽度比原来多 32dp；`HeaderShape` 常量随之删除。文件列表那一圈框线保持不变。
+- 验证：`:app:testDebugUnitTest` **167 例全过、0 失败 0 错误**（`DetailSheetDragTest` 新增 1 例
+  「只截获明确向下的拉动」，含上滑 / 横滑 / 小位移三条断言）；未做界面测试。
+- Release `0.1.71` 已构建并发布共享：`yuzuki-0.1.71-1125-1632.apk` + `yuzuki-latest.apk`，
+  sha256 `4c516847…fec759`，`versionCode=1071`；
+  已装到 `192.168.5.16:45195`（`versionCode=1071`、`versionName=0.1.71`），未启动、测试由用户自测。
+
 ## 已知限制
 
 - 仅家中 WiFi 可用；离开 WiFi 只能看离线缓存内容；明文 HTTP 的 token 在局域网可被嗅探。

@@ -110,9 +110,6 @@ import okhttp3.Request
  * 网页在 412px 视口下的 px 值直接当 dp 用（与 LibraryScreen 同一套换算约定）。
  */
 
-/** .header: radius 14 / padding 16 / gap 24（≤640px 竖排）。 */
-private val HeaderShape = RoundedCornerShape(14.dp)
-
 /** .file-list: radius 14 / border 1px / overflow hidden。 */
 private val FileListShape = RoundedCornerShape(14.dp)
 
@@ -264,7 +261,6 @@ fun WorkDetailScreen(
                     work = work,
                     coverUrl = AppContainer.api.coverUrl(rj) + if (coverVersion > 0) "&v=$coverVersion" else "",
                     favored = fav,
-                    panelBg = panelBg,
                     actorBg = actorBg,
                     genreBg = genreBg,
                     onToggleWorkFav = { scope.launch { FavoritesState.toggleWorkWithToast(rj) } },
@@ -352,19 +348,17 @@ private fun HeaderCard(
     work: Work,
     coverUrl: String,
     favored: Boolean,
-    panelBg: Color,
     actorBg: Color,
     genreBg: Color,
     onToggleWorkFav: () -> Unit,
     onToggleFav: (String, String, String) -> Unit,
     onCond: (FilterCond) -> Unit,
 ) {
+    // 不再套卡片容器（2026-11-25）：之前在圆角面板 + 1dp 描边 + 16dp 内距里，
+    // 去掉描边后元素仍旧被那 16dp 框着。现在直接铺在弹出框底色上，
+    // 内容宽度 = 页面内容宽度，元素真正拿到空间。
     Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(HeaderShape)
-            .background(panelBg)
-            .padding(16.dp),
+        modifier = Modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(24.dp),
     ) {
         // .cover: 160×160（≤640px）/ radius 10 / 底色 #0d0f12 / FavoriteStar 6,6 30×30

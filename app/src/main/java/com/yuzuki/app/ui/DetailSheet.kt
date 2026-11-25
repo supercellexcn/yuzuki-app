@@ -147,11 +147,11 @@ fun DetailSheet(
                                 requireUnconsumed = false,
                                 pass = PointerEventPass.Initial,
                             )
-                            // 列表已在顶部时本轮整轮归弹框：从「超过半个 touchSlop」的第一个 move
-                            // 就开始吃掉，别让列表先接到两帧去做 overscroll 拉伸 ——
-                            // 那个回弹叠在跟手位移上就是用户看到的「抖 + 抖出阴影」。
+                            // 列表已在顶部时，只截获「明确往下拉」的那几帧；
+                            // 向上滑 / 横滑立刻放弃本轮，列表照常滚、相关推荐照常横滑。
                             val capturing = atTopNow() && !closing
                             var dragging = false
+                            var abandoned = false
                             while (true) {
                                 val event = awaitPointerEvent(PointerEventPass.Initial)
                                 val change = event.changes.firstOrNull { it.id == down.id } ?: break
@@ -159,7 +159,7 @@ fun DetailSheet(
                                 val dragX = change.position.x - down.position.x
                                 if (!change.pressed) break
                                 if (!dragging) {
-                                    if (DetailSheetDrag.canStart(
+                                    if (!abandoned && DetailSheetDrag.canStart(
                                             dragY = dragY,
                                             dragX = dragX,
                                             slop = slopPx,
@@ -169,9 +169,13 @@ fun DetailSheet(
                                     ) {
                                         dragging = true
                                     } else {
-                                        // 微小抖动不消费（否则点击会被吞），超过半个 slop 就接管
-                                        if (capturing && abs(dragY) + abs(dragX) > halfSlop) {
-                                            change.consume()
+                                        // 位移够大才判方向：够大且不是「往下」就整轮放行
+                                        if (abs(dragY) + abs(dragX) > halfSlop) {
+                                            if (dragY > abs(dragX)) {
+                                                if (capturing && !abandoned) change.consume()
+                                            } else {
+                                                abandoned = true
+                                            }
                                         }
                                         continue
                                     }

@@ -41,6 +41,16 @@ object DetailSheetDrag {
         return (dragY - slop).coerceIn(0f, heightPx)
     }
 
+    /**
+     * 还没到起手门槛时要不要先吃掉事件。
+     *
+     * 只有「明确是往下拉」才吃：否则列表会先接到一两帧 move 起 overscroll 拉伸，
+     * 回弹叠在跟手位移上就是抖动 + 边缘阴影。向上滑 / 横向滑一律不吃，
+     * 让列表正常滚动、让相关推荐正常横滑。
+     */
+    fun shouldCapture(dragY: Float, dragX: Float, slop: Float): Boolean =
+        dragY > slop && dragY > abs(dragX)
+
     /** 松手：拉过四分之一就关，否则弹回。 */
     fun shouldDismiss(offsetPx: Float, heightPx: Float): Boolean =
         heightPx > 0f && offsetPx > heightPx * DISMISS_FRACTION
