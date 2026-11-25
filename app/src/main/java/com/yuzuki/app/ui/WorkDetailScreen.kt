@@ -364,7 +364,6 @@ private fun HeaderCard(
             .fillMaxWidth()
             .clip(HeaderShape)
             .background(panelBg)
-            .border(1.dp, WebColors.Border, HeaderShape)
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(24.dp),
     ) {

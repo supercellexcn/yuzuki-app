@@ -39,6 +39,7 @@ import androidx.compose.ui.unit.dp
 import com.yuzuki.app.ui.theme.LocalAppearance
 import com.yuzuki.app.ui.theme.WebColors
 import kotlinx.coroutines.launch
+import kotlin.math.abs
 
 /** 顶部两角圆滑过渡；底部贴着内容区底边，所以不圆角。 */
 private val SheetShape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)
@@ -51,6 +52,11 @@ private val SheetTopGap = 56.dp
 
 /** 底层压暗度：够暗到不抢框内内容，又留着形影能认出后面是什么。 */
 private val ScrimColor = Color(0x99000000)
+
+/** 动画时长：进场 / 回弹 / 收回。收回统一 0.25s（下滑、点空白、返回键一致）。 */
+private const val OPEN_MS = 220
+private const val REBOUND_MS = 200
+private const val CLOSE_MS = 250
 
 /** 起手门槛：小于这个位移仍算轻点 / 抖动。 */
 private val SheetDragSlop = 6.dp
@@ -92,6 +98,7 @@ fun DetailSheet(
         var closing by remember { mutableStateOf(false) }
         val atTopNow by rememberUpdatedState(atTop)
         val dismissNow by rememberUpdatedState(onDismiss)
+        val scrimInteraction = remember { MutableInteractionSource() }
 
         suspend fun slideTo(targetPx: Float, durationMs: Int) {
             animate(
@@ -105,17 +112,27 @@ fun DetailSheet(
             if (closing) return
             closing = true
             scope.launch {
-                slideTo(sheetHeightPx, 180)
+                slideTo(sheetHeightPx, CLOSE_MS)
                 dismissNow()
             }
         }
 
         // 出场：从屏幕下方滑到就位
-        LaunchedEffect(Unit) { slideTo(0f, 220) }
+        LaunchedEffect(Unit) { slideTo(0f, OPEN_MS) }
 
         BackHandler(enabled = !closing) { requestClose() }
 
         Box(Modifier.fillMaxSize()) {
+            // 框外空白（顶栏下面那一段）：点它走同一条收回动画，而不是瞬间消失
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    .clickable(
+                        interactionSource = scrimInteraction,
+                        indication = null,
+                        onClick = { requestClose() },
+                    ),
+            )
             Column(
                 modifier = Modifier
                     .fillMaxSize()
@@ -124,11 +141,16 @@ fun DetailSheet(
                     .clip(SheetShape)
                     .background(sheetBg)
                     .pointerInput(Unit) {
+                        val halfSlop = viewConfiguration.touchSlop * 0.5f
                         awaitEachGesture {
                             val down = awaitFirstDown(
                                 requireUnconsumed = false,
                                 pass = PointerEventPass.Initial,
                             )
+                            // 列表已在顶部时本轮整轮归弹框：从「超过半个 touchSlop」的第一个 move
+                            // 就开始吃掉，别让列表先接到两帧去做 overscroll 拉伸 ——
+                            // 那个回弹叠在跟手位移上就是用户看到的「抖 + 抖出阴影」。
+                            val capturing = atTopNow() && !closing
                             var dragging = false
                             while (true) {
                                 val event = awaitPointerEvent(PointerEventPass.Initial)
@@ -141,12 +163,16 @@ fun DetailSheet(
                                             dragY = dragY,
                                             dragX = dragX,
                                             slop = slopPx,
-                                            atTop = atTopNow(),
+                                            atTop = capturing,
                                             interactive = !closing,
                                         )
                                     ) {
                                         dragging = true
                                     } else {
+                                        // 微小抖动不消费（否则点击会被吞），超过半个 slop 就接管
+                                        if (capturing && abs(dragY) + abs(dragX) > halfSlop) {
+                                            change.consume()
+                                        }
                                         continue
                                     }
                                 }
@@ -155,14 +181,13 @@ fun DetailSheet(
                                     slop = slopPx,
                                     heightPx = sheetHeightPx,
                                 )
-                                // 接管之后必须消费，否则列表会同时跟着下拉做 overscroll
                                 change.consume()
                             }
                             if (dragging) {
                                 if (DetailSheetDrag.shouldDismiss(offsetPx, sheetHeightPx)) {
                                     requestClose()
                                 } else {
-                                    scope.launch { slideTo(0f, 200) }
+                                    scope.launch { slideTo(0f, REBOUND_MS) }
                                 }
                             }
                         }
@@ -192,19 +217,9 @@ fun WorkDetailOverlay(
 ) {
     // 列表状态放在弹框外面：下滑关闭要读「是否已在顶部」，内容重组时也不能丢滚动位置
     val listState = rememberLazyListState()
-    val scrimInteraction = remember { MutableInteractionSource() }
     Box(Modifier.fillMaxSize()) {
-        // 压暗层：点击框外空白直接关框（无涟漪，纯遮罩）
-        Box(
-            Modifier
-                .fillMaxSize()
-                .background(ScrimColor)
-                .clickable(
-                    interactionSource = scrimInteraction,
-                    indication = null,
-                    onClick = onDismiss,
-                ),
-        )
+        // 只做压暗：点空白的处理在 DetailSheet 内部（同一层空白），保证也走 0.25s 收回动画
+        Box(Modifier.fillMaxSize().background(ScrimColor))
         Column(Modifier.fillMaxSize().statusBarsPadding()) {
             // 顶栏自带半透明底色，下面垫一层页底色，避免压暗层与底层内容透上来干扰文字
             Box(Modifier.fillMaxWidth().background(WebColors.PageBg)) {

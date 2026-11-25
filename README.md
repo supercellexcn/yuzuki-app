@@ -1023,6 +1023,24 @@ ADB=.toolchain/sdk/platform-tools/adb.exe
   sha256 `6618a791…09aca3b`，`versionCode=1069`；
   已装到 `192.168.5.16:45195`（`versionCode=1069`、`versionName=0.1.69`），未启动、测试由用户自测。
 
+**本次修复（2026-11-25，下滑抖动 / 头卡框线 / 点空白收回动画 · 0.1.70）**：
+
+- 用户反馈：① 下滑关框时内容会抖，抖出阴影；② 作品详情（头卡）还留着一圈和文件列表一样的矩形框线；
+  ③ 点上方空白区域关闭时也要有收回动画，时长 0.25s。
+- ① 抖动（`ui/DetailSheet.kt`）：原来要等下拉过 6dp 门槛才接管并 `consume()`，在那之前列表已经接到
+  一两帧 move 起 overscroll 拉伸，回弹动画叠在跟手位移上就是「抖 + 阴影」。改为**按下时若列表已在顶部，
+  整轮手势归弹框**：第一个超过半个 `touchSlop`（约 4dp）的 move 就开始消费，列表一帧都收不到；
+  半个 slop 以内不消费，点击 / 轻点不受影响。
+- ② 头卡框线（`ui/WorkDetailScreen.kt`）：`HeaderCard` 去掉 `border(1.dp, WebColors.Border, HeaderShape)`，
+  只留圆角面板底（文件列表那一圈框线保留，用户要留的是它）。
+- ③ 收回动画：`requestClose()` 时长 180 → **250ms**；框外空白点击从 `WorkDetailOverlay` 的压暗层
+  移到 `DetailSheet` 内部的一层透明空白层，点它和下滑 / 返回键走同一条 250ms 收回动画
+  （压暗层本身不再可点，避免出现「瞬关」）。
+- 验证：`:app:testDebugUnitTest` **166 例全过、0 失败 0 错误**；未做界面测试。
+- Release `0.1.70` 已构建并发布共享：`yuzuki-0.1.70-1125-1628.apk` + `yuzuki-latest.apk`，
+  sha256 `43552321…327d18`，`versionCode=1070`；
+  已装到 `192.168.5.16:45195`（`versionCode=1070`、`versionName=0.1.70`），未启动、测试由用户自测。
+
 ## 已知限制
 
 - 仅家中 WiFi 可用；离开 WiFi 只能看离线缓存内容；明文 HTTP 的 token 在局域网可被嗅探。
