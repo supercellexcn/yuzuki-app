@@ -21,7 +21,6 @@ import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -87,6 +86,7 @@ import com.yuzuki.app.playback.PlaybackController
 import com.yuzuki.app.playback.QueueMath
 import com.yuzuki.app.playback.RepeatMode
 import com.yuzuki.app.ui.theme.LocalAppearance
+import com.yuzuki.app.ui.theme.SheetTokens
 import com.yuzuki.app.ui.theme.WebColors
 import com.yuzuki.app.ui.theme.pillTextStyle
 import kotlinx.coroutines.launch
@@ -101,6 +101,14 @@ import kotlin.math.roundToInt
  *   ③ 主按钮行：音量 / 上一曲 / 快退 / 播放 / 快进 / 下一曲 / 均衡器（预留）
  */
 private val ChipShape = RoundedCornerShape(4.dp)
+
+/**
+ * 播放列表标题栏高度（定值）。
+ *
+ * 它是「按住标题栏往下拉收起」热区的一部分（`SheetTokens.GrabberArea + 这一行`），
+ * 所以不能靠 padding 撑出高度 —— 撑出来的高度一变，热区就对不上手指的位置了。
+ */
+private val PlaylistHeaderHeight = 56.dp
 
 @OptIn(ExperimentalLayoutApi::class, ExperimentalFoundationApi::class)
 @Composable
@@ -620,25 +628,25 @@ fun FullscreenPlayer(
             DisposableEffect(Unit) {
                 onDispose { PlaylistDrag.active = false }
             }
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(Color(0x80000000))
-                    .clickable { playlistVisible = false },
-            )
-            Column(
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .fillMaxWidth()
-                    .fillMaxHeight(0.55f)
-                    .clip(RoundedCornerShape(topStart = 12.dp, topEnd = 12.dp))
-                    .background(panelSolid)
-                    .border(1.dp, WebColors.Border, RoundedCornerShape(topStart = 12.dp, topEnd = 12.dp)),
-            ) {
+            // 弹出 / 收起动画、压暗层、顶部白条、下拉收起全部由 SheetPanel 统一接管：
+            // 与作品详情弹框同一套时长与缓动（SheetTokens），不再「瞬间出现又瞬间消失」。
+            SheetPanel(
+                onDismiss = { playlistVisible = false },
+                heightFraction = 0.55f,
+                // 白条 + 标题栏这一条带子：按住往下拉就能收起，列表滚到哪都行
+                dragZoneHeight = SheetTokens.GrabberArea + PlaylistHeaderHeight,
+                // 带子以外的列表区域仍要求滚到顶部才接管下拉，否则正常滚动 / 长按排序
+                atTop = {
+                    playlistState.firstVisibleItemIndex == 0 &&
+                        playlistState.firstVisibleItemScrollOffset == 0
+                },
+                grabber = true,
+            ) { close ->
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 12.dp),
+                        .height(PlaylistHeaderHeight)
+                        .padding(horizontal = 16.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Text(
@@ -649,7 +657,7 @@ fun FullscreenPlayer(
                         modifier = Modifier.weight(1f),
                     )
                     Box(
-                        modifier = Modifier.size(32.dp).clip(CircleShape).clickable { playlistVisible = false },
+                        modifier = Modifier.size(32.dp).clip(CircleShape).clickable { close() },
                         contentAlignment = Alignment.Center,
                     ) {
                         ClearIcon(WebColors.Muted, Modifier.size(15.dp))
@@ -687,7 +695,8 @@ fun FullscreenPlayer(
                                 .combinedClickable(
                                     onClick = {
                                         PlaybackController.play(item.rj, file, item.work, state.queue)
-                                        playlistVisible = false
+                                        // 走带滑出动画的 close，而不是直接置 false
+                                        close()
                                     },
                                     // 长按本身不改状态，只是让「长按后松手」不再触发 onClick；
                                     // 真正进入拖拽由下面的拖拽检测器负责

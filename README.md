@@ -33,7 +33,9 @@ ui/          单 Activity + AppNav 返回栈 + RootScreen（Column：内容 weig
              FavableTag（详情 / 收藏共用的标签 + 内嵌收藏加减号）
              LibraryListViewModel（库页数据 / 分页 / 滚动快照；两个 Lazy 滚动 state 由 RootScreen 持有）
              FeedPull（信息流顶部下拉手势 + 纯判定）
+             SheetPanel / SheetDrag（底部弹出层统一实现：压暗 + 滑入滑出 + 白条 + 下拉关闭 + 纯判定）
 ui/theme/    Material 3 配色 + Surface 组件封装（Glass* 为兼容层）· GlassSpec 纯函数 · 圆角 / 动画令牌
+             SheetTokens（弹出层圆角 / 白条 / 时长 / 压暗 / 门槛的唯一来源）
 data/        Models（DTO + org.json 解析）· YuzukiApi（全量 REST）· AppContainer（服务定位）
              SettingsRepository · LibraryRepository（在线优先 + 离线兜底）
              AppearancePrefs / AppearanceStore（App 本机外观，DataStore `app_appearance`）
@@ -190,11 +192,15 @@ ADB=.toolchain/sdk/platform-tools/adb.exe
    `FavoritesState.toggleWorkWithToast` / `toggleWithToast`，失败提示「操作失败，请检查网络」。
 6. 作品详情不再是一个单独界面，也没有顶栏：压暗层之上是一块从屏幕下方滑上来的圆角弹出框
    （只盖内容区，不盖底部 Tab），没有返回按钮，关框靠**下滑**、点框外空白或系统返回键。
-   框内列表没滚到顶部时下拉 = 正常浏览文件，
+   **按住顶部白条往下拉随时可关**（2026-11-25 起，内容不在顶部也行）；
+   白条以外的区域：列表没滚到顶部时下拉 = 正常浏览文件，
    到顶后继续下拉 = 关框（跟手位移，松手时拉过 1/4 框高就关，否则 200ms 弹回）。
    这个界面**左右滑动不绑定任何功能**，横滑只归「相关推荐」那一行自己滚动。
    图片查看器打开时返回键先关闭查看器。详情里点音视频文件「播放」会直接进全屏播放器
    （覆盖层自动收起），离开播放器回到库页。历史页同样没有顶栏（标题在列表首行）。
+   播放页的「播放列表」是同一种弹出框：220ms 滑入、250ms 滑出、压暗层同步淡入淡出，
+   顶部白条与「播放列表」标题栏都能按住往下拉收起（点 ✕ / 点框外 / 返回键同样关闭）；
+   圆角、白条宽度、这三处弹层的进出时长统一由 `ui/theme/SheetTokens.kt` 供给。
 7. 图片查看器：顶栏左 ✕ 关闭、中间只显示当前图片文件大小、右边「当前第几张/同文件夹图片总数」+ ⋮，
    图片区**左右滑动**切换同目录内的图片：拖动时整屏跟手平移、相邻图从屏幕边缘补位，
    松手位移过屏宽 25% 或速度过 900px/s 就滑完翻页，否则弹簧回弹（首尾循环）；
@@ -320,6 +326,45 @@ ADB=.toolchain/sdk/platform-tools/adb.exe
 - **0.2.1：框高恢复**。去掉顶栏后弹出框顶边上移了 57dp、显得过高；`DetailSheet` 把原顶栏占位
   （56dp 栏 + 1dp 分割线）加到留白里（`SheetTopOffset = SheetTopGap 56 + RemovedTopBarSpace 57 = 113dp`），
   框的顶边与高度回到有顶栏时，但框上方依旧没有顶栏，只是压暗的底层内容。
+
+**弹出层统一：圆角 / 白条 / 动画收口到一处**（2026-11-25，分支 `feat/unified-sheet`，0.2.3）
+
+- 需求（用户原话归纳）：详情框圆角本该和播放列表一致；详情不必先滚到顶，按住小白条就能下拉关闭；
+  抽屉筛选弹层也要同款圆角 + 同宽白条；播放列表的弹出 / 收起要有动画且参数与详情一致；
+  播放列表除点 ✕ 外还应支持按住「播放列表」那一栏往下拉收起；圆角、白条宽度、动画参数全应用统一维护。
+- 改之前的实际状况：详情 `24dp` + `64×5dp` 白条 + `220/200/250ms`；播放列表 `12dp`、无白条、
+  用 `if` 直接显隐（没有动画）；抽屉筛选走 M3 默认（`28dp` 圆角 + `32×4dp` 抓手 + 内部弹簧）。
+- **唯一维护点 `ui/theme/SheetTokens.kt`**：`CornerRadius 12dp`（沿用播放列表）、`GrabberWidth 64dp` /
+  `GrabberHeight 5dp` / `GrabberArea 18dp`（沿用详情）、`DragSlop 6dp`、`DISMISS_FRACTION 0.25f`、
+  `OPEN_MS 220` / `REBOUND_MS 200` / `CLOSE_MS 250`、`Scrim 0x99000000`，外加 `SheetShape`
+  （只圆上面两角）与 `SheetEasing`。`SheetTokensTest` 钉住取值、`SheetShape` 必须由令牌推导、
+  以及 `SheetDrag.DISMISS_FRACTION` 与令牌同源 —— 页面里再硬编码就会在测试里露馅。
+- **通用面板 `ui/SheetPanel.kt`**：把原 `DetailSheet` 那套实现抽出来 —— 压暗层（随位移淡入淡出）+
+  从屏幕下方滑入 + 跟手位移 + 松手判定 + 可选白条 + 可选返回键，参数为
+  `topInset`（框顶留白）/ `heightFraction`（框高占比）/ `dragZoneHeight`（永远可拉的顶部带子）/
+  `atTop`（其余区域的条件）/ `grabber`。0.1.73 的坐标系硬约束原样保留：`pointerInput` 仍在
+  `graphicsLayer{translationY}` 外面，两层固定布局偏移（`topInset`、高度比例）不含位移；
+  关闭统一走带滑出动画的 `requestClose()`，压暗层跟着位移一起淡出。
+- **详情**（`ui/DetailSheet.kt` 变薄封装）：`topInset = 113dp + 状态栏高度`、`dragZone = GrabberArea`、
+  `grabber = true`。**按下点落在顶部 18dp 白条带子里时不再看列表是否在顶部** —— 内容停在中间
+  也能按住小白条往下拉关框；带子以外的列表区域仍是「在顶部才接管」。压暗层改由面板画，
+  覆盖层不再铺静态黑；为保证压暗依旧盖到状态栏后面，把状态栏高度并进 `topInset`，
+  框与框内内容的位置和之前「整层 statusBarsPadding」完全一致。
+- **播放列表**（`ui/PlayerUI.kt`）：`if` 显隐换成 `SheetPanel`（`heightFraction = 0.55f`、带白条、
+  `dragZoneHeight = 18 + 56dp`、`atTop = 列表在顶部`）。✕ / 点框外空白 / 点曲目 / 系统返回键
+  全部走 250ms 滑出再卸载，进场是 220ms 滑入，压暗层同步淡入；标题栏高度由 padding 撑改成
+  固定 `56dp`（下拉热区要跟手指对得上），原 `1dp` 描边去掉（与详情一致）。
+  列表区域仍要滚到顶部才接管下拉，正常滚动与长按拖动排序不受影响。
+- **抽屉筛选**（`ui/SideDrawer.kt`）：`ModalBottomSheet(shape = SheetShape, dragHandle = { SheetGrabber() })`，
+  圆角与白条宽度立刻与另两处一致。仍保留 M3 面板（独立窗口、焦点与输入法处理都在它身上），
+  它的滑动时长由 M3 内部弹簧控制、无法注入 —— 这一处只统一圆角与白条。
+- 逻辑文件 `ui/DetailSheetDrag.kt` 更名 `ui/SheetDrag.kt`（`SheetDrag`，`canStart` 增加 `fromZone`），
+  测试改名 `SheetDragTest` 并 +2 例：顶部带子任何滚动位置都能拉、关闭动画进行中带子也不接管。
+- 验证：`:app:testDebugUnitTest` **172 例全过、0 失败 0 错误**；未截图、真机交互由用户自测。
+- Release `0.2.3` 已构建并发布共享：`yuzuki-0.2.3-1125-1951.apk` + `yuzuki-latest.apk`，
+  与本地 `app-release.apk` 三方 sha256 一致 `42d2bb96…f33ed2fb2c`（10 621 426 字节，`versionCode=1082`）；
+  已装到 `192.168.5.16:35853`（`dumpsys` 核对 `versionCode=1082`、`versionName=0.2.3`），
+  未启动、测试由用户自测。
 
 ## 分阶段状态
 

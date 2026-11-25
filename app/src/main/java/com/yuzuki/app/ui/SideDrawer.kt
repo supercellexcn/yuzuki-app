@@ -56,6 +56,7 @@ import com.yuzuki.app.data.CountItem
 import com.yuzuki.app.data.FilterCond
 import com.yuzuki.app.ui.theme.LocalAppearance
 import com.yuzuki.app.ui.theme.ShapePill
+import com.yuzuki.app.ui.theme.SheetShape
 import com.yuzuki.app.ui.theme.WebColors
 import com.yuzuki.app.ui.theme.pillTextStyle
 import kotlin.math.roundToInt
@@ -264,6 +265,10 @@ fun SideDrawer(
             // 面板必须不透明：默认容器色跟随主题 surface，半透明时文字很难辨认
             containerColor = panelSolid,
             scrimColor = Color.Black.copy(alpha = 0.6f),
+            // 圆角与白条跟详情 / 播放列表统一：M3 默认是 28dp 圆角 + 32×4dp 抓手，
+            // 这里换成 SheetTokens 的 12dp + 64×5dp，三处弹层看起来才是同一个东西。
+            shape = SheetShape,
+            dragHandle = { SheetGrabber() },
         ) {
             ChipFilterSheet(
                 title = SIDE_FILTERS.first { it.type == type }.label,
