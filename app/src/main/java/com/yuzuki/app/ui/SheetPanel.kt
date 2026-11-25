@@ -45,7 +45,6 @@ import com.yuzuki.app.ui.theme.SheetTokens
 import com.yuzuki.app.ui.theme.WebColors
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
-import kotlin.math.abs
 import kotlin.math.roundToInt
 
 /**
@@ -185,7 +184,6 @@ fun SheetPanel(
                         .fillMaxHeight(heightFraction)
                         .align(Alignment.BottomCenter)
                         .pointerInput(panelHeightPx) {
-                            val halfSlop = viewConfiguration.touchSlop * 0.5f
                             awaitEachGesture {
                                 val down = awaitFirstDown(
                                     requireUnconsumed = false,
@@ -193,21 +191,30 @@ fun SheetPanel(
                                 )
                                 // 顶部带子（白条 / 标题栏）按下就算「可拉」：内容没滚到顶部也能关框
                                 val fromZone = down.position.y <= zonePx
-                                // 带子以外：只有列表已在顶部才截获「明确往下拉」的那几帧；
-                                // 向上滑 / 横滑立刻放弃本轮，列表照常滚、相关推荐照常横滑。
-                                val capturing = !closing && (fromZone || atTopNow())
                                 var dragging = false
-                                var abandoned = false
+                                var lastY = down.position.y
+                                var lastX = down.position.x
+                                // 位移锚点只认「当前这一段向下运动」，且在接管那一帧清零。
+                                // 拿按下点当锚点会让接管瞬间把「列表还在滚时手指已经走的距离」一次性
+                                // 灌进 offsetPx —— 框直接跳一段（先上划浏览、再下滑到顶时最明显）。
+                                val run = SheetDrag.Run(down.position.y)
                                 while (true) {
                                     val event = awaitPointerEvent(PointerEventPass.Initial)
                                     val change = event.changes.firstOrNull { it.id == down.id } ?: break
-                                    val dragY = change.position.y - down.position.y
-                                    val dragX = change.position.x - down.position.x
                                     if (!change.pressed) break
+                                    val y = change.position.y
+                                    val dx = change.position.x - lastX
+                                    val dy = y - lastY
+                                    lastY = y
+                                    lastX = change.position.x
                                     if (!dragging) {
-                                        if (!abandoned && SheetDrag.canStart(
-                                                dragY = dragY,
-                                                dragX = dragX,
+                                        val downRun = run.track(y, dx)
+                                        // 每一帧重新判一次（不做「本轮放弃」的粘性标志）：
+                                        // 先上划再下滑时，atTop 是在手势中途才变 true 的，必须还能接管；
+                                        // 而位移已经是「这一段向下运动」的量，不会带着历史距离。
+                                        if (SheetDrag.canStart(
+                                                dragY = downRun,
+                                                dragX = run.crossRun,
                                                 slop = slopPx,
                                                 atTop = atTopNow(),
                                                 interactive = !closing,
@@ -217,23 +224,17 @@ fun SheetPanel(
                                             // 接管瞬间掐掉还在跑的回弹 / 进场动画，别让两处同时写 offsetPx
                                             slideJob.value?.cancel()
                                             dragging = true
+                                            run.anchorAt(y)
                                         } else {
-                                            // 位移够大才判方向：够大且不是「往下」就整轮放行
-                                            if (abs(dragY) + abs(dragX) > halfSlop) {
-                                                if (dragY > abs(dragX)) {
-                                                    if (capturing) change.consume()
-                                                } else {
-                                                    abandoned = true
-                                                }
+                                            // 明确往下拉才替列表吃掉这几帧，免得列表先 overscroll 拉一下；
+                                            // 向上 / 横向一律放行，列表照常滚、相关推荐照常横滑
+                                            if ((fromZone || atTopNow()) && SheetDrag.pullFrame(dy, dx)) {
+                                                change.consume()
                                             }
                                             continue
                                         }
                                     }
-                                    offsetPx = SheetDrag.offsetOf(
-                                        dragY = dragY,
-                                        slop = slopPx,
-                                        heightPx = panelHeightPx,
-                                    )
+                                    offsetPx = run.offsetOf(y, panelHeightPx)
                                     change.consume()
                                 }
                                 if (dragging) {

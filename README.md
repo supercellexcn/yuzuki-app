@@ -366,6 +366,36 @@ ADB=.toolchain/sdk/platform-tools/adb.exe
   已装到 `192.168.5.16:35853`（`dumpsys` 核对 `versionCode=1082`、`versionName=0.2.3`），
   未启动、测试由用户自测。
 
+**本次修复（2026-11-25，弹出框向下接管时「跳一段」· 0.2.4）**：
+
+- 现象（用户报告）：详情 / 播放列表里先上划浏览内容，再下滑回顶部、不松手继续下拉，
+  弹框会**一下子跳到下面一段**才继续跟手。
+- 根因（`ui/SheetPanel.kt` 手势循环，两处叠加）：
+  1. **锚点取错了**：位移一直是 `dragY = change.position.y - down.position.y`（从按下点算的**总**位移），
+     而接管条件却是「**当前这一帧** `atTop` 为真」。列表是在本段手势中途才滚到顶的 ——
+     手指此前已经走了一大段，累计位移是个大数；一接管就把这个大数一次性灌进 `offsetPx`（`dragY - slop`），
+     框当然瞬间跳一段。先上划再下滑时最明显：下滑到顶那一刻 `dragY` 可能是 +400。
+  2. **`abandoned` 是粘性标志**：首帧只要「向上为主导」就把整轮手势判死，于是同一段手势里
+     先上划再下滑根本接不回来 —— 体验上时好时坏，取决于先往哪个方向动。
+- 改法（`ui/SheetDrag.kt` 新增 `Run`，纯状态可测）：位移只算「**当前这一段向下运动**」——
+  `Run.track(y, dx)` 在手指每次回升（`y` 比上一帧小）时把锚点挪到当前位置、累计清零；
+  接管那一刻再 `run.anchorAt(y)` 把锚点钉在手指上，**位移严格从 0 起算**，之后逐帧跟手。
+  `Run.offsetOf(y, heightPx)` 取代原 `SheetDrag.offsetOf(dragY, slop, heightPx)`（不再需要扣门槛）。
+  `abandoned` 删除：接管条件每帧重判（`canStart(downRun, crossRun, …)`），
+  「先上划 → 下滑到顶」能在到顶那一帧正常接管，而位移不带历史距离。
+  接管前是否替列表吃掉这一帧改成逐帧纯函数 `SheetDrag.pullFrame(dy, dx)`
+  （原 `shouldCapture` 收到的是累计位移，语义不对）。
+  另外顺手修掉一个隐患：`halfSlop`/`abandoned` 那套「累计位移判方向」在反向手势里会把方向判反。
+- 回归用例（`SheetDragTest` +3、改写 2）：「先上划再下滑接管时位移从零起算」（逐步断言
+  `track`/`anchorAt`/`offsetOf`）、「列表滚到顶那一帧的累计位移不再等于手指总位移」、
+  「接管前的手指回升会重开一段」；`offsetOf` 相关两例改为围绕 `Run`，并把「手势层若跟着平移层
+  移动会跟不到手指」的断言保留下来。
+- 验证：`:app:testDebugUnitTest` **175 例全过、0 失败 0 错误**；未截图、真机交互由用户自测。
+- Release `0.2.4` 已构建并发布共享：`yuzuki-0.2.4-1125-2011.apk` + `yuzuki-latest.apk`，
+  sha256 `91dcb2de…667cdf43b15`，`versionCode=1083`；
+  已装到 `192.168.5.16:35853`（`dumpsys` 核对 `versionCode=1083`、`versionName=0.2.4`），
+  未启动、测试由用户自测（首次 `install -r` 报 `INSTALL_FAILED_ABORTED: User rejected permissions`，重试即成功）。
+
 ## 分阶段状态
 
 | 阶段 | 内容 | 状态 |
