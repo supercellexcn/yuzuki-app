@@ -1105,11 +1105,10 @@ ADB=.toolchain/sdk/platform-tools/adb.exe
   sha256 `b03217a6…8625ff37`（10 621 430 字节），`versionCode=1073`；
   已装到 `192.168.5.16:45195`（`dumpsys` 核对 `versionCode=1073`、`versionName=0.1.73`），
   未启动、测试由用户自测。
-- 代码提交 `b3ee565`（分支 `feat/detail-sheet`）。**推送失败**：直连 github:443 超时
-  （`Failed to connect after 21s`，走代理报 `CONNECT tunnel failed, response 502`），
-  网络恢复后补推 `git push origin feat/detail-sheet`；提交已打增量 bundle 备份到共享目录
-  `yuzuki-0.1.73-1125-1649.bundle`（含本分支尚未推送的全部提交，字节数与 sha256 记录在
-  `.workbuddy/memory/2026-11-25.md`），恢复后 `git fetch <bundle> feat/detail-sheet` 即可取回。
+- 代码提交 `b3ee565`（分支 `feat/detail-sheet`）。当时推送失败：直连 github:443 超时
+  （`Failed to connect after 21s`）、走代理报 `CONNECT tunnel failed, response 502`，
+  期间用增量 bundle 备份到共享目录兜底；**17:09 网络恢复，已补推**
+  `7d3fb53..bd44ad1`，`origin/feat/detail-sheet` 与本地 HEAD 一致。
 
 **本次改动（2026-11-25，详情框顶部加 iPhone 式抓手 · 0.1.74）**：
 
