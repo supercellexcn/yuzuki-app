@@ -66,8 +66,8 @@ private const val CLOSE_MS = 250
 /** 起手门槛：小于这个位移仍算轻点 / 抖动。 */
 private val SheetDragSlop = 6.dp
 
-/** 顶部抓手（iPhone 式）：48×5dp 胶囊，居中贴在框顶，占 18dp 高度。 */
-private val GrabberWidth = 48.dp
+/** 顶部抓手（iPhone 式）：64×5dp 胶囊，居中贴在框顶，占 18dp 高度。 */
+private val GrabberWidth = 64.dp
 private val GrabberHeight = 5.dp
 private val GrabberArea = 18.dp
 

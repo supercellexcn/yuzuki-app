@@ -1139,6 +1139,16 @@ ADB=.toolchain/sdk/platform-tools/adb.exe
   已装到 `192.168.5.16:45195`（`dumpsys` 核对 `versionCode=1075`、`versionName=0.1.75`），
   未启动、测试由用户自测。
 
+**本次改动（2026-11-25，抓手再加宽 · 0.1.76）**：
+
+- 用户反馈 48dp 仍不协调。`GrabberWidth` 改为 **`64.dp`**（高度 5dp / 圆角 2.5dp / 占位 18dp 不变），
+  约为屏宽 1/6，观感接近 iPhone 大屏上的条长。
+- 验证：`:app:testDebugUnitTest` **169 例全过、0 失败 0 错误**；未做界面测试（真机由用户自测）。
+- Release `0.1.76` 已构建并发布共享：`yuzuki-0.1.76-1125-1711.apk` + `yuzuki-latest.apk`，
+  sha256 `c382bd70…e632e9`，`versionCode=1076`；
+  已装到 `192.168.5.16:45195`（`dumpsys` 核对 `versionCode=1076`、`versionName=0.1.76`），
+  未启动、测试由用户自测。
+
 ## 已知限制
 
 - 仅家中 WiFi 可用；离开 WiFi 只能看离线缓存内容；明文 HTTP 的 token 在局域网可被嗅探。
