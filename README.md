@@ -1059,6 +1059,24 @@ ADB=.toolchain/sdk/platform-tools/adb.exe
   sha256 `4c516847…fec759`，`versionCode=1071`；
   已装到 `192.168.5.16:45195`（`versionCode=1071`、`versionName=0.1.71`），未启动、测试由用户自测。
 
+**本次修复（2026-11-25，下拉时内容抖动 / 拖动发虚 · 0.1.72）**：
+
+- 现象：0.1.71 之后下滑关框时内容还在抖，快速拖时文字糊成一片。
+- 原因分析（`ui/DetailSheet.kt`）：
+  1. 平移层和「圆角裁剪 + 底色」写在**同一条 modifier 链**上（`graphicsLayer{translationY} → clip → background`），
+     每帧改矩阵时整块（含 clip 的圆角 path）都要跟着失效重绘，边缘抗锯齿逐帧变化，看着就是抖；
+  2. `dragY - slopPx` 是浮点（slop 12px ≈ 16.5px），`translationY` 一直是**小数像素**，
+     layer 纹理落在半像素上被双线性采样，文字发虚 —— 快速拖动时就是「抖到模糊」。
+- 改法：
+  1. 拆层：外层 `Box` 只负责 `padding(top=SheetTopGap)` + `graphicsLayer{ translationY }`，
+     圆角裁剪与底色放到里层 `Column`。矩阵变化不再牵动裁剪 layer 的重绘；
+  2. 位移 `translationY = offsetPx.roundToInt().toFloat()`，始终落在整数像素上；
+  3. 顺手确认手势侧逻辑不变（只截获明确向下的帧，上滑 / 横滑整轮放行）。
+- 验证：`:app:testDebugUnitTest` **167 例全过、0 失败 0 错误**；未做界面测试。
+- Release `0.1.72` 已构建并发布共享：`yuzuki-0.1.72-1125-1638.apk` + `yuzuki-latest.apk`，
+  sha256 `5735f318…13b4fc75`，`versionCode=1072`；
+  已装到 `192.168.5.16:45195`（`versionCode=1072`、`versionName=0.1.72`），未启动、测试由用户自测。
+
 ## 已知限制
 
 - 仅家中 WiFi 可用；离开 WiFi 只能看离线缓存内容；明文 HTTP 的 token 在局域网可被嗅探。

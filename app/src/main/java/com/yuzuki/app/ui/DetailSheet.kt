@@ -40,6 +40,7 @@ import com.yuzuki.app.ui.theme.LocalAppearance
 import com.yuzuki.app.ui.theme.WebColors
 import kotlinx.coroutines.launch
 import kotlin.math.abs
+import kotlin.math.roundToInt
 
 /** 顶部两角圆滑过渡；底部贴着内容区底边，所以不圆角。 */
 private val SheetShape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)
@@ -133,71 +134,79 @@ fun DetailSheet(
                         onClick = { requestClose() },
                     ),
             )
-            Column(
+            // 平移单独一层：只改图层矩阵，不再和「圆角裁剪 + 底色」挤在同一个 modifier 链上；
+            // 位移按整数像素对齐，否则图层纹理落在半个像素上，文字会被双线性采样糊掉
+            // （快速拖动时看起来就是「抖到模糊」）。
+            Box(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(top = SheetTopGap)
-                    .graphicsLayer { translationY = offsetPx }
-                    .clip(SheetShape)
-                    .background(sheetBg)
-                    .pointerInput(Unit) {
-                        val halfSlop = viewConfiguration.touchSlop * 0.5f
-                        awaitEachGesture {
-                            val down = awaitFirstDown(
-                                requireUnconsumed = false,
-                                pass = PointerEventPass.Initial,
-                            )
-                            // 列表已在顶部时，只截获「明确往下拉」的那几帧；
-                            // 向上滑 / 横滑立刻放弃本轮，列表照常滚、相关推荐照常横滑。
-                            val capturing = atTopNow() && !closing
-                            var dragging = false
-                            var abandoned = false
-                            while (true) {
-                                val event = awaitPointerEvent(PointerEventPass.Initial)
-                                val change = event.changes.firstOrNull { it.id == down.id } ?: break
-                                val dragY = change.position.y - down.position.y
-                                val dragX = change.position.x - down.position.x
-                                if (!change.pressed) break
-                                if (!dragging) {
-                                    if (!abandoned && DetailSheetDrag.canStart(
-                                            dragY = dragY,
-                                            dragX = dragX,
-                                            slop = slopPx,
-                                            atTop = capturing,
-                                            interactive = !closing,
-                                        )
-                                    ) {
-                                        dragging = true
-                                    } else {
-                                        // 位移够大才判方向：够大且不是「往下」就整轮放行
-                                        if (abs(dragY) + abs(dragX) > halfSlop) {
-                                            if (dragY > abs(dragX)) {
-                                                if (capturing && !abandoned) change.consume()
-                                            } else {
-                                                abandoned = true
+                    .graphicsLayer { translationY = offsetPx.roundToInt().toFloat() },
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .clip(SheetShape)
+                        .background(sheetBg)
+                        .pointerInput(Unit) {
+                            val halfSlop = viewConfiguration.touchSlop * 0.5f
+                            awaitEachGesture {
+                                val down = awaitFirstDown(
+                                    requireUnconsumed = false,
+                                    pass = PointerEventPass.Initial,
+                                )
+                                // 列表已在顶部时，只截获「明确往下拉」的那几帧；
+                                // 向上滑 / 横滑立刻放弃本轮，列表照常滚、相关推荐照常横滑。
+                                val capturing = atTopNow() && !closing
+                                var dragging = false
+                                var abandoned = false
+                                while (true) {
+                                    val event = awaitPointerEvent(PointerEventPass.Initial)
+                                    val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                                    val dragY = change.position.y - down.position.y
+                                    val dragX = change.position.x - down.position.x
+                                    if (!change.pressed) break
+                                    if (!dragging) {
+                                        if (!abandoned && DetailSheetDrag.canStart(
+                                                dragY = dragY,
+                                                dragX = dragX,
+                                                slop = slopPx,
+                                                atTop = capturing,
+                                                interactive = !closing,
+                                            )
+                                        ) {
+                                            dragging = true
+                                        } else {
+                                            // 位移够大才判方向：够大且不是「往下」就整轮放行
+                                            if (abs(dragY) + abs(dragX) > halfSlop) {
+                                                if (dragY > abs(dragX)) {
+                                                    if (capturing && !abandoned) change.consume()
+                                                } else {
+                                                    abandoned = true
+                                                }
                                             }
+                                            continue
                                         }
-                                        continue
+                                    }
+                                    offsetPx = DetailSheetDrag.offsetOf(
+                                        dragY = dragY,
+                                        slop = slopPx,
+                                        heightPx = sheetHeightPx,
+                                    )
+                                    change.consume()
+                                }
+                                if (dragging) {
+                                    if (DetailSheetDrag.shouldDismiss(offsetPx, sheetHeightPx)) {
+                                        requestClose()
+                                    } else {
+                                        scope.launch { slideTo(0f, REBOUND_MS) }
                                     }
                                 }
-                                offsetPx = DetailSheetDrag.offsetOf(
-                                    dragY = dragY,
-                                    slop = slopPx,
-                                    heightPx = sheetHeightPx,
-                                )
-                                change.consume()
                             }
-                            if (dragging) {
-                                if (DetailSheetDrag.shouldDismiss(offsetPx, sheetHeightPx)) {
-                                    requestClose()
-                                } else {
-                                    scope.launch { slideTo(0f, REBOUND_MS) }
-                                }
-                            }
-                        }
-                    },
-            ) {
-                content()
+                        },
+                ) {
+                    content()
+                }
             }
         }
     }
