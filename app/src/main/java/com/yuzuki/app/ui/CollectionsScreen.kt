@@ -183,7 +183,6 @@ private const val HISTORY_VIEW_KEY = "yuzuki_history_view"
 @Composable
 fun HistoryScreen(
     onOpenWork: (String) -> Unit,
-    onBackToLibrary: () -> Unit,
     onOpenDrawer: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -286,11 +285,6 @@ fun HistoryScreen(
                     verticalItemSpacing = 16.dp,
                     modifier = Modifier.fillMaxSize(),
                 ) {
-                    item(span = StaggeredGridItemSpan.FullLine, key = "back") {
-                        Box(modifier = Modifier.padding(bottom = 4.dp)) {
-                            WebBackButton(onClick = onBackToLibrary)
-                        }
-                    }
                     item(span = StaggeredGridItemSpan.FullLine, key = "head") {
                         HistoryHeader(total = total, cardView = true, onToggle = { setCard(false) })
                     }
@@ -333,11 +327,6 @@ fun HistoryScreen(
                 verticalArrangement = Arrangement.spacedBy(12.dp),
                 modifier = Modifier.weight(1f),
             ) {
-                item(key = "back") {
-                    Box(modifier = Modifier.padding(bottom = 4.dp)) {
-                        WebBackButton(onClick = onBackToLibrary)
-                    }
-                }
                 item(key = "head") {
                     HistoryHeader(total = total, cardView = false, onToggle = { setCard(true) })
                 }

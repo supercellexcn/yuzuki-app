@@ -292,7 +292,6 @@ fun RootScreen(
                         else -> Box(Modifier.fillMaxSize().clipToBounds().statusBarsPadding()) {
                             HistoryScreen(
                                 onOpenWork = { nav.go(Route.Work(it)) },
-                                onBackToLibrary = { nav.replace(Route.Library) },
                                 onOpenDrawer = { animateDrawer(1f) },
                             )
                         }
@@ -309,9 +308,10 @@ fun RootScreen(
                             .statusBarsPadding(),
                     ) {
                         when (overlayRoute) {
-                            is Route.Work -> WorkDetailScreen(
+                            // 详情不再是整页界面：顶栏之下是一块从下方滑上来的弹出框
+                            is Route.Work -> WorkDetailOverlay(
                                 rj = overlayRoute.rj,
-                                onBack = { nav.backOrHome() },
+                                onDismiss = { nav.backOrHome() },
                                 onOpenWork = { nav.go(Route.Work(it)) },
                                 onOpenLibrary = { nav.replace(Route.Library) },
                                 onOpenDrawer = { animateDrawer(1f) },

@@ -45,7 +45,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -150,13 +150,19 @@ private fun actionLabel(kind: String): String = when (kind) {
     else -> ""
 }
 
+/**
+ * 作品详情的内容体（2026-11-25 起不再是一个整页界面，而是详情弹出框里的内容）。
+ *
+ * 顶栏、弹出框外壳、下滑关闭手势都在 [WorkDetailOverlay] / [DetailSheet] 里；
+ * 这里只负责内容与会话级状态。列表状态由外层注入：弹框要读「是否已在顶部」来决定
+ * 下拉是关框还是正常浏览文件。
+ */
 @Composable
 fun WorkDetailScreen(
     rj: String,
-    onBack: () -> Unit,
+    listState: LazyListState,
     onOpenWork: (String) -> Unit,
     onOpenLibrary: () -> Unit,
-    onOpenDrawer: () -> Unit,
     /**
      * 点文件播放后进全屏播放器。详情是盖在 Pager 之上的覆盖层，
      * 只调 PlaybackController.setFullscreen(true) 会被覆盖层挡住（看起来没反应），
@@ -166,7 +172,6 @@ fun WorkDetailScreen(
     modifier: Modifier = Modifier,
 ) {
     val scope = rememberCoroutineScope()
-    val listState = rememberLazyListState()
     val playState by PlaybackController.state.collectAsState()
     val appearance = LocalAppearance.current
     val nav = appearance.navColor
@@ -220,8 +225,6 @@ fun WorkDetailScreen(
     val accent = MaterialTheme.colorScheme.primary
 
     Column(modifier = modifier.fillMaxSize()) {
-        WebTopBar(onOpenDrawer = onOpenDrawer)
-
         if (data == null || work == null) {
             Column(
                 modifier = Modifier
@@ -256,13 +259,6 @@ fun WorkDetailScreen(
             contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 14.dp, bottom = 24.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
-            item(key = "back") {
-                // .back { margin-bottom: 4 }
-                Box(modifier = Modifier.padding(bottom = 4.dp)) {
-                    WebBackButton(onClick = onBack)
-                }
-            }
-
             item(key = "header") {
                 HeaderCard(
                     work = work,
