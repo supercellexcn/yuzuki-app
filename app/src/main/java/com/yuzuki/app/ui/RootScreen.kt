@@ -44,18 +44,19 @@ import com.yuzuki.app.ui.theme.WebColors
 import kotlinx.coroutines.launch
 import kotlin.math.abs
 
-// 三个板块在横向上是一条连续的纸带：库 ←→ 播放器 ←→ 历史，侧栏贴在库页左侧。
+// 四个板块在横向上是一条连续的纸带：库 ←→ 收藏 ←→ 播放器 ←→ 历史，侧栏贴在库页左侧。
 private const val LIBRARY_PAGE = 0
-private const val PLAYER_PAGE = 1
-private const val HISTORY_PAGE = 2
+private const val FAVORITES_PAGE = 1
+private const val PLAYER_PAGE = 2
+private const val HISTORY_PAGE = 3
 
 /**
- * 手机端根布局：横向 Pager（库 / 播放器 / 历史）+ 底部 3 Tab + 侧栏抽屉。
+ * 手机端根布局：横向 Pager（库 / 收藏 / 播放器 / 历史）+ 底部 4 Tab + 浮动圆控件。
  *
  * 滑动语义与手指位移严格跟手：
- *   库页向左拖 → 播放器 → 历史；历史页向右拖 → 播放器 → 库；
- *   库页（已在最左）继续向右拖的溢出量用来把侧栏拉出来，侧栏本身也可向左拖收回。
- * 详情 / 收藏 / 设置 / 改密不是板块，作为覆盖层盖在 Pager 之上，此时不响应翻页。
+ *   库页向左拖 → 收藏 → 播放器 → 历史；反向同理；
+ *   库页（已在最左）继续向右拖的溢出量用来把浮动圆控件拉出来，控件层本身也可向左拖收回。
+ * 详情 / 设置 / 改密不是板块，作为覆盖层盖在 Pager 之上，此时不响应翻页。
  */
 @Composable
 fun RootScreen(
@@ -78,21 +79,24 @@ fun RootScreen(
     ).dp
     val drawerSwipePx = with(LocalDensity.current) { drawerSwipe.toPx() }
 
-    // 库页数据 / 滚动状态放在 Pager 之外：翻到播放器 / 历史再回来时位置与已翻页的数据都还在。
+    // 库页数据 / 滚动状态放在 Pager 之外：翻到收藏 / 播放器 / 历史再回来时位置与已翻页的数据都还在。
     val libraryVm: LibraryListViewModel = viewModel()
     val libraryGridState = rememberLazyStaggeredGridState()
     val libraryListState = rememberLazyListState()
 
-    // 非板块页（详情 / 收藏 / 设置 / 改密）以覆盖层呈现，盖住 Pager
-    val overlayRoute = nav.current.takeIf { it !is Route.Library && it !is Route.History }
+    // 非板块页（详情 / 设置 / 改密）以覆盖层呈现，盖住 Pager
+    val overlayRoute = nav.current.takeIf {
+        it !is Route.Library && it !is Route.Favorites && it !is Route.History
+    }
 
     val pagerState = rememberPagerState(
         initialPage = when {
             playState.fullscreen -> PLAYER_PAGE
             nav.current is Route.History -> HISTORY_PAGE
+            nav.current is Route.Favorites -> FAVORITES_PAGE
             else -> LIBRARY_PAGE
         },
-    ) { 3 }
+    ) { 4 }
 
     LaunchedEffect(Unit) {
         FavoritesState.refresh()
@@ -141,11 +145,19 @@ fun RootScreen(
             PLAYER_PAGE -> PlaybackController.setFullscreen(true)
             LIBRARY_PAGE -> {
                 PlaybackController.setFullscreen(false)
-                if (nav.current is Route.History) nav.replace(Route.Library)
+                if (nav.current is Route.History || nav.current is Route.Favorites) {
+                    nav.replace(Route.Library)
+                }
+            }
+            FAVORITES_PAGE -> {
+                PlaybackController.setFullscreen(false)
+                if (nav.current !is Route.Favorites) nav.replace(Route.Favorites)
             }
             HISTORY_PAGE -> {
                 PlaybackController.setFullscreen(false)
-                if (nav.current is Route.Library) nav.replace(Route.History)
+                if (nav.current is Route.Library || nav.current is Route.Favorites) {
+                    nav.replace(Route.History)
+                }
             }
         }
     }
@@ -164,6 +176,7 @@ fun RootScreen(
         if (!PlayerNav.shouldSyncPager(playState.fullscreen)) return@LaunchedEffect
         val target = when (nav.current) {
             is Route.Library -> LIBRARY_PAGE
+            is Route.Favorites -> FAVORITES_PAGE
             is Route.History -> HISTORY_PAGE
             else -> null
         }
@@ -226,7 +239,8 @@ fun RootScreen(
                             startSlop = startSlop,
                             innerClaimed = DrawerGate.claimedByInner,
                             fullscreen = playState.fullscreen,
-                            overlayOpen = overlayRoute != null,
+                            // 上面已经对覆盖层整层早退，走到这里的这一帧必然没有覆盖层
+                            overlayOpen = false,
                         )
                     ) {
                         dragging = true
@@ -277,6 +291,12 @@ fun RootScreen(
                                 onOpenDrawer = { animateDrawer(1f) },
                             )
                         }
+                        FAVORITES_PAGE -> Box(Modifier.fillMaxSize().clipToBounds().statusBarsPadding()) {
+                            FavoritesScreen(
+                                onOpenWork = { nav.go(Route.Work(it)) },
+                                onApplyCond = ::openLibraryWith,
+                            )
+                        }
                         PLAYER_PAGE -> Box(Modifier.fillMaxSize().clipToBounds()) {
                             FullscreenPlayer(
                                 onClose = { scope.launch { pagerState.animateScrollToPage(LIBRARY_PAGE) } },
@@ -305,7 +325,7 @@ fun RootScreen(
                             onOpenPlayer = ::openPlayerFromOverlay,
                         )
                     } else {
-                        // 收藏 / 设置 / 改密仍是整页覆盖层，必须自带不透明页面底色：
+                        // 设置 / 改密仍是整页覆盖层，必须自带不透明页面底色：
                         // 否则会直接透出下层的库页卡片和播放器模糊封面，半透明面板压在上面很难辨认。
                         Box(
                             Modifier
@@ -314,10 +334,6 @@ fun RootScreen(
                                 .statusBarsPadding(),
                         ) {
                             when (overlayRoute) {
-                                is Route.Favorites -> FavoritesScreen(
-                                    onOpenWork = { nav.go(Route.Work(it)) },
-                                    onApplyCond = ::openLibraryWith,
-                                )
                                 is Route.Settings -> SettingsScreen(onBack = { nav.backOrHome() })
                                 is Route.ChangePassword -> ChangePasswordScreen(
                                     firstLogin = false,
@@ -330,13 +346,12 @@ fun RootScreen(
                 }
             }
 
-            // 底部导航常驻，选中态跟随 Pager 当前页（滑动过程中就跟着高亮）；
-            // 收藏是覆盖层而不是 Pager 页，所以优先看路由。
+            // 底部导航常驻，选中态跟随 Pager 当前页（滑动过程中就跟着高亮）
             MainNavigationBar(
-                selected = when {
-                    nav.current is Route.Favorites -> MainTab.Favorites
-                    pagerState.currentPage == PLAYER_PAGE -> MainTab.Player
-                    pagerState.currentPage == HISTORY_PAGE -> MainTab.History
+                selected = when (pagerState.currentPage) {
+                    FAVORITES_PAGE -> MainTab.Favorites
+                    PLAYER_PAGE -> MainTab.Player
+                    HISTORY_PAGE -> MainTab.History
                     else -> MainTab.Library
                 },
                 onSelect = { tab ->
@@ -354,10 +369,9 @@ fun RootScreen(
                             scope.launch { pagerState.animateScrollToPage(LIBRARY_PAGE) }
                         }
                         MainTab.Favorites -> {
-                            // 收藏页是覆盖层：先把全屏播放器标志放下，返回时 Pager 才能被
-                            // LaunchedEffect(nav.current) 拽回库页，不会卡在播放器页
                             PlaybackController.setFullscreen(false)
                             if (nav.current != Route.Favorites) nav.replace(Route.Favorites)
+                            scope.launch { pagerState.animateScrollToPage(FAVORITES_PAGE) }
                         }
                         MainTab.Player -> {
                             if (overlayRoute != null) nav.replace(Route.Library)
