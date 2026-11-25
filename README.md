@@ -953,8 +953,9 @@ ADB=.toolchain/sdk/platform-tools/adb.exe
   （`ViewerZoomTest` 新增 2 例：单指拖动严格跟手且在既有 pan 上叠加、边捏边移合成 + 质心不动退化为
   `panKeeping` + 非法倍率不动画面）。未截图验证。
 - Release `0.1.66` 已构建并发布共享：`yuzuki-0.1.66-1125-1529.apk` + `yuzuki-latest.apk`，
-  与本地 `app-release.apk` 三方 sha256 一致 `b407fe3e…bd1da08`（10.6MB，`versionCode=1066`）。
-  `adb devices` 无设备、旧无线地址 `192.168.5.16:42847` 已失效 —— **本轮未装机**，需用户连上无线调试后补装。
+  与本地 `app-release.apk` 三方 sha256 一致 `b407fe3e…bd1da08`（10.6MB，`versionCode=1066`）；
+  已装到 `192.168.5.16:45195`（`versionCode=1066`、`versionName=0.1.66`、`lastUpdateTime=15:33:15`），
+  未启动、测试由用户自测。
 
 ## 已知限制
 
