@@ -83,6 +83,60 @@ class ViewerZoomTest {
     }
 
     @Test
+    fun `单指拖动时平移严格跟手`() {
+        // 倍率没变（k = 1）：质心移动多少，画面就移多少 —— 放大后单指平移靠的就是这一条
+        val (x1, y1) = ViewerZoom.panFollowing(
+            prevCx = 500f,
+            prevCy = 800f,
+            curCx = 380f,
+            curCy = 860f,
+            panX = 0f,
+            panY = 0f,
+            from = 2f,
+            to = 2f,
+        )
+        assertEquals(-120f, x1, 1e-3f)
+        assertEquals(60f, y1, 1e-3f)
+
+        // 已经有平移量时继续拖：在旧值上叠加位移，不能把上次的位置吃掉
+        val (x2, y2) = ViewerZoom.panFollowing(
+            prevCx = 380f,
+            prevCy = 860f,
+            curCx = 400f,
+            curCy = 840f,
+            panX = x1,
+            panY = y1,
+            from = 3.5f,
+            to = 3.5f,
+        )
+        assertEquals(-100f, x2, 1e-3f)
+        assertEquals(40f, y2, 1e-3f)
+    }
+
+    @Test
+    fun `边捏合边移动时缩放与平移合成为一次结果`() {
+        // 质心从 (300, 400) 移到 (340, 360)，同时 1 → 2 倍：
+        // panNew = cur − (prev − panOld) × k，k = 2
+        val (x, y) = ViewerZoom.panFollowing(300f, 400f, 340f, 360f, 0f, 0f, 1f, 2f)
+        assertEquals(-260f, x, 1e-3f)
+        assertEquals(-440f, y, 1e-3f)
+
+        // 质心不动（cur == prev）时必须与 panKeeping 完全一致
+        val a = ViewerZoom.panFollowing(120f, -60f, 120f, -60f, 10f, 5f, 2f, 3.5f)
+        val b = ViewerZoom.panKeeping(120f, -60f, 10f, 5f, 2f, 3.5f)
+        assertEquals(b.first, a.first, 1e-4f)
+        assertEquals(b.second, a.second, 1e-4f)
+
+        // 非法倍率（0 / NaN）不动画面
+        val c = ViewerZoom.panFollowing(100f, 100f, 200f, 200f, 7f, 7f, 0f, 2f)
+        assertEquals(7f, c.first, 1e-4f)
+        assertEquals(7f, c.second, 1e-4f)
+        val d = ViewerZoom.panFollowing(100f, 100f, 200f, 200f, 7f, 7f, Float.NaN, 2f)
+        assertEquals(7f, d.first, 1e-4f)
+        assertEquals(7f, d.second, 1e-4f)
+    }
+
+    @Test
     fun `Fit 后尺寸按短边对齐`() {
         // 竖向图 720×1440 进 1080×1920：受高度限制，按 1.333 缩放
         val (w1, h1) = ViewerZoom.fittedSize(1080f, 1920f, 720f, 1440f)

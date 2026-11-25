@@ -987,14 +987,13 @@ private fun ImageViewer(
                             },
                             onSettle = { s, x, y ->
                                 val (limitX, limitY) = limitsNow.value(s)
+                                val cx = ViewerZoom.clampPan(x, limitX)
+                                val cy = ViewerZoom.clampPan(y, limitY)
                                 if (!ViewerZoom.isZoomed(s)) {
                                     animateZoomTo(ViewerZoom.MIN_SCALE, 0f, 0f)
-                                } else if (x != ViewerZoom.clampPan(x, limitX) ||
-                                    y != ViewerZoom.clampPan(y, limitY)
-                                ) {
-                                    zoomScale = s
-                                    panX = ViewerZoom.clampPan(x, limitX)
-                                    panY = ViewerZoom.clampPan(y, limitY)
+                                } else if (cx != x || cy != y) {
+                                    // 越界了：补间回边界，别硬跳一帧
+                                    animateZoomTo(s, cx, cy)
                                 }
                             },
                         )
@@ -1237,18 +1236,29 @@ private suspend fun PointerInputScope.viewerZoomGesture(
                 val zoomChange = event.calculateZoom()
                 if (!pastSlop) {
                     val moved = (centroid - lastCentroid).getDistance()
-                    if (multi || moved > viewConfiguration.touchSlop) pastSlop = true
+                    if (multi) {
+                        pastSlop = true
+                    } else if (moved > viewConfiguration.touchSlop) {
+                        // 单指：阈值这段当死区吃掉，否则画面会在起手第一帧跳一下
+                        pastSlop = true
+                        lastCentroid = centroid
+                        continue
+                    } else {
+                        continue
+                    }
                 }
-                if (!pastSlop) continue
                 if (!intercepted) {
                     // 真正开始动画面了：先掐掉双击的补间动画，否则动画会跟手指抢这几帧
                     intercepted = true
                     onIntercept()
                 }
                 val newScale = ViewerZoom.clampScale(lastScale * zoomChange)
-                val (keepX, keepY) = ViewerZoom.panKeeping(
-                    cx = lastCentroid.x,
-                    cy = lastCentroid.y,
+                // 单指拖动时 k = 1，位移跟手；双指则是「缩放 + 质心漂移」一次算完
+                val (keepX, keepY) = ViewerZoom.panFollowing(
+                    prevCx = lastCentroid.x,
+                    prevCy = lastCentroid.y,
+                    curCx = centroid.x,
+                    curCy = centroid.y,
                     panX = lastPan.first,
                     panY = lastPan.second,
                     from = lastScale,

@@ -147,10 +147,31 @@ object ViewerZoom {
         panY: Float,
         from: Float,
         to: Float,
+    ): Pair<Float, Float> = panFollowing(cx, cy, cx, cy, panX, panY, from, to)
+
+    /**
+     * 把「上一帧停在 prev 的画面」跟到 cur，缩放与平移一次算完。
+     *
+     * `panNew = cur − (prev − panOld) × (to / from)`：
+     * - 单指拖动时 `to == from`（k = 1）→ `panNew = panOld + (cur − prev)`，位移恰好跟手；
+     * - 质心不动（纯捏合）→ 退化为 [panKeeping]；
+     * - 边捏边移（双指质心漂移）→ 缩放与平移合成为一次结果，不会先缩放再补位移。
+     *
+     * @return panX to panY（调用方仍需按 [panLimit] 夹紧）
+     */
+    fun panFollowing(
+        prevCx: Float,
+        prevCy: Float,
+        curCx: Float,
+        curCy: Float,
+        panX: Float,
+        panY: Float,
+        from: Float,
+        to: Float,
     ): Pair<Float, Float> {
         if (from <= 0f || !from.isFinite() || !to.isFinite()) return panX to panY
         val k = to / from
-        return (cx - (cx - panX) * k) to (cy - (cy - panY) * k)
+        return (curCx - (prevCx - panX) * k) to (curCy - (prevCy - panY) * k)
     }
 
     /** 单轴可平移上限：内容放大后超出视口的部分两端各分一半；没有超出就不给动。 */

@@ -934,6 +934,28 @@ ADB=.toolchain/sdk/platform-tools/adb.exe
   本次 `//192.168.5.4/FileTemp` 不可访问（`publish-apk.sh` 只警告、返回 0），
   `adb devices` 无设备、上次的无线地址 `192.168.5.16:42847` 连接失败 —— **未发布共享、未装机**，由用户自测。
 
+**本次修复（2026-11-25，图片查看器放大后单指拖动不平移 · 0.1.66）**：
+
+- 现象：双击 / 捏合放大后，单指拖动画面纹丝不动（捏合缩放本身正常），不像正常看图软件。
+- 根因：`viewerZoomGesture` 的单指平移复用了 `ViewerZoom.panKeeping(cx = 上一帧质心, …)`，
+  这条公式的语义只是「同一个屏幕点在缩放前后保持不动」；单指拖动时 `scaleNew == scaleOld`（k = 1），
+  式子退化为 `panNew = panOld` —— 手指的位移根本没进公式，画面当然不动。
+  也就是说 0.1.56 写的「放大后单指拖动平移」实际从未生效，只有双指（k ≠ 1）才会移动。
+- 改法（`ui/NavLogic.kt`）：新增 `ViewerZoom.panFollowing(prevCx, prevCy, curCx, curCy, panX, panY, from, to)`，
+  公式 `panNew = cur − (prev − panOld) × (to / from)` —— k = 1 时严格跟手；质心不动时退化为 `panKeeping`；
+  边捏边移（双指质心漂移）时缩放与平移合成为一次结果。`panKeeping` 改为委托 `panFollowing(prev == cur)`，
+  双击路径与既有 8 例断言零变化。
+- 手势层（`ui/WorkDetailScreen.kt`）：单指越过 `touchSlop` 的那一帧把阈值当**死区**吃掉
+  （`lastCentroid = centroid` 后 `continue`，本帧不产生位移），否则起手第一帧会跳一下；
+  `onSettle` 越界由「直接赋值」改为 `animateZoomTo` 220ms 补间回边界。
+  按用户要求**不做松手惯性滑行**；放大状态下拖到边界也不接翻页（保持 0.1.56 行为，先双击还原再切图）。
+- 验证：`:app:testDebugUnitTest` 通过，**158 例全过、0 失败 0 错误**
+  （`ViewerZoomTest` 新增 2 例：单指拖动严格跟手且在既有 pan 上叠加、边捏边移合成 + 质心不动退化为
+  `panKeeping` + 非法倍率不动画面）。未截图验证。
+- Release `0.1.66` 已构建并发布共享：`yuzuki-0.1.66-1125-1529.apk` + `yuzuki-latest.apk`，
+  与本地 `app-release.apk` 三方 sha256 一致 `b407fe3e…bd1da08`（10.6MB，`versionCode=1066`）。
+  `adb devices` 无设备、旧无线地址 `192.168.5.16:42847` 已失效 —— **本轮未装机**，需用户连上无线调试后补装。
+
 ## 已知限制
 
 - 仅家中 WiFi 可用；离开 WiFi 只能看离线缓存内容；明文 HTTP 的 token 在局域网可被嗅探。
