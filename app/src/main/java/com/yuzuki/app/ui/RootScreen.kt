@@ -299,34 +299,37 @@ fun RootScreen(
                 }
 
                 if (overlayRoute != null) {
-                    // 覆盖层必须自带不透明页面底色：详情 / 收藏 / 设置原本直接透出下面的
-                    // 库页卡片和播放器模糊封面，半透明面板压在上面很难辨认。
-                    Box(
-                        Modifier
-                            .fillMaxSize()
-                            .background(WebColors.PageBg)
-                            .statusBarsPadding(),
-                    ) {
-                        when (overlayRoute) {
-                            // 详情不再是整页界面：顶栏之下是一块从下方滑上来的弹出框
-                            is Route.Work -> WorkDetailOverlay(
-                                rj = overlayRoute.rj,
-                                onDismiss = { nav.backOrHome() },
-                                onOpenWork = { nav.go(Route.Work(it)) },
-                                onOpenLibrary = { nav.replace(Route.Library) },
-                                onOpenDrawer = { animateDrawer(1f) },
-                                onOpenPlayer = ::openPlayerFromOverlay,
-                            )
-                            is Route.Favorites -> FavoritesScreen(
-                                onOpenWork = { nav.go(Route.Work(it)) },
-                                onApplyCond = ::openLibraryWith,
-                            )
-                            is Route.Settings -> SettingsScreen(onBack = { nav.backOrHome() })
-                            is Route.ChangePassword -> ChangePasswordScreen(
-                                firstLogin = false,
-                                onChange = { old, new -> AppContainer.api.changePassword(old, new) },
-                            )
-                            else -> Unit
+                    if (overlayRoute is Route.Work) {
+                        // 详情是弹出框：这一层不铺不透明底色，框顶那段留白要透出被压暗的底层内容
+                        WorkDetailOverlay(
+                            rj = overlayRoute.rj,
+                            onDismiss = { nav.backOrHome() },
+                            onOpenWork = { nav.go(Route.Work(it)) },
+                            onOpenLibrary = { nav.replace(Route.Library) },
+                            onOpenDrawer = { animateDrawer(1f) },
+                            onOpenPlayer = ::openPlayerFromOverlay,
+                        )
+                    } else {
+                        // 收藏 / 设置 / 改密仍是整页覆盖层，必须自带不透明页面底色：
+                        // 否则会直接透出下层的库页卡片和播放器模糊封面，半透明面板压在上面很难辨认。
+                        Box(
+                            Modifier
+                                .fillMaxSize()
+                                .background(WebColors.PageBg)
+                                .statusBarsPadding(),
+                        ) {
+                            when (overlayRoute) {
+                                is Route.Favorites -> FavoritesScreen(
+                                    onOpenWork = { nav.go(Route.Work(it)) },
+                                    onApplyCond = ::openLibraryWith,
+                                )
+                                is Route.Settings -> SettingsScreen(onBack = { nav.backOrHome() })
+                                is Route.ChangePassword -> ChangePasswordScreen(
+                                    firstLogin = false,
+                                    onChange = { old, new -> AppContainer.api.changePassword(old, new) },
+                                )
+                                else -> Unit
+                            }
                         }
                     }
                 }

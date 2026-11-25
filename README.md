@@ -168,7 +168,8 @@ ADB=.toolchain/sdk/platform-tools/adb.exe
    松手吸附门槛按方向区分：展开需过 40%，收起只需过 22%（≈57dp），不用一路滑到底。
    收藏 / 设置 / 改密是覆盖层，盖在 Pager 之上，此时不响应翻页；覆盖层自带不透明页面底色，
    不会透出下层的库页卡片或播放器模糊封面。**作品详情从 2026-11-25 起不再是整页界面**：
-   详情仍然是覆盖层，但顶栏之下只是一块从屏幕下方滑上来的圆角弹出框（顶栏保留，框顶距顶栏 8dp），
+   详情仍然是覆盖层，但顶栏之下只是一块从屏幕下方滑上来的圆角弹出框（顶栏保留，框顶距顶栏 56dp，
+   这段空隙透出被压暗的底层内容），
    关框靠下滑或系统返回键，没有返回按钮。**覆盖层打开期间整层不识别侧栏手势**：
    设置页的滑块、收藏页的横向标签都是「按住横滑」，外层侧栏手势在 Initial pass 旁路观察、
    看不到子级消费，不排除就会出现「拖滑块把侧栏拉出来」。
@@ -967,10 +968,10 @@ ADB=.toolchain/sdk/platform-tools/adb.exe
   一样从屏幕下方弹出的框（框内不要返回按钮），支持下滑关闭；框内文件列表滑动仍是正常浏览，
   相关推荐横向滑动照常，这个界面左右滑动不绑定任何功能。参考图形状：顶栏下方一整块、上部两角圆滑。
 - 结构（新增 `ui/DetailSheet.kt`）：`WorkDetailOverlay` = 原顶栏（`WebTopBar`，侧栏入口保留）+
-  `DetailSheet`。框 `fillMaxSize`、顶部留 `SheetTopGap = 8dp`（露出底色，形成浮起层次）、
+  `DetailSheet`。框 `fillMaxSize`、顶部留 `SheetTopGap = 56dp`（留白处透出被压暗的底层内容）、
   `RoundedCornerShape(topStart/topEnd = 24.dp)`、底边贴内容区（不盖底部 Tab）、
-  不透明面板底 `WebColors.panel(nav, 1f)` + 1dp 描边。进场：量到高度后先摆到屏幕下方再 220ms 滑到就位
-  （首帧 `alpha = 0` 防闪）。关闭统一走 `requestClose()`：180ms 滑出后回调 `onDismiss`。
+  不透明面板底 `WebColors.panel(nav, 1f)`，**不画描边**（0.1.69 按用户要求去掉那圈灰线）。
+  进场：首帧先摆到屏幕下方再 220ms 滑到就位。关闭统一走 `requestClose()`：180ms 滑出后回调 `onDismiss`。
 - 下滑关闭（新增 `ui/DetailSheetDrag.kt`，纯 Kotlin）：`canStart` 要求「框内列表已在顶部
   （`firstVisibleItemIndex == 0 && firstVisibleItemScrollOffset == 0`）+ 纵向下拉过 6dp 门槛 +
   纵向位移大于横向」，接管后 `change.consume()`（否则列表会同时 overscroll）；
@@ -1005,6 +1006,22 @@ ADB=.toolchain/sdk/platform-tools/adb.exe
 - Release `0.1.68` 已构建并发布共享：`yuzuki-0.1.68-1125-1611.apk` + `yuzuki-latest.apk`，
   与本地 `app-release.apk` 三方 sha256 一致 `000f3552…749ba0`（10.6MB，`versionCode=1068`）；
   已装到 `192.168.5.16:45195`（`versionCode=1068`、`versionName=0.1.68`），未启动、测试由用户自测。
+
+**本次调整（2026-11-25，弹出框观感修正 · 0.1.69）**：
+
+- 用户反馈：① 框顶到顶栏的距离太小；② 看着不像弹出框，像换了一个新界面（顶部空白处看不到后面的内容）；
+  ③ 多了一圈莫名其妙的灰色框线，不要，增大空间利用率。
+- 改法（`ui/DetailSheet.kt` + `ui/RootScreen.kt`）：
+  - `SheetTopGap` 8 → **56dp**，留白明显；
+  - `RootScreen` 的 Work 分支不再套「不透明页面底色 + statusBarsPadding」的外壳，改由
+    `WorkDetailOverlay` 自己铺一层 `#99000000` 压暗层（底层库页 / 播放器仍可见），
+    框顶留白处透出的就是被压暗的后面内容；点压暗层空白直接关框（无涟漪）；
+    顶栏下面垫一层页底色，避免压暗层与底层内容透上来干扰文字；
+  - 删掉 `1dp` 描边（`WebColors.Border`），框就是纯圆角不透明面板，不再有灰线。
+- 验证：`:app:testDebugUnitTest` **166 例全过、0 失败 0 错误**；未做界面测试。
+- Release `0.1.69` 已构建并发布共享：`yuzuki-0.1.69-1125-1618.apk` + `yuzuki-latest.apk`，
+  sha256 `6618a791…09aca3b`，`versionCode=1069`；
+  已装到 `192.168.5.16:45195`（`versionCode=1069`、`versionName=0.1.69`），未启动、测试由用户自测。
 
 ## 已知限制
 
