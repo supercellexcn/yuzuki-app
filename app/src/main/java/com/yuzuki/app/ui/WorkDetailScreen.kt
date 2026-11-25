@@ -70,7 +70,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.graphicsLayer
@@ -115,9 +114,6 @@ private val FileListShape = RoundedCornerShape(14.dp)
 
 /** .cover: radius 10。 */
 private val CoverShape = RoundedCornerShape(10.dp)
-
-/** 标签圆角（web 为 4px，按项目「框体一律圆角」规范取 8）。 */
-private val TagShape = RoundedCornerShape(8.dp)
 
 /** 全屏看图解码长边：卡片用 720，查看器提到 1440，比原图清晰又不会 OOM。 */
 private const val VIEWER_TARGET_PX = 1440
@@ -497,70 +493,6 @@ private fun MetaRow(label: String, content: @Composable () -> Unit) {
     ) {
         Text(label, fontSize = 15.sp, color = WebColors.Muted)
         content()
-    }
-}
-
-/**
- * 声优 / 类型标签 + 内嵌收藏加减号：右侧 22 宽自成正方区域，
- * 左侧 1px 渐隐分隔线（web .fav-toggle::before）。
- */
-@Composable
-private fun FavableTag(
-    text: String,
-    category: String,
-    background: Color,
-    favored: Boolean,
-    onOpen: () -> Unit,
-    onToggle: () -> Unit,
-) {
-    // 自定义标签（含内置「全年龄」）与 web `.tag-custom` 一致：深绿底 + 薄荷绿字 + 深绿描边
-    val custom = category == CUSTOM_TAG
-    Row(
-        modifier = Modifier
-            .height(22.dp)
-            .clip(TagShape)
-            .background(if (custom) WebColors.CustomTagBg else background)
-            .then(if (custom) Modifier.border(1.dp, WebColors.CustomTagBorder, TagShape) else Modifier)
-            .clickable(onClick = onOpen),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Text(
-            text,
-            style = pillTextStyle(12.sp),
-            color = if (custom) WebColors.CustomTagFg else Color.White,
-            maxLines = 1,
-            modifier = Modifier.padding(start = 7.dp, end = 6.dp),
-        )
-        Box(
-            modifier = Modifier
-                .fillMaxHeight()
-                .width(22.dp)
-                .clickable(onClick = onToggle),
-            contentAlignment = Alignment.Center,
-        ) {
-            androidx.compose.foundation.Canvas(
-                modifier = Modifier
-                    .align(Alignment.CenterStart)
-                    .width(1.dp)
-                    .fillMaxHeight(0.62f),
-            ) {
-                drawRect(
-                    brush = Brush.verticalGradient(
-                        listOf(
-                            Color.White.copy(alpha = 0f),
-                            Color.White.copy(alpha = 0.4f),
-                            Color.White.copy(alpha = 0.4f),
-                            Color.White.copy(alpha = 0f),
-                        ),
-                    ),
-                )
-            }
-            Text(
-                if (favored) "−" else "+",
-                style = pillTextStyle(12.sp, FontWeight.Bold),
-                color = if (custom) WebColors.CustomTagFg else Color.White,
-            )
-        }
     }
 }
 

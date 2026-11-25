@@ -7,7 +7,6 @@ import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
@@ -65,6 +64,8 @@ import kotlin.math.roundToInt
  * 浮动圆控件的几何（纯数值，JVM 单测直接断言，不依赖 Compose 运行时）。
  *
  * 这里**没有侧栏面板**：滑动只是把一组圆控件浮到内容之上，整体随手指水平位移进出。
+ * 圆组**固定贴底**：不论从屏幕哪个高度右滑拉起，都落在底部导航栏上方同一位置，
+ * 不再跟着起手高度上下浮动（2026-11-25 按用户要求改）。
  *
  * 尺寸不走「按屏宽等分」——那样 360 屏上圆直径会到 71dp，铺满整行，看起来又大又散。
  * 按市场主流做法（Material 3 FAB 56dp / 24dp 图标 / 16dp 间距，AssistiveTouch、
@@ -89,16 +90,8 @@ internal object DrawerGeometry {
         columns: Int = 4,
     ): Float = circleDp * columns + gapDp * (columns - 1)
 
-    /**
-     * 圆组顶部位置：以「拉出时手指按下的高度」为中心算起，上下各留 [marginPx]。
-     * 手指按在很靠上 / 很靠下的位置时圆组会被钳制回可用区间，不会跑出屏幕。
-     */
-    fun groupTopPx(startFraction: Float, availPx: Float, groupPx: Float, marginPx: Float): Float {
-        val usable = availPx - groupPx - marginPx * 2
-        if (usable <= 0f) return marginPx
-        val centered = startFraction.coerceIn(0f, 1f) * availPx - groupPx / 2f
-        return centered.coerceIn(marginPx, marginPx + usable)
-    }
+    /** 圆组底边到屏幕底的距离：底部导航栏 + 固定 18dp 间隙，与起手高度无关。 */
+    fun bottomPadDp(tabBarDp: Float, gapDp: Float): Float = tabBarDp + gapDp
 }
 
 private data class SideEntry(val type: String, val label: String)
@@ -111,18 +104,18 @@ private val SIDE_FILTERS = listOf(
     SideEntry("tag", "标签"),
 )
 
-/** 底部两个圆与底部导航栏之间留出的距离。 */
+/** 圆组与底部导航栏之间留出的距离。 */
 private val BottomOrbGap = 18.dp
 private val OrbRowGap = DrawerGeometry.GAP_DP.dp
-private val OrbGroupMargin = 12.dp
 
 /**
  * 浮动圆控件层（取代原来的侧栏抽屉）。
  *
  * 没有面板、没有遮罩：
  * - 在库页右拖超过门槛后，这组圆随水平位移从左浮入（跟手，不是固定时长动画）；
- * - 圆组垂直位置以 [startFraction]（起手高度占比）为中心，上下钳制；
- * - 上排 4 个筛选圆（社团 / 系列 / 声优 / 标签）、下面 1 个收藏圆，底部账号 / 设置两个圆；
+ * - 圆组**固定贴底**：上排 4 个筛选圆（社团 / 系列 / 声优 / 标签），下排账号 / 设置两个圆，
+ *   底边压在底部导航栏上方 18dp，与手指从哪里按下去无关；
+ * - **没有收藏圆**：收藏入口已改到底部导航栏的星标 Tab；
  * - 点圆外的空白关闭，在控件层上向左拖也能收起（位移实时回传给 RootScreen）。
  */
 @OptIn(ExperimentalMaterial3Api::class)
@@ -131,14 +124,11 @@ fun SideDrawer(
     fraction: Float,
     /** 手势位移换算基准宽度：拖过这个宽度算「全开」。 */
     swipeWidth: Dp,
-    /** 起手高度占可用高度的比例（0–1）；点右上角菜单按钮打开时沿用上一次的值。 */
-    startFraction: Float,
     onDragBy: (Float) -> Unit,
     /** 松手回调，参数为整段拖动的水平位移（px，左负右正），用于区分「收起」与「回弹展开」 */
     onDragEnd: (Float) -> Unit,
     userName: String,
     onDismiss: () -> Unit,
-    onOpenFavorites: () -> Unit,
     onOpenSettings: () -> Unit,
     onOpenChangePassword: () -> Unit,
     onChangeServer: () -> Unit,
@@ -162,9 +152,8 @@ fun SideDrawer(
     val circle = DrawerGeometry.CIRCLE_DP.dp
     val groupWidth = DrawerGeometry.groupWidthDp().dp
     val gap = DrawerGeometry.GAP_DP.dp
-    val groupHeight = circle * 2 + OrbRowGap
-    // 底部两个圆占掉的竖向空间：登录圆 + 与导航栏的间距 + 导航栏本身
-    val bottomReserve = circle + BottomOrbGap + TabBarHeight
+    // 圆组固定贴底：底边永远压在底部导航栏上方 18dp
+    val bottomPad = DrawerGeometry.bottomPadDp(TabBarHeight.value, BottomOrbGap.value).dp
 
     LaunchedEffect(fraction > 0f) {
         if (fraction <= 0f) return@LaunchedEffect
@@ -209,68 +198,39 @@ fun SideDrawer(
                 .fillMaxSize()
                 .offset { IntOffset((-swipePx * (1f - fraction)).roundToInt(), 0) },
         ) {
-            // ---- 上方圆组：4 个筛选圆 + 1 个收藏圆 ----
-            BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
-                val availPx = with(density) { (maxHeight - bottomReserve).toPx() }
-                val groupPx = with(density) { groupHeight.toPx() }
-                val marginPx = with(density) { OrbGroupMargin.toPx() }
-                val topPx = DrawerGeometry.groupTopPx(
-                    startFraction = startFraction,
-                    availPx = availPx,
-                    groupPx = groupPx,
-                    marginPx = marginPx,
-                )
-
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .offset { IntOffset(0, topPx.roundToInt()) },
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(OrbRowGap),
-                ) {
-                    Column(
-                        modifier = Modifier.width(groupWidth),
-                        verticalArrangement = Arrangement.spacedBy(OrbRowGap),
-                    ) {
-                        // 第 1 行：4 个筛选圆
-                        Row(horizontalArrangement = Arrangement.spacedBy(gap)) {
-                            SIDE_FILTERS.forEach { entry ->
-                                val active = counts[entry.type].orEmpty().count {
-                                    LibraryState.conds.any { c -> c.type == entry.type && c.value == it.name }
-                                }
-                                Orb(
-                                    size = circle,
-                                    active = active > 0,
-                                    badge = active,
-                                    accent = accent,
-                                    onAccent = onAccent,
-                                    onClick = { openType = entry.type },
-                                ) { tint, modifier -> SideIcon(entry.type, tint, modifier) }
-                            }
-                        }
-
-                        // 第 2 行：收藏圆（与第 1 列对齐）
-                        Row(horizontalArrangement = Arrangement.spacedBy(gap)) {
-                            Orb(
-                                size = circle,
-                                accent = accent,
-                                onAccent = onAccent,
-                                onClick = { onAfterNavigate(); onOpenFavorites() },
-                            ) { tint, modifier -> SolidStarIcon(tint, modifier) }
-                            Spacer(Modifier.weight(1f))
-                        }
-                    }
-                }
-            }
-
-            // ---- 底部两个圆：左账号（改密 / 服务地址 / 退出登录），右设置 ----
-            Box(
+            // ---- 圆组：固定贴在底部导航栏上方 ----
+            // 上排 = 4 个筛选圆，下排 = 账号（左）/ 设置（右）。
+            // 圆组位置只由底部导航栏与固定间距决定，不再读起手高度：从屏幕任何位置右滑，
+            // 圆都从同一个「最低端」浮出，肌肉记忆不会丢。
+            Column(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
                     .fillMaxWidth()
-                    .padding(bottom = TabBarHeight + BottomOrbGap),
-                contentAlignment = Alignment.Center,
+                    .padding(bottom = bottomPad),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(OrbRowGap),
             ) {
+                // 上排：4 个筛选圆
+                Row(
+                    modifier = Modifier.width(groupWidth),
+                    horizontalArrangement = Arrangement.spacedBy(gap),
+                ) {
+                    SIDE_FILTERS.forEach { entry ->
+                        val active = counts[entry.type].orEmpty().count {
+                            LibraryState.conds.any { c -> c.type == entry.type && c.value == it.name }
+                        }
+                        Orb(
+                            size = circle,
+                            active = active > 0,
+                            badge = active,
+                            accent = accent,
+                            onAccent = onAccent,
+                            onClick = { openType = entry.type },
+                        ) { tint, modifier -> SideIcon(entry.type, tint, modifier) }
+                    }
+                }
+
+                // 下排：账号（左）+ 设置（右）
                 Row(
                     modifier = Modifier.width(groupWidth),
                     horizontalArrangement = Arrangement.spacedBy(gap),

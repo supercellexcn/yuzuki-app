@@ -25,9 +25,9 @@ import androidx.compose.ui.unit.sp
 
 /**
  * 视觉稿底部导航（图2）：纯黑底 + 顶部分割线，选中项整组变紫，无胶囊底。
- * 图标的形状按视觉稿自绘（滑块 / 圆靶 / 时钟回退），不再是 Home / PlayArrow / List。
+ * 图标的形状按视觉稿自绘（滑块 / 五角星 / 圆靶 / 时钟回退），不再是 Home / PlayArrow / List。
  */
-enum class MainTab { Library, Player, History }
+enum class MainTab { Library, Favorites, Player, History }
 
 val TabBarHeight = 65.dp
 
@@ -57,6 +57,7 @@ fun MainNavigationBar(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             MainTabItem(MainTab.Library, "库", selected, onSelect)
+            MainTabItem(MainTab.Favorites, "收藏", selected, onSelect)
             MainTabItem(MainTab.Player, "播放器", selected, onSelect)
             MainTabItem(MainTab.History, "历史", selected, onSelect)
         }
@@ -85,7 +86,7 @@ private fun RowScope.MainTabItem(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
     ) {
-        TabBarIcon(tab = tab, tint = tint, modifier = Modifier.size(23.dp))
+        TabBarIcon(tab = tab, tint = tint, active = active, modifier = Modifier.size(23.dp))
         Text(
             text = label,
             fontSize = 11.sp,

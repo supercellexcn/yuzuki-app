@@ -27,9 +27,10 @@
 ## 架构
 
 ```
-ui/          单 Activity + AppNav 返回栈 + RootScreen（Column：内容 weight + 底部 3 Tab 在下面）
-             LibraryScreen · WorkDetailScreen · CollectionsScreen · SettingsScreen（外观 + 本机缓存）· PlayerUI
-             SideDrawer（浮动圆控件：4 筛选圆 + 收藏圆 + 账号 / 设置圆，DrawerGeometry 为纯数值几何）
+ui/          单 Activity + AppNav 返回栈 + RootScreen（Column：内容 weight + 底部 4 Tab 在下面）
+             LibraryScreen · WorkDetailScreen · CollectionsScreen（收藏 / 历史）· SettingsScreen · PlayerUI
+             SideDrawer（浮动圆控件：4 筛选圆 + 账号 / 设置圆，固定贴底；DrawerGeometry 为纯数值几何）
+             FavableTag（详情 / 收藏共用的标签 + 内嵌收藏加减号）
              LibraryListViewModel（库页数据 / 分页 / 滚动快照；两个 Lazy 滚动 state 由 RootScreen 持有）
              FeedPull（信息流顶部下拉手势 + 纯判定）
 ui/theme/    Material 3 配色 + Surface 组件封装（Glass* 为兼容层）· GlassSpec 纯函数 · 圆角 / 动画令牌
@@ -156,9 +157,10 @@ ADB=.toolchain/sdk/platform-tools/adb.exe
    `192.168.*` / `10.*` / `172.16–31.*` / `127.0.0.1`；公网地址与域名一律拒绝。
 2. 用与网页端相同的账号登录；token 存于 Android Keystore 加密的 DataStore。
 3. 首次登录强制改密由**原生** `ChangePasswordScreen` 完成（不再依赖 web 端路由）。
-4. 底部 Tab 切换媒体库 / 播放器 / 历史；**没有侧栏抽屉**：在库页右滑后浮出一组圆控件 ——
-   上排 4 个筛选圆（社团 / 系列 / 声优 / 标签）+ 1 个收藏圆，底部左圆是账号菜单
-   （改密 / 服务地址 / 退出登录）、右圆是设置；文字都在圆内、图标下方。
+4. 底部 Tab 切换媒体库 / 收藏 / 播放器 / 历史（收藏 2026-11-25 起从抽屉圆改为底部星标 Tab）；
+   **没有侧栏抽屉**：在库页右滑后浮出一组圆控件 —— 上排 4 个筛选圆（社团 / 系列 / 声优 / 标签），
+   下排左圆是账号菜单（改密 / 服务地址 / 退出登录）、右圆是设置；
+   圆组**固定贴在底部导航栏上方 18dp**，不论手指从屏幕哪个高度划出都落在同一位置。
    底部导航是纯黑 + 顶部 1px 分割线（亚克力毛玻璃试过四版都失败，已回退）；
    右侧原来的悬浮竖条（MobileDock：主页 / 回顶 / 切视图 / 随机）已移除，功能由「库 Tab 重复点回顶」
    与下面两条下拉手势承担。详见「交互改版」一节。
@@ -274,6 +276,29 @@ ADB=.toolchain/sdk/platform-tools/adb.exe
 - **取消右侧「清除筛选」按钮**：单条胶囊点一下（含右侧 ×）即删除那一条，搜索词胶囊同规则，不再有全清入口。
 - 胶囊底色由半透明白 `0x59FFFFFF` 改为**不透明** `WebColors.control(1f)` + 1dp 描边 + 3dp 阴影，
   文字 `WebColors.Text`、× `WebColors.Muted`：它现在浮在封面卡片上，半透明会让文字糊在花哨封面上。
+
+**收藏改成底部 Tab + 圆组固定贴底**（2026-11-25，分支 `feat/favorites-tab`）
+
+- **底部导航变 4 格**：库 / **收藏** / 播放器 / 历史。收藏图标是五角星，未选中画空心描边
+  （与「未收藏」同形），选中填实并变紫；外接圆缩到 0.84，与相邻 Tab 的圆环视觉等大。
+- 收藏仍是**覆盖层页面**（不是 Pager 第 4 页）：点 Tab `nav.replace(Route.Favorites)`，
+  底部栏常驻；选中态优先看路由（`nav.current is Route.Favorites`），其余仍跟 Pager 当前页。
+  进收藏前先 `setFullscreen(false)`，否则从播放页进收藏再返回时 Pager 会被全屏标志卡在播放器页。
+- **抽屉里的收藏圆已删除**（入口只留底部 Tab），圆组只剩 4 个筛选圆 + 账号 / 设置圆。
+- **圆组固定贴底**：`SideDrawer` 改为 `Alignment.BottomCenter` + `bottomPad = TabBarHeight + 18dp`，
+  不再记录起手高度、也不再算「以起手高度为中心」的顶边；`DrawerGeometry.groupTopPx` 与其断言一并删除，
+  改为 `bottomPadDp` 由 `DrawerGeometryTest` 钉住。
+- **收藏页重做**（`ui/CollectionsScreen.kt`）：
+  - 四个切换胶囊（作品 / 标签 / 社团 / 声优）选中 = 主题色底 + onPrimary 字 + 无描边，
+    未选中 = control 底 + 1dp 描边；旧版四颗长得一样，看不出当前 Tab。
+  - 作品页复用库页 `WorkCard`（**固定详情卡片**，不跟随库页的列表 / 封面模式）：
+    两列瀑布流、左右 20 / gap 16 / 顶 14 / 底 24、卡底与标签 / 声优配色全部与库页一致，
+    封面左上角的收藏星照常可点。
+  - 标签 / 社团 / 声优改为**与详情页同一套胶囊**（`ui/FavableTag.kt` 抽出共用）：
+    点胶囊主体按该条件筛选回库页，点右端 22dp 区域取消收藏；标签用类型标签色、
+    声优用声优标签色、社团没有独立配色设置，用主题色底 + onPrimary 字。
+  - 列表按 `FavoritesState` 实时过滤：取消收藏后该项立即从列表消失；全局收藏态为空时不过滤，
+    避免首帧把已拿到的列表过滤成空。
 
 ## 分阶段状态
 

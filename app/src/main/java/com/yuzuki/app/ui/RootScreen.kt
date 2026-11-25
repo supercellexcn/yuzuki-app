@@ -71,9 +71,6 @@ fun RootScreen(
     var lastBackAt by remember { mutableLongStateOf(0L) }
     var drawerFraction by remember { mutableFloatStateOf(0f) }
     var drawerOpen by remember { mutableStateOf(false) }
-    // 拉出侧栏时手指按下的高度（占可用高度的比例）：圆盘里 5 个圆的垂直位置从这里起算。
-    // 点右上角菜单按钮打开时没有手势起点，沿用上一次的值。
-    var drawerStartY by remember { mutableFloatStateOf(0.55f) }
     val scope = rememberCoroutineScope()
     // 浮动圆控件的滑入基准宽度（没有面板了，只用来把手势位移换算成 0–1 的进度）
     val drawerSwipe = DrawerGeometry.swipeDp(
@@ -233,9 +230,7 @@ fun RootScreen(
                         )
                     ) {
                         dragging = true
-                        // 圆盘以起手高度为中心排布：从哪里右滑拉起，圆组就在那个高度出现
-                        val h = size.height.toFloat()
-                        if (h > 0f) drawerStartY = (down.position.y / h).coerceIn(0f, 1f)
+                        // 圆组固定贴底，不再记录起手高度：从屏幕哪里右滑，圆都在最低端出现
                     }
                 } else {
                     // 拖到一半用户其实是往下滑列表 → 回弹收手
@@ -335,11 +330,13 @@ fun RootScreen(
                 }
             }
 
-            // 底部导航常驻，选中态跟随 Pager 当前页（滑动过程中就跟着高亮）
+            // 底部导航常驻，选中态跟随 Pager 当前页（滑动过程中就跟着高亮）；
+            // 收藏是覆盖层而不是 Pager 页，所以优先看路由。
             MainNavigationBar(
-                selected = when (pagerState.currentPage) {
-                    PLAYER_PAGE -> MainTab.Player
-                    HISTORY_PAGE -> MainTab.History
+                selected = when {
+                    nav.current is Route.Favorites -> MainTab.Favorites
+                    pagerState.currentPage == PLAYER_PAGE -> MainTab.Player
+                    pagerState.currentPage == HISTORY_PAGE -> MainTab.History
                     else -> MainTab.Library
                 },
                 onSelect = { tab ->
@@ -355,6 +352,12 @@ fun RootScreen(
                             }
                             if (nav.current != Route.Library) nav.replace(Route.Library)
                             scope.launch { pagerState.animateScrollToPage(LIBRARY_PAGE) }
+                        }
+                        MainTab.Favorites -> {
+                            // 收藏页是覆盖层：先把全屏播放器标志放下，返回时 Pager 才能被
+                            // LaunchedEffect(nav.current) 拽回库页，不会卡在播放器页
+                            PlaybackController.setFullscreen(false)
+                            if (nav.current != Route.Favorites) nav.replace(Route.Favorites)
                         }
                         MainTab.Player -> {
                             if (overlayRoute != null) nav.replace(Route.Library)
@@ -378,7 +381,6 @@ fun RootScreen(
         SideDrawer(
             fraction = drawerFraction,
             swipeWidth = drawerSwipe,
-            startFraction = drawerStartY,
             onDragBy = { delta ->
                 drawerFraction = (drawerFraction + delta).coerceIn(0f, 1f)
                 drawerOpen = drawerFraction > 0f
@@ -386,7 +388,6 @@ fun RootScreen(
             onDragEnd = { total -> settleDrawer(closing = total < 0f) },
             userName = userName ?: "",
             onDismiss = { animateDrawer(0f) },
-            onOpenFavorites = { nav.replace(Route.Favorites) },
             onOpenSettings = { nav.go(Route.Settings) },
             onOpenChangePassword = { nav.go(Route.ChangePassword) },
             onChangeServer = {

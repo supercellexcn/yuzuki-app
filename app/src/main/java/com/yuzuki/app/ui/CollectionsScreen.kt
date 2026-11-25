@@ -8,19 +8,16 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items as gridItems
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.staggeredgrid.LazyVerticalStaggeredGrid
@@ -28,7 +25,9 @@ import androidx.compose.foundation.lazy.staggeredgrid.StaggeredGridCells
 import androidx.compose.foundation.lazy.staggeredgrid.StaggeredGridItemSpan
 import androidx.compose.foundation.lazy.staggeredgrid.items as staggeredItems
 import androidx.compose.foundation.lazy.staggeredgrid.rememberLazyStaggeredGridState
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -53,17 +52,27 @@ import com.yuzuki.app.data.AppContainer
 import com.yuzuki.app.data.FilterCond
 import com.yuzuki.app.data.PlayRecord
 import com.yuzuki.app.data.Work
-import com.yuzuki.app.ui.theme.GlassItem
-import com.yuzuki.app.ui.theme.GlassPill
-import com.yuzuki.app.ui.theme.GlassSurface
+import com.yuzuki.app.data.WorkTag
 import com.yuzuki.app.ui.theme.LocalAppearance
-import com.yuzuki.app.ui.theme.ShapeCard
-import com.yuzuki.app.ui.theme.ShapeItem
+import com.yuzuki.app.ui.theme.ShapePill
 import com.yuzuki.app.ui.theme.WebColors
+import com.yuzuki.app.ui.theme.pillTextStyle
 import kotlinx.coroutines.launch
 import java.time.Instant
 import java.time.ZoneId
 
+/**
+ * 我的收藏（底部导航「收藏」Tab，2026-11-25 起）。
+ *
+ * - 四个切换胶囊：选中 = 主题色底 + onPrimary 文字，未选中 = 控件底 + 描边，
+ *   解决旧版「看不出当前在哪个 Tab」。
+ * - 作品：完全复用库页的 `WorkCard`（详情卡片固定形态，卡底 / 信息区 / 标签 / 声优配色同库页），
+ *   封面左上角的收藏星照常可点。
+ * - 标签 / 社团 / 声优：与详情页同一套 `FavableTag` 胶囊，点主体按条件筛选，点右端取消收藏；
+ *   社团没有独立配色设置，用主题色底 + onPrimary 字。
+ * - 列表按 `FavoritesState` 实时过滤：取消收藏后该项立即从列表消失，不用重新请求。
+ */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun FavoritesScreen(
     onOpenWork: (String) -> Unit,
@@ -73,96 +82,193 @@ fun FavoritesScreen(
     val scope = rememberCoroutineScope()
     var tab by remember { mutableStateOf(0) }
     var works by remember { mutableStateOf<List<Work>>(emptyList()) }
-    var tags by remember { mutableStateOf<List<Pair<String, String>>>(emptyList()) }
+    var tags by remember { mutableStateOf<List<WorkTag>>(emptyList()) }
     var circles by remember { mutableStateOf<List<String>>(emptyList()) }
     var actors by remember { mutableStateOf<List<String>>(emptyList()) }
     var error by remember { mutableStateOf<String?>(null) }
+    var loaded by remember { mutableStateOf(false) }
 
     suspend fun reload() {
         AppContainer.library.favorites().fold(
             onSuccess = { fav ->
+                // 先同步全局收藏态再落列表：否则首帧会按空集合过滤，闪一下「暂无收藏」
+                FavoritesState.refresh()
                 works = fav.works
-                tags = fav.tags.map { it.name to it.category }
+                tags = fav.tags
                 circles = fav.circles
                 actors = fav.actors
-                FavoritesState.refresh()
+                loaded = true
+                error = null
             },
             onFailure = { error = it.message },
         )
     }
-    LaunchedEffect(Unit) { reload() }
+    LaunchedEffect(Unit) { if (!loaded) reload() }
 
-    Column(modifier = modifier.fillMaxSize().padding(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        Text("我的收藏", style = MaterialTheme.typography.titleMedium)
-        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            listOf("作品", "标签", "社团", "声优").forEachIndexed { index, label ->
-                GlassPill(onClick = { tab = index }) {
-                    Text(label, style = MaterialTheme.typography.labelMedium,
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp))
+    val appearance = LocalAppearance.current
+    val accent = MaterialTheme.colorScheme.primary
+    val onAccent = MaterialTheme.colorScheme.onPrimary
+    val cardBg = WebColors.panel(appearance.navColor, appearance.panelAlpha)
+    val metaBg = WebColors.cardMeta(appearance.navColor)
+    val genreBg = WebColors.tagBg(appearance.tagColor, appearance.genreTagAlpha)
+    val actorBg = WebColors.tagBg(appearance.actorColor, appearance.actorTagAlpha)
+
+    // 全局收藏态为空（首次加载未回来 / 刷新失败）时不过滤，避免把已拿到的列表过滤成空
+    val visibleWorks = if (FavoritesState.workRjs.isEmpty()) works
+    else works.filter { FavoritesState.workRjs.contains(it.rjCode) }
+    val visibleTags = if (FavoritesState.tags.isEmpty()) tags
+    else tags.filter { FavoritesState.tags.contains(it.name) }
+    val visibleCircles = if (FavoritesState.circles.isEmpty()) circles
+    else circles.filter { FavoritesState.circles.contains(it) }
+    val visibleActors = if (FavoritesState.actors.isEmpty()) actors
+    else actors.filter { FavoritesState.actors.contains(it) }
+
+    Column(modifier = modifier.fillMaxSize()) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(start = 20.dp, end = 20.dp, top = 14.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Text("我的收藏", fontSize = 22.5.sp, fontWeight = FontWeight.Bold, color = WebColors.Text)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                listOf("作品", "标签", "社团", "声优").forEachIndexed { index, label ->
+                    FavTabPill(
+                        label = label,
+                        active = tab == index,
+                        accent = accent,
+                        onAccent = onAccent,
+                        onClick = { tab = index },
+                    )
                 }
             }
         }
-        if (error != null) {
-            StateBox(message = error ?: "加载失败", modifier = Modifier.fillMaxSize(),
-                onRetry = { scope.launch { reload() } })
-            return@Column
-        }
-        when (tab) {
-            0 -> LazyVerticalGrid(
-                columns = GridCells.Fixed(2),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-                modifier = Modifier.weight(1f),
-            ) {
-                gridItems(works, key = { it.rjCode }) { work ->
-                    GlassSurface(
-                        modifier = Modifier.height(220.dp),
-                        shape = ShapeCard,
-                        onClick = { onOpenWork(work.rjCode) },
+
+        val fail = error
+        when {
+            fail != null && works.isEmpty() -> StateBox(
+                message = "加载失败：$fail",
+                modifier = Modifier.fillMaxSize().padding(20.dp),
+                onRetry = { scope.launch { reload() } },
+            )
+            tab == 0 -> {
+                if (visibleWorks.isEmpty()) {
+                    FavoritesEmpty(loaded)
+                } else {
+                    // 与库页详情模式同一套瀑布流参数（左右 20、gap 16、顶 14、底 24）
+                    LazyVerticalStaggeredGrid(
+                        columns = StaggeredGridCells.Fixed(2),
+                        contentPadding = PaddingValues(
+                            start = 20.dp, end = 20.dp, top = 14.dp, bottom = 24.dp,
+                        ),
+                        horizontalArrangement = Arrangement.spacedBy(16.dp),
+                        verticalItemSpacing = 16.dp,
+                        modifier = Modifier.fillMaxSize(),
                     ) {
-                        Column {
-                            RemoteImage(
-                                url = AppContainer.api.coverUrl(work.rjCode),
-                                modifier = Modifier.fillMaxWidth().height(150.dp).clip(ShapeItem),
+                        staggeredItems(visibleWorks, key = { it.rjCode }) { work ->
+                            WorkCard(
+                                work = work,
+                                // 固定用详情卡片：不跟随库页的列表 / 封面模式
+                                imageMode = false,
+                                cardBg = cardBg,
+                                metaBg = metaBg,
+                                genreBg = genreBg,
+                                actorBg = actorBg,
+                                onOpen = { onOpenWork(work.rjCode) },
+                                modifier = Modifier.fillMaxWidth(),
+                                onCond = onApplyCond,
                             )
-                            Text(work.title, style = MaterialTheme.typography.bodySmall, maxLines = 2,
-                                modifier = Modifier.padding(8.dp))
                         }
                     }
                 }
             }
             else -> {
-                val values: List<Pair<String, String>> = when (tab) {
-                    1 -> tags
-                    2 -> circles.map { it to "" }
-                    else -> actors.map { it to "" }
+                val entries = when (tab) {
+                    1 -> visibleTags.map { FavTagEntry(it.name, it.category, "tag") }
+                    2 -> visibleCircles.map { FavTagEntry(it, "", "circle") }
+                    else -> visibleActors.map { FavTagEntry(it, "", "actor") }
                 }
-                val type = when (tab) { 1 -> "tag"; 2 -> "circle"; else -> "actor" }
-                if (values.isEmpty()) {
-                    StateBox(message = "暂无收藏", modifier = Modifier.fillMaxSize())
-                } else {
-                    LazyColumn(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        items(values) { (value, extra) ->
-                            GlassItem(
-                                modifier = Modifier.fillMaxWidth(),
-                                onClick = { onApplyCond(FilterCond(type, value)) },
-                            ) {
-                                Row(modifier = Modifier.fillMaxWidth().padding(12.dp)) {
-                                    Text(value, style = MaterialTheme.typography.bodyMedium,
-                                        modifier = Modifier.weight(1f))
-                                    GlassPill(onClick = {
-                                        scope.launch { FavoritesState.toggleWithToast(type, value, extra); reload() }
-                                    }) {
-                                        Text("移除", style = MaterialTheme.typography.labelSmall,
-                                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp))
-                                    }
-                                }
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .verticalScroll(rememberScrollState())
+                        .padding(start = 20.dp, end = 20.dp, top = 14.dp, bottom = 24.dp),
+                ) {
+                    if (entries.isEmpty()) {
+                        FavoritesEmpty(loaded)
+                    } else {
+                        FlowRow(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            entries.forEach { entry ->
+                                FavableTag(
+                                    text = entry.value,
+                                    category = entry.category,
+                                    background = when (entry.type) {
+                                        "tag" -> genreBg
+                                        "actor" -> actorBg
+                                        else -> accent
+                                    },
+                                    foreground = if (entry.type == "circle") onAccent else Color.White,
+                                    favored = true,
+                                    onOpen = { onApplyCond(FilterCond(entry.type, entry.value)) },
+                                    onToggle = {
+                                        scope.launch {
+                                            FavoritesState.toggleWithToast(
+                                                entry.type, entry.value, entry.category,
+                                            )
+                                        }
+                                    },
+                                )
                             }
                         }
                     }
                 }
             }
         }
+    }
+}
+
+/** 收藏页的标签条目：value + 标签 category（自定义标签配色要用）+ 收藏类型。 */
+private data class FavTagEntry(val value: String, val category: String, val type: String)
+
+/** 切换胶囊：选中整颗换主题色，未选中只有描边 —— 一眼就能看出当前 Tab。 */
+@Composable
+private fun FavTabPill(
+    label: String,
+    active: Boolean,
+    accent: Color,
+    onAccent: Color,
+    onClick: () -> Unit,
+) {
+    Box(
+        modifier = Modifier
+            .clip(ShapePill)
+            .background(if (active) accent else WebColors.control(0.7f))
+            .border(1.dp, if (active) Color.Transparent else WebColors.Border, ShapePill)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 14.dp, vertical = 6.dp),
+    ) {
+        Text(
+            label,
+            style = pillTextStyle(13.sp, if (active) FontWeight.SemiBold else FontWeight.Normal),
+            color = if (active) onAccent else WebColors.Text,
+        )
+    }
+}
+
+@Composable
+private fun FavoritesEmpty(loaded: Boolean) {
+    Box(
+        modifier = Modifier.fillMaxWidth().padding(vertical = 60.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            if (loaded) "暂无收藏" else "加载中…",
+            fontSize = 14.sp,
+            color = WebColors.Muted,
+        )
     }
 }
 

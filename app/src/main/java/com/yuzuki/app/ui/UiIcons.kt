@@ -28,9 +28,9 @@ import kotlin.math.sin
 
 private const val VIEW = 24f
 
-/** 底部 Tab 图标：库 = 三条滑块；播放器 = 圆环 + 斜置八分音符；历史 = 时钟 + 逆时针箭头。 */
+/** 底部 Tab 图标：库 = 三条滑块；收藏 = 五角星；播放器 = 圆环 + 斜置八分音符；历史 = 时钟 + 逆时针箭头。 */
 @Composable
-fun TabBarIcon(tab: MainTab, tint: Color, modifier: Modifier = Modifier) {
+fun TabBarIcon(tab: MainTab, tint: Color, modifier: Modifier = Modifier, active: Boolean = false) {
     Canvas(modifier) {
         val u = size.minDimension / VIEW
         val stroke = 1.7f * u
@@ -46,6 +46,18 @@ fun TabBarIcon(tab: MainTab, tint: Color, modifier: Modifier = Modifier) {
                         cap = StrokeCap.Round,
                     )
                     drawCircle(tint, radius = 2.2f * u, center = Offset(knobX * u, y * u))
+                }
+            }
+            MainTab.Favorites -> {
+                // 五角星：未选中画空心（与「未收藏」同形的描边星），选中填实。
+                // 外接圆缩到 0.84，与相邻 Tab 的圆环（半径 8.4/24）视觉等大，不会顶满一格。
+                scale(0.84f, pivot = center) {
+                    val star = starPath(size)
+                    if (active) {
+                        drawPath(star, tint)
+                    } else {
+                        drawPath(star, tint, style = Stroke(stroke, join = StrokeJoin.Round))
+                    }
                 }
             }
             MainTab.Player -> {
@@ -753,14 +765,6 @@ fun HomeIcon(tint: Color, modifier: Modifier = Modifier) {
         drawLine(tint, Offset(10f * u, 20f * u), Offset(10f * u, 14f * u), stroke, StrokeCap.Round)
         drawLine(tint, Offset(10f * u, 14f * u), Offset(14f * u, 14f * u), stroke, StrokeCap.Round)
         drawLine(tint, Offset(14f * u, 14f * u), Offset(14f * u, 20f * u), stroke, StrokeCap.Round)
-    }
-}
-
-/** 实心五角星（侧栏「我的收藏」用）。 */
-@Composable
-fun SolidStarIcon(tint: Color, modifier: Modifier = Modifier) {
-    Canvas(modifier) {
-        drawPath(starPath(size), tint, style = Stroke(width = size.minDimension * 0.085f, join = StrokeJoin.Round))
     }
 }
 
