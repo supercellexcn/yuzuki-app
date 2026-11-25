@@ -1114,7 +1114,8 @@ ADB=.toolchain/sdk/platform-tools/adb.exe
 **本次改动（2026-11-25，详情框顶部加 iPhone 式抓手 · 0.1.74）**：
 
 - 用户要求：作品详情弹框顶部补一条 iPhone 那样的手势条。
-- 实现（`ui/DetailSheet.kt` 新增私有 `SheetGrabber()`）：`36×5dp` 圆角 `2.5dp` 胶囊，
+- 实现（`ui/DetailSheet.kt` 新增私有 `SheetGrabber()`）：`36×5dp` 圆角 `2.5dp` 胶囊
+  （**0.1.75 起加宽为 `48dp`**），
   颜色 `WebColors.Muted.copy(alpha = 0.5f)`（面板底 #23262E 上的浅灰条），水平居中，
   外层占 `18dp` 高（条距框顶约 6.5dp）。
 - 位置：放在平移层里 `Column(clip + background)` 的最前面、`content()` 之前 —— 跟着框一起滑，
@@ -1127,6 +1128,16 @@ ADB=.toolchain/sdk/platform-tools/adb.exe
 - Release `0.1.74` 已构建并发布共享：`yuzuki-0.1.74-1125-1704.apk` + `yuzuki-latest.apk`，
   sha256 `b50edf40…5ebc93`（10 621 430 字节），`versionCode=1074`；
   已装到 `192.168.5.16:45195`（`dumpsys` 核对 `versionCode=1074`、`versionName=0.1.74`），
+  未启动、测试由用户自测。
+
+**本次改动（2026-11-25，抓手加宽 · 0.1.75）**：
+
+- 用户觉得 0.1.74 的抓手偏窄，要求加宽。`GrabberWidth` 由 `36.dp` 改为 `48.dp`，
+  高度 `5dp`、圆角 `2.5dp`、颜色与占位高度（18dp）不变。
+- 验证：`:app:testDebugUnitTest` **169 例全过、0 失败 0 错误**；未做界面测试（真机由用户自测）。
+- Release `0.1.75` 已构建并发布共享：`yuzuki-0.1.75-1125-1708.apk` + `yuzuki-latest.apk`，
+  sha256 `b3019310…acd2db2`，`versionCode=1075`；
+  已装到 `192.168.5.16:45195`（`dumpsys` 核对 `versionCode=1075`、`versionName=0.1.75`），
   未启动、测试由用户自测。
 
 ## 已知限制
