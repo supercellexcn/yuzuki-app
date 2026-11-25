@@ -50,10 +50,22 @@ import kotlin.math.roundToInt
 private val SheetShape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)
 
 /**
- * 框顶到详情顶栏的留白：这段空隙露的是**被压暗的底层内容**（库页 / 播放器），
+ * 框顶到「原详情顶栏底边」的留白：这段空隙露的是**被压暗的底层内容**（库页 / 播放器），
  * 才看得出是个浮起来的弹出框，而不是又换了一个新界面。
  */
 private val SheetTopGap = 56.dp
+
+/**
+ * 已删除的详情顶栏占位：原 `WebTopBar` = 56dp 栏 + 1dp 分割线 = 57dp。
+ *
+ * 2026-11-25 顶栏按用户要求去掉后，这 57dp 仍然留在框上方（同样露被压暗的底层内容），
+ * 弹出框的顶边与高度跟有顶栏时一模一样 —— 用户明确要「恢复高度，不是恢复顶栏」。
+ * 别再把这 57dp 加回来当顶栏，也不要删掉它让框变高。
+ */
+private val RemovedTopBarSpace = 57.dp
+
+/** 框顶到容器顶的实际距离 = 原留白 + 已删顶栏占位。 */
+private val SheetTopOffset = SheetTopGap + RemovedTopBarSpace
 
 /** 底层压暗度：够暗到不抢框内内容，又留着形影能认出后面是什么。 */
 private val ScrimColor = Color(0x99000000)
@@ -118,7 +130,7 @@ fun DetailSheet(
     val scope = rememberCoroutineScope()
     val density = LocalDensity.current
     val slopPx = with(density) { SheetDragSlop.toPx() }
-    val gapPx = with(density) { SheetTopGap.toPx() }
+    val gapPx = with(density) { SheetTopOffset.toPx() }
 
     // 框高在布局期就能算出来（父高 − 顶部留白），不必等 onSizeChanged 回调；
     // 首帧直接把框摆在屏幕下方，再滑到就位，避免「先可见再隐藏」的闪一下，
@@ -180,8 +192,8 @@ fun DetailSheet(
             // 手指一停 offset 就逐帧来回跳（上下抖动），匀速拖动也只跟到手指的一半。
             // 0.1.70 / 0.1.71 / 0.1.72 都在改「什么时候消费事件」，从未动过坐标系，所以没修掉。
             // 这里的 padding 是固定布局偏移（不含 offsetPx），坐标系稳定；同时把命中区收在框内，
-            // 顶部那 [SheetTopGap] 空隙仍归下层空白层，不会误吃关闭点击。
-            Box(Modifier.fillMaxSize().padding(top = SheetTopGap)) {
+            // 顶部那 [SheetTopOffset] 空隙仍归下层空白层，不会误吃关闭点击。
+            Box(Modifier.fillMaxSize().padding(top = SheetTopOffset)) {
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
@@ -272,7 +284,7 @@ fun DetailSheet(
  * 作品详情覆盖层：底层压暗 + 详情弹出框。
  *
  * **没有顶栏**（2026-11-25 按用户要求去掉）：详情只是一块浮在内容上的弹出框，
- * 框顶那 [SheetTopGap] 的留白透出被压暗的底层页面（库 / 播放器 / 收藏 / 历史），
+ * 框顶那 [SheetTopOffset] 的留白透出被压暗的底层页面（库 / 播放器 / 收藏 / 历史），
  * 关框靠下滑、点框外空白或系统返回键。
  */
 @Composable
