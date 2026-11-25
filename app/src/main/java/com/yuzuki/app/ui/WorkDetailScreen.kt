@@ -3,7 +3,6 @@ package com.yuzuki.app.ui
 import android.Manifest
 import android.content.pm.PackageManager
 import android.os.Build
-import android.util.Base64
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -13,11 +12,9 @@ import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animate
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
-import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
@@ -59,7 +56,6 @@ import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
-import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -97,12 +93,9 @@ import com.yuzuki.app.playback.PlaybackController
 import com.yuzuki.app.ui.theme.LocalAppearance
 import com.yuzuki.app.ui.theme.WebColors
 import com.yuzuki.app.ui.theme.pillTextStyle
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
-import okhttp3.Request
 
 /*
  * 作品详情页：按 web `views/PlayerView.vue` + `components/FileList.vue` 的 CSS 1:1 复刻。
@@ -176,8 +169,6 @@ fun WorkDetailScreen(
     var expanded by remember(rj) { mutableStateOf<Set<String>>(emptySet()) }
     var viewerIndex by remember { mutableStateOf<Int?>(null) }
     var viewerFiles by remember { mutableStateOf<List<MediaFile>>(emptyList()) }
-    var message by remember { mutableStateOf<String?>(null) }
-    var coverVersion by remember { mutableLongStateOf(0L) }
 
     suspend fun reload() {
         error = null
@@ -255,7 +246,7 @@ fun WorkDetailScreen(
             item(key = "header") {
                 HeaderCard(
                     work = work,
-                    coverUrl = AppContainer.api.coverUrl(rj) + if (coverVersion > 0) "&v=$coverVersion" else "",
+                    coverUrl = AppContainer.api.coverUrl(rj),
                     favored = fav,
                     actorBg = actorBg,
                     genreBg = genreBg,
@@ -292,7 +283,6 @@ fun WorkDetailScreen(
                         PlaybackController.play(rj, file, work, queue)
                         onOpenPlayer()
                     },
-                    onImageAction = { file, kind -> scope.launch { runImageAction(rj, file, kind, onCover = { coverVersion = System.currentTimeMillis() }, onMessage = { message = it }) } },
                 )
             }
 
@@ -313,12 +303,6 @@ fun WorkDetailScreen(
                         genreBg = genreBg,
                         actorBg = actorBg,
                     )
-                }
-            }
-
-            message?.let { text ->
-                item(key = "msg") {
-                    Text(text, fontSize = 12.sp, color = accent)
                 }
             }
         }
@@ -509,14 +493,12 @@ private fun FileListBlock(
     onToggleDir: (String) -> Unit,
     onOpenImage: (MediaFile) -> Unit,
     onOpenFile: (MediaFile) -> Unit,
-    onImageAction: (MediaFile, String) -> Unit,
 ) {
     // web isVisible：只有当所有祖先目录都展开时这一行才可见
     val visible = files.filter { file ->
         val ancestors = file.relPath.split('/').dropLast(1)
         ancestors.indices.all { i -> expanded.contains(ancestors.take(i + 1).joinToString("/")) }
     }
-    var menuFile by remember { mutableStateOf<MediaFile?>(null) }
 
     Column(
         modifier = Modifier
@@ -547,21 +529,11 @@ private fun FileListBlock(
                         file.playable -> onOpenFile(file)
                     }
                 },
-                onLongPress = if (!file.isDir && file.kind == "image") {
-                    { menuFile = file }
-                } else null,
-                onImageAction = { kind ->
-                    menuFile = null
-                    onImageAction(file, kind)
-                },
-                menuOpen = menuFile?.id == file.id,
-                onDismissMenu = { menuFile = null },
             )
         }
     }
 }
 
-@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun FileRow(
     file: MediaFile,
@@ -570,17 +542,15 @@ private fun FileRow(
     accent: Color,
     showDivider: Boolean,
     onOpen: () -> Unit,
-    onLongPress: (() -> Unit)?,
-    onImageAction: (String) -> Unit,
-    menuOpen: Boolean,
-    onDismissMenu: () -> Unit,
 ) {
     // .file-item: gap 12 / padding 10 14 10 12+20*depth / 15px / 底边 1px
+    // 图片行**不再响应长按**（2026-11-25）：原来长按弹「设为作品封面 / 移动壁纸 / 桌面壁纸」，
+    // 用户要求图片长按不弹任何选项，所以这里只用普通 clickable。
     Box {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .combinedClickable(onClick = onOpen, onLongClick = onLongPress)
+                .clickable(onClick = onOpen)
                 .background(if (playing) accent.copy(alpha = 0.2f) else Color.Transparent)
                 .padding(
                     start = (12 + file.depth() * 20).dp,
@@ -632,12 +602,6 @@ private fun FileRow(
             if (action.isNotEmpty()) {
                 Text(action, fontSize = 13.sp, color = WebColors.Muted)
             }
-        }
-        DropdownMenu(expanded = menuOpen, onDismissRequest = onDismissMenu) {
-            DropdownMenuItem(text = { Text("设为作品封面") }, onClick = { onImageAction("cover") })
-            DropdownMenuItem(text = { Text("设为移动壁纸") }, onClick = { onImageAction("mobile") })
-            DropdownMenuItem(text = { Text("设为桌面壁纸") }, onClick = { onImageAction("desktop") })
-            DropdownMenuItem(text = { Text("取消") }, onClick = onDismissMenu)
         }
         if (showDivider) {
             Box(
@@ -706,36 +670,7 @@ private fun RecEmpty(text: String) {
     }
 }
 
-// ---------------------------------------------------------------- 图片动作 / 查看器
-
-/** 图片长按动作：设为作品封面 / 移动壁纸 / 桌面壁纸（web useImageActions）。 */
-private suspend fun runImageAction(
-    rj: String,
-    file: MediaFile,
-    kind: String,
-    onCover: () -> Unit,
-    onMessage: (String) -> Unit,
-) {
-    when (kind) {
-        "cover" -> AppContainer.api.setWorkCover(rj, file.id)
-            .onSuccess {
-                onCover()
-                onMessage("封面已更新")
-            }
-            .onFailure { onMessage("设置封面失败：${it.message}") }
-
-        "mobile" -> uploadWallpaper(rj, file, "mobile")
-            .onSuccess {
-                WallpaperState.bump()
-                onMessage("移动壁纸已更新")
-            }
-            .onFailure { onMessage("壁纸上传失败：${it.message}") }
-
-        "desktop" -> uploadWallpaper(rj, file, "desktop")
-            .onSuccess { onMessage("桌面壁纸已更新") }
-            .onFailure { onMessage("壁纸上传失败：${it.message}") }
-    }
-}
+// ---------------------------------------------------------------- 图片查看器
 
 @Composable
 private fun ImageViewer(
@@ -1202,19 +1137,5 @@ private suspend fun PointerInputScope.viewerZoomGesture(
                 onSettle(s, p.first, p.second)
             }
         }
-    }
-}
-
-private suspend fun uploadWallpaper(rj: String, file: MediaFile, kind: String): Result<Unit> = withContext(Dispatchers.IO) {
-    runCatching {
-        val url = AppContainer.api.mediaUrl(rj, file.id)
-        val request = Request.Builder().url(url).get().build()
-        val bytes = AppContainer.http.newCall(request).execute().use { response ->
-            if (!response.isSuccessful) error("HTTP ${response.code}")
-            response.body?.bytes() ?: error("空响应")
-        }
-        val ext = file.filename.substringAfterLast('.', "jpg").lowercase()
-        val base64 = Base64.encodeToString(bytes, Base64.NO_WRAP)
-        AppContainer.api.uploadImage("/api/settings/wallpaper/$kind", base64, ext).getOrThrow()
     }
 }

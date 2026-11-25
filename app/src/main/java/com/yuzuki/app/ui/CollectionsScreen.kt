@@ -42,6 +42,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -66,8 +67,8 @@ import java.time.ZoneId
  *
  * - 四个切换胶囊：选中 = 主题色底 + onPrimary 文字，未选中 = 控件底 + 描边，
  *   解决旧版「看不出当前在哪个 Tab」。
- * - 作品：完全复用库页的 `WorkCard`（详情卡片固定形态，卡底 / 信息区 / 标签 / 声优配色同库页），
- *   封面左上角的收藏星照常可点。
+ * - 作品：**完全跟随库页当前的展示逻辑**（2026-11-25 用户要求）：库页是列表就一行一个 `WorkRow`，
+ *   是详情就两列 `WorkCard`，是封面模式就只显示封面（同一套列数 / 间距 / 统一封面高度算法）。
  * - 标签 / 社团 / 声优：与详情页同一套 `FavableTag` 胶囊，点主体按条件筛选，点右端取消收藏；
  *   社团没有独立配色设置，用主题色底 + onPrimary 字。
  * - 列表按 `FavoritesState` 实时过滤：取消收藏后该项立即从列表消失，不用重新请求。
@@ -154,30 +155,66 @@ fun FavoritesScreen(
             tab == 0 -> {
                 if (visibleWorks.isEmpty()) {
                     FavoritesEmpty(loaded)
-                } else {
-                    // 与库页详情模式同一套瀑布流参数（左右 20、gap 16、顶 14、底 24）
-                    LazyVerticalStaggeredGrid(
-                        columns = StaggeredGridCells.Fixed(2),
-                        contentPadding = PaddingValues(
-                            start = 20.dp, end = 20.dp, top = 14.dp, bottom = 24.dp,
-                        ),
-                        horizontalArrangement = Arrangement.spacedBy(16.dp),
-                        verticalItemSpacing = 16.dp,
-                        modifier = Modifier.fillMaxSize(),
+                } else if (LibraryState.view == LibraryView.List) {
+                    // 与库页列表模式完全一致：整片圆角容器 + 行内 1px 分隔
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(horizontal = 20.dp)
+                            .clip(RoundedCornerShape(14.dp)),
                     ) {
-                        staggeredItems(visibleWorks, key = { it.rjCode }) { work ->
-                            WorkCard(
-                                work = work,
-                                // 固定用详情卡片：不跟随库页的列表 / 封面模式
-                                imageMode = false,
-                                cardBg = cardBg,
-                                metaBg = metaBg,
-                                genreBg = genreBg,
-                                actorBg = actorBg,
-                                onOpen = { onOpenWork(work.rjCode) },
-                                modifier = Modifier.fillMaxWidth(),
-                                onCond = onApplyCond,
-                            )
+                        LazyColumn(modifier = Modifier.fillMaxSize()) {
+                            itemsIndexed(visibleWorks, key = { _, work -> work.rjCode }) { index, work ->
+                                WorkRow(
+                                    work = work,
+                                    rowBg = cardBg,
+                                    actorBg = actorBg,
+                                    onOpen = { onOpenWork(work.rjCode) },
+                                    onCond = onApplyCond,
+                                    showDivider = index != visibleWorks.lastIndex,
+                                )
+                            }
+                        }
+                    }
+                } else {
+                    // 详情 / 封面模式与库页同参数：列数跟屏宽、gap 16、左右 20、顶 14、底 24；
+                    // 封面模式下按整数列宽算统一封面高度，避免两列 1px 落差在瀑布流里累积。
+                    BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+                        val columns =
+                            if (LocalConfiguration.current.screenWidthDp >= 600) 3 else 2
+                        val density = LocalDensity.current
+                        val coverHeight = if (LibraryState.imageMode) {
+                            val gapPx = with(density) { 16.dp.roundToPx() }
+                            val padPx = with(density) { 20.dp.roundToPx() }
+                            val cellPx =
+                                (constraints.maxWidth - padPx * 2 - gapPx * (columns - 1)) / columns
+                            with(density) { cellPx.toDp() }
+                        } else {
+                            null
+                        }
+                        LazyVerticalStaggeredGrid(
+                            columns = StaggeredGridCells.Fixed(columns),
+                            contentPadding = PaddingValues(
+                                start = 20.dp, end = 20.dp, top = 14.dp, bottom = 24.dp,
+                            ),
+                            horizontalArrangement = Arrangement.spacedBy(16.dp),
+                            verticalItemSpacing = 16.dp,
+                            modifier = Modifier.fillMaxSize(),
+                        ) {
+                            staggeredItems(visibleWorks, key = { it.rjCode }) { work ->
+                                WorkCard(
+                                    work = work,
+                                    imageMode = LibraryState.imageMode,
+                                    cardBg = cardBg,
+                                    metaBg = metaBg,
+                                    genreBg = genreBg,
+                                    actorBg = actorBg,
+                                    onOpen = { onOpenWork(work.rjCode) },
+                                    modifier = Modifier.fillMaxWidth(),
+                                    onCond = onApplyCond,
+                                    coverHeight = coverHeight,
+                                )
+                            }
                         }
                     }
                 }
