@@ -14,6 +14,7 @@ import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.graphics.drawscope.scale
+import com.yuzuki.app.data.MainTab
 import kotlin.math.PI
 import kotlin.math.cos
 import kotlin.math.sin
@@ -719,6 +720,19 @@ fun ChevronRightIcon(tint: Color, modifier: Modifier = Modifier) {
         val stroke = 1.7f * u
         drawLine(tint, Offset(9.5f * u, 5f * u), Offset(16.5f * u, 12f * u), stroke, StrokeCap.Round)
         drawLine(tint, Offset(16.5f * u, 12f * u), Offset(9.5f * u, 19f * u), stroke, StrokeCap.Round)
+    }
+}
+
+/** 设置页「板块顺序」用的上 / 下箭头（与目录箭头同一套线宽与端点）。 */
+@Composable
+fun ChevronVerticalIcon(up: Boolean, tint: Color, modifier: Modifier = Modifier) {
+    Canvas(modifier) {
+        val u = size.minDimension / VIEW
+        val stroke = 1.7f * u
+        val y0 = if (up) 15f else 9f
+        val y1 = if (up) 9f else 15f
+        drawLine(tint, Offset(6.5f * u, y0 * u), Offset(12f * u, y1 * u), stroke, StrokeCap.Round)
+        drawLine(tint, Offset(12f * u, y1 * u), Offset(17.5f * u, y0 * u), stroke, StrokeCap.Round)
     }
 }
 

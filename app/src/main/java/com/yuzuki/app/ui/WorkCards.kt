@@ -308,7 +308,10 @@ private fun CoverTagChip(text: String, category: String, background: Color, onCl
 /**
  * 声优 chips：一次性测量的换行布局（`Layout`），不用 `BoxWithConstraints` / `FlowRow`。
  * 两者都是 SubcomposeLayout，滚动时每张卡片都要额外 subcompose 一遍，是列表卡顿的来源之一；
- * 这里直接测量所有 chip 再按宽度贪心换行，一次测量搞定，4 个声优全部显示。
+ * 这里直接测量所有 chip 再按宽度分行，一次测量搞定，4 个声优全部显示。
+ *
+ * `pack = true`：不按输入顺序分行，而是求「行数最少、各行尽量均衡」的排布
+ * （`ChipPacking`）。名字长短不一时能省一到两行，卡片高度随之下降。
  */
 @Composable
 private fun ActorChips(
@@ -316,16 +319,23 @@ private fun ActorChips(
     background: Color,
     onClick: (String) -> Unit,
 ) {
-    ChipFlow(gap = 3.dp, modifier = Modifier.fillMaxWidth()) {
+    ChipFlow(gap = 3.dp, pack = true, modifier = Modifier.fillMaxWidth()) {
         actors.forEach { actor -> ActorChip(actor, background) { onClick(actor) } }
     }
 }
 
-/** 贪心换行的 chips 容器：按子项实测宽度分行，行高取行内最高。 */
+/**
+ * 贪心 / 最优换行的 chips 容器：按子项实测宽度分行，行高取行内最高。
+ *
+ * [pack] = false（默认）保持输入顺序贪心换行：封面类型标签有固定层级，不能打散。
+ * [pack] = true 走 [ChipPacking.pack]，**只改摆放坐标**（`placeRelative` 可以按任意顺序落子），
+ * 组合顺序、测量次数都不变，所以不会带来额外 subcompose 或重组。
+ */
 @Composable
 private fun ChipFlow(
     gap: Dp,
     modifier: Modifier = Modifier,
+    pack: Boolean = false,
     content: @Composable () -> Unit,
 ) {
     Layout(content = content, modifier = modifier) { measurables, constraints ->
@@ -333,19 +343,12 @@ private fun ChipFlow(
         val maxWidth = if (constraints.hasBoundedWidth) constraints.maxWidth else Int.MAX_VALUE
         val placeables = measurables.map { it.measure(Constraints(maxWidth = constraints.maxWidth)) }
 
-        val rows = mutableListOf<MutableList<Placeable>>()
-        var rowWidth = 0
-        placeables.forEach { p ->
-            val row = rows.lastOrNull()
-            val need = if (row.isNullOrEmpty()) p.width else rowWidth + gapPx + p.width
-            if (!row.isNullOrEmpty() && need > maxWidth) {
-                rows.add(mutableListOf(p))
-                rowWidth = p.width
-            } else {
-                if (row == null) rows.add(mutableListOf(p)) else row.add(p)
-                rowWidth = need
-            }
+        val groups = if (pack && maxWidth < Int.MAX_VALUE / 2) {
+            ChipPacking.pack(placeables.map { it.width }, maxWidth, gapPx)
+        } else {
+            ChipPacking.greedy(placeables.map { it.width }, maxWidth, gapPx)
         }
+        val rows: List<List<Placeable>> = groups.map { row -> row.map { placeables[it] } }
 
         val width = if (constraints.hasBoundedWidth) constraints.maxWidth
         else rows.maxOfOrNull { r -> r.sumOf { it.width } + gapPx * (r.size - 1).coerceAtLeast(0) } ?: 0

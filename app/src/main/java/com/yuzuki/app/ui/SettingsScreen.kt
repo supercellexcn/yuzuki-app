@@ -58,9 +58,10 @@ import kotlinx.coroutines.withContext
 import kotlin.math.roundToInt
 
 /**
- * 设置页（手机端本地设置）：App 外观 + 手势时长 + 本机缓存。
+ * 设置页（手机端本地设置）：App 外观 + 板块顺序 + 手势时长 + 本机缓存。
  *
- * 外观（主题色 / 标签色 / 不透明度）与手势（退出随机的按住时长）都只存本机 DataStore，
+ * 外观（主题色 / 标签色 / 不透明度）、板块顺序（库 / 收藏 / 播放器 / 历史的次序）
+ * 与手势（退出随机的按住时长）都只存本机 DataStore，
  * **不读写 /api/settings**：网页端改配置不影响 App，App 改设置也不影响 PC 浏览器。
  * 缓存卡片只统计 / 清理本机缓存，不触发扫描 / 上传 / 清空媒体库。
  */
@@ -114,6 +115,7 @@ fun SettingsScreen(onBack: () -> Unit, modifier: Modifier = Modifier) {
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
             AppearanceCard()
+            TabOrderCard()
             GestureCard()
 
             GlassSurface(modifier = Modifier.fillMaxWidth(), shape = ShapeCard) {
@@ -343,6 +345,100 @@ private fun AppearanceCard(modifier: Modifier = Modifier) {
 @Composable
 private fun SectionDivider() {
     Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(WebColors.Border))
+}
+
+/**
+ * 板块顺序卡片：底部 4 个 Tab 与横向 Pager 的次序由这里决定，改完即时生效并落本机 DataStore。
+ *
+ * 用「↑ / ↓ 按钮」而不是长按拖动：设置页本身是纵向滚动容器，拖动排序还要和滑块、纵向滚动
+ * 抢手势；4 项的顺序用按钮两步就能调完，触控区也稳稳 ≥48dp。
+ */
+@Composable
+private fun TabOrderCard(modifier: Modifier = Modifier) {
+    val prefs by AppContainer.tabOrder.state.collectAsState()
+    val scope = rememberCoroutineScope()
+    val order = remember(prefs) { prefs.sanitized().order }
+
+    fun move(from: Int, to: Int) {
+        scope.launch { AppContainer.tabOrder.save(prefs.sanitized().moved(from, to)) }
+    }
+
+    GlassSurface(modifier = modifier.fillMaxWidth(), shape = ShapeCard) {
+        Column(
+            modifier = Modifier.padding(20.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(
+                    text = "板块顺序",
+                    style = MaterialTheme.typography.titleSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Text(
+                    text = "底部导航与左右翻页的次序一起调整，改完即时生效；只存本机",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+
+            order.forEachIndexed { index, tab ->
+                Row(
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        text = tab.label,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        modifier = Modifier.weight(1f),
+                    )
+                    OrderArrowButton(up = true, enabled = index > 0) { move(index, index - 1) }
+                    OrderArrowButton(up = false, enabled = index < order.lastIndex) {
+                        move(index, index + 1)
+                    }
+                }
+                if (index < order.lastIndex) SectionDivider()
+            }
+
+            GlassPill(
+                modifier = Modifier.heightIn(min = 44.dp),
+                onClick = {
+                    scope.launch {
+                        AppContainer.tabOrder.reset()
+                        AppToast.show("已恢复默认顺序")
+                    }
+                },
+            ) {
+                Box(
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        text = "恢复默认顺序",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun OrderArrowButton(up: Boolean, enabled: Boolean, onClick: () -> Unit) {
+    Box(
+        modifier = Modifier
+            .size(48.dp)
+            .clip(CircleShape)
+            .clickable(enabled = enabled, onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        ChevronVerticalIcon(
+            up = up,
+            tint = if (enabled) WebColors.Text else WebColors.Muted.copy(alpha = 0.35f),
+            modifier = Modifier.size(20.dp),
+        )
+    }
 }
 
 /**

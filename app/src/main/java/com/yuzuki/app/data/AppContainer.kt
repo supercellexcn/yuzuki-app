@@ -35,6 +35,9 @@ object AppContainer {
 
     /** App 本机记住的库页筛选条件（只写本机 DataStore，不碰服务端 `/api/prefs`）。 */
     val filter by lazy { FilterStore(app) }
+
+    /** 底部板块顺序（库 / 收藏 / 播放器 / 历史），只存本机。 */
+    val tabOrder by lazy { TabOrderStore(app) }
     val offline by lazy { OfflineCache(app) }
     val library by lazy { LibraryRepository(api, offline) }
     val reporter by lazy { com.yuzuki.app.playback.PlayReporter(api, offline) }

@@ -22,13 +22,16 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.yuzuki.app.data.MainTab
+import com.yuzuki.app.data.TabOrderPrefs
 
 /**
  * 视觉稿底部导航（图2）：纯黑底 + 顶部分割线，选中项整组变紫，无胶囊底。
  * 图标的形状按视觉稿自绘（滑块 / 五角星 / 圆靶 / 时钟回退），不再是 Home / PlayArrow / List。
+ *
+ * 板块顺序由设置页决定（`TabOrderPrefs`，默认 库 / 收藏 / 播放器 / 历史），
+ * 导航按传入的 [order] 渲染，并且与 Pager 共用同一份索引 —— 换序后 Tab 与面板不会错位。
  */
-enum class MainTab { Library, Favorites, Player, History }
-
 val TabBarHeight = 65.dp
 
 private val TabBarBackground = Color(0xFF000000)
@@ -38,10 +41,13 @@ private val TabUnselected = Color(0xFF8E8E9A)
 
 @Composable
 fun MainNavigationBar(
+    order: List<MainTab>,
     selected: MainTab,
     onSelect: (MainTab) -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    // 脏数据兜底：永远渲染 4 项（缺的按默认顺序补尾巴）
+    val tabs = remember(order) { TabOrderPrefs(order).sanitized().order }
     Column(modifier = modifier.fillMaxWidth()) {
         Box(
             modifier = Modifier
@@ -56,10 +62,7 @@ fun MainNavigationBar(
                 .background(TabBarBackground),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            MainTabItem(MainTab.Library, "库", selected, onSelect)
-            MainTabItem(MainTab.Favorites, "收藏", selected, onSelect)
-            MainTabItem(MainTab.Player, "播放器", selected, onSelect)
-            MainTabItem(MainTab.History, "历史", selected, onSelect)
+            tabs.forEach { tab -> MainTabItem(tab, selected, onSelect) }
         }
     }
 }
@@ -67,7 +70,6 @@ fun MainNavigationBar(
 @Composable
 private fun RowScope.MainTabItem(
     tab: MainTab,
-    label: String,
     selected: MainTab,
     onSelect: (MainTab) -> Unit,
 ) {
@@ -88,7 +90,7 @@ private fun RowScope.MainTabItem(
     ) {
         TabBarIcon(tab = tab, tint = tint, active = active, modifier = Modifier.size(23.dp))
         Text(
-            text = label,
+            text = tab.label,
             fontSize = 11.sp,
             fontWeight = if (active) FontWeight.SemiBold else FontWeight.Normal,
             color = tint,

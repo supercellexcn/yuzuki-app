@@ -39,23 +39,24 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.yuzuki.app.data.AppContainer
 import com.yuzuki.app.data.FilterCond
+import com.yuzuki.app.data.MainTab
 import com.yuzuki.app.playback.PlaybackController
 import com.yuzuki.app.ui.theme.WebColors
 import kotlinx.coroutines.launch
 import kotlin.math.abs
 
-// 四个板块在横向上是一条连续的纸带：库 ←→ 收藏 ←→ 播放器 ←→ 历史，侧栏贴在库页左侧。
-private const val LIBRARY_PAGE = 0
-private const val FAVORITES_PAGE = 1
-private const val PLAYER_PAGE = 2
-private const val HISTORY_PAGE = 3
-
 /**
- * 手机端根布局：横向 Pager（库 / 收藏 / 播放器 / 历史）+ 底部 4 Tab + 浮动圆控件。
+ * 手机端根布局：横向 Pager（4 个板块）+ 底部 4 Tab + 浮动圆控件。
+ *
+ * **板块顺序可配**（设置页「板块顺序」，本机 `app_tab_order`）：顺序既决定底部 Tab 的左右次序，
+ * 也决定 Pager 每一页放哪块内容 —— 全篇只用 [pageOf] / [tabOf] 在两套索引之间换算，
+ * 所以换序后 Tab、翻页、面板内容永远指向同一块，不会出现「点收藏翻到历史」。
  *
  * 滑动语义与手指位移严格跟手：
- *   库页向左拖 → 收藏 → 播放器 → 历史；反向同理；
- *   库页（已在最左）继续向右拖的溢出量用来把浮动圆控件拉出来，控件层本身也可向左拖收回。
+ *   从第 1 页向左拖 → 第 2 页 → 第 3 页 → 第 4 页；反向同理；
+ *   第 1 页（已在最左）继续向右拖的溢出量用来把浮动圆控件拉出来，控件层本身也可向左拖收回。
+ *   顺序可变后「右滑拉出圆组」跟的是**排第一的板块**（只有最左页才有右拖溢出），
+ *   库页顶栏的菜单按钮仍然是随时可用的备用入口。
  * 详情 / 设置 / 改密不是板块，作为覆盖层盖在 Pager 之上，此时不响应翻页。
  */
 @Composable
@@ -84,6 +85,16 @@ fun RootScreen(
     val libraryGridState = rememberLazyStaggeredGridState()
     val libraryListState = rememberLazyListState()
 
+    // 板块顺序：设置页改完写本机 DataStore，这里订阅后 Tab 与 Pager 一起重排
+    val tabOrder by AppContainer.tabOrder.state.collectAsState()
+    val tabs = remember(tabOrder) { tabOrder.sanitized().order }
+
+    /** 板块 → Pager 页码。 */
+    fun pageOf(tab: MainTab): Int = tabs.indexOf(tab).coerceAtLeast(0)
+
+    /** Pager 页码 → 板块。 */
+    fun tabOf(page: Int): MainTab = tabs.getOrElse(page) { MainTab.Library }
+
     // 非板块页（详情 / 设置 / 改密）以覆盖层呈现，盖住 Pager
     val overlayRoute = nav.current.takeIf {
         it !is Route.Library && it !is Route.Favorites && it !is Route.History
@@ -91,12 +102,20 @@ fun RootScreen(
 
     val pagerState = rememberPagerState(
         initialPage = when {
-            playState.fullscreen -> PLAYER_PAGE
-            nav.current is Route.History -> HISTORY_PAGE
-            nav.current is Route.Favorites -> FAVORITES_PAGE
-            else -> LIBRARY_PAGE
+            playState.fullscreen -> pageOf(MainTab.Player)
+            nav.current is Route.History -> pageOf(MainTab.History)
+            nav.current is Route.Favorites -> pageOf(MainTab.Favorites)
+            else -> pageOf(MainTab.Library)
         },
-    ) { 4 }
+    ) { tabs.size }
+
+    // 换序时保持「当前这块」不跳：settledTab 记住停在哪块，顺序一变就把 Pager 摆到它的新页码。
+    // 只依赖 settledPage 更新（不含 tabs），否则换序瞬间会用新顺序去解释旧页码，记错板块。
+    var settledTab by remember { mutableStateOf(tabOf(pagerState.settledPage)) }
+    LaunchedEffect(tabs) {
+        val target = tabs.indexOf(settledTab)
+        if (target >= 0 && pagerState.settledPage != target) pagerState.scrollToPage(target)
+    }
 
     LaunchedEffect(Unit) {
         FavoritesState.refresh()
@@ -105,7 +124,7 @@ fun RootScreen(
     fun openLibraryWith(cond: FilterCond) {
         LibraryState.addCond(cond)
         nav.replace(Route.Library)
-        scope.launch { pagerState.animateScrollToPage(LIBRARY_PAGE) }
+        scope.launch { pagerState.animateScrollToPage(pageOf(MainTab.Library)) }
     }
 
     /**
@@ -115,7 +134,7 @@ fun RootScreen(
     fun openPlayerFromOverlay() {
         PlaybackController.setFullscreen(true)
         if (PlayerNav.shouldCloseOverlay(nav.current is Route.Library)) nav.replace(Route.Library)
-        scope.launch { pagerState.animateScrollToPage(PLAYER_PAGE) }
+        scope.launch { pagerState.animateScrollToPage(pageOf(MainTab.Player)) }
     }
 
     fun animateDrawer(target: Float) {
@@ -139,21 +158,23 @@ fun RootScreen(
         animateDrawer(target)
     }
 
-    // Pager 落位 → 同步播放器全屏态与导航态
+    // Pager 落位 → 同步播放器全屏态与导航态（页码先换算回板块，顺序改了也不会认错页）
     LaunchedEffect(pagerState.settledPage) {
-        when (pagerState.settledPage) {
-            PLAYER_PAGE -> PlaybackController.setFullscreen(true)
-            LIBRARY_PAGE -> {
+        val tab = tabOf(pagerState.settledPage)
+        settledTab = tab
+        when (tab) {
+            MainTab.Player -> PlaybackController.setFullscreen(true)
+            MainTab.Library -> {
                 PlaybackController.setFullscreen(false)
                 if (nav.current is Route.History || nav.current is Route.Favorites) {
                     nav.replace(Route.Library)
                 }
             }
-            FAVORITES_PAGE -> {
+            MainTab.Favorites -> {
                 PlaybackController.setFullscreen(false)
                 if (nav.current !is Route.Favorites) nav.replace(Route.Favorites)
             }
-            HISTORY_PAGE -> {
+            MainTab.History -> {
                 PlaybackController.setFullscreen(false)
                 if (nav.current is Route.Library || nav.current is Route.Favorites) {
                     nav.replace(Route.History)
@@ -164,8 +185,9 @@ fun RootScreen(
 
     // 外部把播放器置为全屏（点 Tab / 冷启动恢复）时，Pager 跟着过去
     LaunchedEffect(playState.fullscreen) {
-        if (playState.fullscreen && pagerState.settledPage != PLAYER_PAGE) {
-            pagerState.animateScrollToPage(PLAYER_PAGE)
+        val playerPage = pageOf(MainTab.Player)
+        if (playState.fullscreen && pagerState.settledPage != playerPage) {
+            pagerState.animateScrollToPage(playerPage)
         }
     }
 
@@ -175,9 +197,9 @@ fun RootScreen(
     LaunchedEffect(nav.current, playState.fullscreen) {
         if (!PlayerNav.shouldSyncPager(playState.fullscreen)) return@LaunchedEffect
         val target = when (nav.current) {
-            is Route.Library -> LIBRARY_PAGE
-            is Route.Favorites -> FAVORITES_PAGE
-            is Route.History -> HISTORY_PAGE
+            is Route.Library -> pageOf(MainTab.Library)
+            is Route.Favorites -> pageOf(MainTab.Favorites)
+            is Route.History -> pageOf(MainTab.History)
             else -> null
         }
         if (target != null && pagerState.settledPage != target && !pagerState.isScrollInProgress) {
@@ -190,7 +212,7 @@ fun RootScreen(
         val now = SystemClock.elapsedRealtime()
         when {
             drawerFraction > 0f -> animateDrawer(0f)
-            playState.fullscreen -> scope.launch { pagerState.animateScrollToPage(LIBRARY_PAGE) }
+            playState.fullscreen -> scope.launch { pagerState.animateScrollToPage(pageOf(MainTab.Library)) }
             nav.backOrHome() -> { }
             now - lastBackAt < 2000 -> activity?.finish()
             else -> {
@@ -200,8 +222,10 @@ fun RootScreen(
         }
     }
 
-    // 库页已在最左，向右拖时 Pager 没有上一页可翻；这里在 Initial 阶段"旁路观察"
+    // 最左页（Page 0）向右拖时 Pager 没有上一页可翻；这里在 Initial 阶段"旁路观察"
     // （不消费事件，不与 Pager 抢手势），把右拖位移映射成侧栏位移。
+    // 顺序可配后锚点是「排第一的板块」而不是库页：只有 Page 0 才有右拖溢出，
+    // 库页排到第 2 位时在库页右滑是正常翻回上一页，圆组改用库页顶栏的菜单按钮打开。
     //
     // 防误触：列表纵向滑动时手指难免带一点横向抖动，所以必须"向右位移明显大于纵向位移"
     // 才拉起侧栏；已经上手拖侧栏后若纵向分量转为占主导，立刻回弹并放弃这次手势。
@@ -232,7 +256,7 @@ fun RootScreen(
                 if (!dragging) {
                     // 内层横向滚动容器（详情页「相关推荐」）按下时就已认领本轮手势，
                     // 滚到最左端再右滑也不会把侧栏拉出来
-                    if (drawerFraction <= 0f && pagerState.currentPage == LIBRARY_PAGE &&
+                    if (drawerFraction <= 0f && pagerState.currentPage == 0 &&
                         DrawerDrag.canStart(
                             sumX = sumX,
                             absYAcc = absYAcc,
@@ -281,8 +305,9 @@ fun RootScreen(
                 ) { page ->
                     // 每页必须裁到自己的边界：播放器背景是 blur(Unbounded)，不裁会糊出页外，
                     // 在库页 / 历史页右侧形成一条"播放器的遮罩"。
-                    when (page) {
-                        LIBRARY_PAGE -> Box(Modifier.fillMaxSize().clipToBounds().statusBarsPadding()) {
+                    // 页码先换算成板块：顺序改了以后，同一页可能换成了另一块面板。
+                    when (tabOf(page)) {
+                        MainTab.Library -> Box(Modifier.fillMaxSize().clipToBounds().statusBarsPadding()) {
                             LibraryScreen(
                                 vm = libraryVm,
                                 gridState = libraryGridState,
@@ -291,20 +316,20 @@ fun RootScreen(
                                 onOpenDrawer = { animateDrawer(1f) },
                             )
                         }
-                        FAVORITES_PAGE -> Box(Modifier.fillMaxSize().clipToBounds().statusBarsPadding()) {
+                        MainTab.Favorites -> Box(Modifier.fillMaxSize().clipToBounds().statusBarsPadding()) {
                             FavoritesScreen(
                                 onOpenWork = { nav.go(Route.Work(it)) },
                                 onApplyCond = ::openLibraryWith,
                             )
                         }
-                        PLAYER_PAGE -> Box(Modifier.fillMaxSize().clipToBounds()) {
+                        MainTab.Player -> Box(Modifier.fillMaxSize().clipToBounds()) {
                             FullscreenPlayer(
-                                onClose = { scope.launch { pagerState.animateScrollToPage(LIBRARY_PAGE) } },
+                                onClose = { scope.launch { pagerState.animateScrollToPage(pageOf(MainTab.Library)) } },
                                 onOpenWork = { rj -> nav.go(Route.Work(rj)) },
                                 onApplyCond = ::openLibraryWith,
                             )
                         }
-                        else -> Box(Modifier.fillMaxSize().clipToBounds().statusBarsPadding()) {
+                        MainTab.History -> Box(Modifier.fillMaxSize().clipToBounds().statusBarsPadding()) {
                             HistoryScreen(
                                 onOpenWork = { nav.go(Route.Work(it)) },
                             )
@@ -344,18 +369,14 @@ fun RootScreen(
                 }
             }
 
-            // 底部导航常驻，选中态跟随 Pager 当前页（滑动过程中就跟着高亮）
+            // 底部导航常驻，顺序跟随设置；选中态跟随 Pager 当前页（滑动过程中就跟着高亮）
             MainNavigationBar(
-                selected = when (pagerState.currentPage) {
-                    FAVORITES_PAGE -> MainTab.Favorites
-                    PLAYER_PAGE -> MainTab.Player
-                    HISTORY_PAGE -> MainTab.History
-                    else -> MainTab.Library
-                },
+                order = tabs,
+                selected = tabOf(pagerState.currentPage),
                 onSelect = { tab ->
                     when (tab) {
                         MainTab.Library -> {
-                            val fromPlayer = pagerState.currentPage == PLAYER_PAGE
+                            val fromPlayer = tabOf(pagerState.currentPage) == MainTab.Player
                             if (fromPlayer) PlaybackController.setFullscreen(false)
                             if (ScrollRestore.shouldScrollTopOnLibraryTab(
                                     fromPlayer, nav.current == Route.Library,
@@ -364,23 +385,23 @@ fun RootScreen(
                                 LibraryState.scrollToTop()
                             }
                             if (nav.current != Route.Library) nav.replace(Route.Library)
-                            scope.launch { pagerState.animateScrollToPage(LIBRARY_PAGE) }
+                            scope.launch { pagerState.animateScrollToPage(pageOf(MainTab.Library)) }
                         }
                         MainTab.Favorites -> {
                             PlaybackController.setFullscreen(false)
                             if (nav.current != Route.Favorites) nav.replace(Route.Favorites)
-                            scope.launch { pagerState.animateScrollToPage(FAVORITES_PAGE) }
+                            scope.launch { pagerState.animateScrollToPage(pageOf(MainTab.Favorites)) }
                         }
                         MainTab.Player -> {
                             if (overlayRoute != null) nav.replace(Route.Library)
                             PlaybackController.setFullscreen(true)
-                            scope.launch { pagerState.animateScrollToPage(PLAYER_PAGE) }
+                            scope.launch { pagerState.animateScrollToPage(pageOf(MainTab.Player)) }
                         }
                         MainTab.History -> {
                             if (overlayRoute != null) nav.replace(Route.Library)
                             PlaybackController.setFullscreen(false)
                             if (nav.current != Route.History) nav.replace(Route.History)
-                            scope.launch { pagerState.animateScrollToPage(HISTORY_PAGE) }
+                            scope.launch { pagerState.animateScrollToPage(pageOf(MainTab.History)) }
                         }
                     }
                 },
